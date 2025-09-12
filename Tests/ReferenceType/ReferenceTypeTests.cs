@@ -1,3 +1,4 @@
+using DeepEqual.Generator.Shared;
 using DeepEqual.Tests;
 using Tests.ReferenceType.Models;
 using Tests.ValueType.Models;
@@ -266,4 +267,69 @@ public class ReferenceTypeTests
 
         Assert.False(SchemaHolderDeepEqual.AreDeepEqual(a, b));
     }
+
+
+    [Fact]
+    public void Deep_nested_string_keyed_maps_compare_recursively()
+    {
+        var a = new Dictionary<string, object?>
+        {
+            ["a"] = new Dictionary<string, object?>
+            {
+                ["b"] = new Dictionary<string, object?>
+                {
+                    ["c"] = 123,
+                    ["d"] = new[] { 1, 2, 3 }
+                }
+            }
+        };
+        var b = new Dictionary<string, object?>
+        {
+            ["a"] = new Dictionary<string, object?>
+            {
+                ["b"] = new Dictionary<string, object?>
+                {
+                    ["c"] = 123,
+                    ["d"] = new[] { 1, 2, 3 }
+                }
+            }
+        };
+        var c = new Dictionary<string, object?>
+        {
+            ["a"] = new Dictionary<string, object?>
+            {
+                ["b"] = new Dictionary<string, object?>
+                {
+                    ["c"] = 155,
+                    ["d"] = new[] { 1, 2, 3 }
+                }
+            }
+        };
+        Assert.True(DynamicRootDeepEqual.AreDeepEqual(new DynamicRoot { Data = a }, new DynamicRoot { Data = b }));
+        Assert.False(DynamicRootDeepEqual.AreDeepEqual(new DynamicRoot { Data = a }, new DynamicRoot { Data = c }));
+    }
+
+    [Fact]
+    public void Expando_is_compared_as_string_object_map()
+    {
+        dynamic ea = new System.Dynamic.ExpandoObject();
+        ea.name = "alice"; ea.age = 30;
+
+        dynamic eb = new System.Dynamic.ExpandoObject();
+        eb.name = "alice"; eb.age = 30;
+
+        var ra = new DynamicRoot { Data = ea };
+        var rb = new DynamicRoot { Data = eb };
+        Assert.True(DynamicRootDeepEqual.AreDeepEqual(ra, rb));
+
+        eb.age = 31;
+        Assert.False(DynamicRootDeepEqual.AreDeepEqual(ra, rb));
+    }
+}
+
+
+[DeepComparable]
+public partial class DynamicRoot
+{
+    public object? Data { get; set; }
 }
