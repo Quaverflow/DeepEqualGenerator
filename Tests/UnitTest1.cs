@@ -42,7 +42,6 @@ public class Person
     private int SecretScore { get; set; }
 
     public void SetSecret(int s) => SecretScore = s;
-    public int GetSecret() => SecretScore;
 }
 
 public enum Role { Unknown, Dev, Lead, Manager }
@@ -54,6 +53,20 @@ public class Node<T>
     public Node<T>? Parent { get; set; }
 }
 
+[DeepComparable]
+public class Holder
+{
+    public ThirdPartyLike Third { get; set; } = new();
+}
+
+[DeepComparable(OrderInsensitiveCollections = true)]
+public class RootUnordered
+{
+    public List<int> Items { get; set; } = [];
+    [DeepCompare(OrderInsensitive = false)]
+    public List<int> Ordered { get; set; } = [];
+}
+
 [DeepCompare(Kind = CompareKind.Shallow)]
 public class ThirdPartyLike
 {
@@ -61,6 +74,20 @@ public class ThirdPartyLike
     public override bool Equals(object? obj) => obj is ThirdPartyLike t && t.Payload == Payload;
     public override int GetHashCode() => Payload.GetHashCode();
 }
+[DeepComparable]
+public class GenericHolder
+{
+    public Node<int> Node { get; set; } = new();
+}
+
+
+[DeepComparable(OrderInsensitiveCollections = true)]
+public class OrderDefaultRoot { public List<int> Ordered { get; set; } = new(); }
+
+
+[DeepCompare(OrderInsensitive = false)]
+[DeepComparable]
+public class ForceOrderedType { public List<int> Items { get; set; } = new(); }
 
 internal static class Fixtures
 {
@@ -157,18 +184,26 @@ internal static class Fixtures
     }
 }
 
-public class GeneratorWiringTests
+public class Tests
 {
+    [Fact]
+    public void External_Types_Fallback_To_Equals()
+    {
+        var (a, b) = Fixtures.EqualAggregates();
+        Assert.True(BigAggregateDeepEqual.AreDeepEqual(a, b));
+
+        // Different Uri -> Equals false
+        b.Endpoint = new Uri("https://api.example.com/y");
+        Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
+    }
+
     [Fact]
     public void Sanity_Generated_Class_Is_Callable()
     {
         var (a, b) = Fixtures.EqualAggregates();
         Assert.True(BigAggregateDeepEqual.AreDeepEqual(a, b));
     }
-}
 
-public class DefaultDeepBehaviorTests
-{
     [Fact]
     public void Deep_Includes_All_Public_Members_By_Default()
     {
@@ -188,10 +223,7 @@ public class DefaultDeepBehaviorTests
         (a, b) = Fixtures.WithOneDifference(x => x.ByName["Alice"].Role = Role.Lead);
         Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
     }
-}
 
-public class SkipShallowReferenceTests
-{
     [Fact]
     public void Skip_Ignores_Member()
     {
@@ -213,9 +245,8 @@ public class SkipShallowReferenceTests
     {
         var t1 = new ThirdPartyLike { Payload = "X" };
         var t2 = new ThirdPartyLike { Payload = "X" };
-        Assert.True(Equals(t1, t2)); // Equals overridden
+        Assert.True(Equals(t1, t2)); 
 
-        // Embed into a shallow-typed field on a holder and verify deep compare respects shallow for that type
         var h1 = new Holder { Third = t1 };
         var h2 = new Holder { Third = t2 };
         Assert.True(HolderDeepEqual.AreDeepEqual(h1, h2));
@@ -224,15 +255,6 @@ public class SkipShallowReferenceTests
         Assert.False(HolderDeepEqual.AreDeepEqual(h1, h2));
     }
 
-    [DeepComparable]
-    public class Holder
-    {
-        public ThirdPartyLike Third { get; set; } = new();
-    }
-}
-
-public class OrderedVsUnorderedTests
-{
     [Fact]
     public void Ordered_Sequences_Must_Match_Positionally()
     {
@@ -261,23 +283,11 @@ public class OrderedVsUnorderedTests
         var r2 = new RootUnordered { Items = [2, 3, 2, 1] };
         Assert.True(RootUnorderedDeepEqual.AreDeepEqual(r1, r2));
 
-        // But an explicitly ordered member should still require order
         var o1 = new RootUnordered { Ordered = [1, 2, 3] };
         var o2 = new RootUnordered { Ordered = [3, 2, 1] };
         Assert.False(RootUnorderedDeepEqual.AreDeepEqual(o1, o2));
     }
 
-    [DeepComparable(OrderInsensitiveCollections = true)]
-    public class RootUnordered
-    {
-        public List<int> Items { get; set; } = [];
-        [DeepCompare(OrderInsensitive = false)]
-        public List<int> Ordered { get; set; } = [];
-    }
-}
-
-public class DictionariesArraysTests
-{
     [Fact]
     public void Dictionaries_Compare_Keys_And_Deep_Values()
     {
@@ -297,10 +307,7 @@ public class DictionariesArraysTests
         b.Measurements = [1, 2, 3, 4];
         Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
     }
-}
 
-public class NullsStructsEnumsTests
-{
     [Fact]
     public void Nulls_Are_Handled()
     {
@@ -324,10 +331,7 @@ public class NullsStructsEnumsTests
         p2.Role = Role.Lead;
         Assert.False(PersonDeepEqual.AreDeepEqual(p1, p2));
     }
-}
 
-public class CyclesAndGenericsTests
-{
     [Fact]
     public void Cycles_Terminate_And_Compare_Correctly()
     {
@@ -356,23 +360,33 @@ public class CyclesAndGenericsTests
         Assert.False(GenericHolderDeepEqual.AreDeepEqual(h1, h2));
     }
 
-    [DeepComparable]
-    public class GenericHolder
-    {
-        public Node<int> Node { get; set; } = new();
-    }
-}
-
-public class ExternalTypesTests
-{
     [Fact]
-    public void External_Types_Fallback_To_Equals()
+    public void Deep_Null_In_Nested_Path_Is_Handled()
     {
         var (a, b) = Fixtures.EqualAggregates();
+        a.Root.Manager = null;
+        b.Root.Manager = null;
         Assert.True(BigAggregateDeepEqual.AreDeepEqual(a, b));
+    }
 
-        // Different Uri -> Equals false
-        b.Endpoint = new Uri("https://api.example.com/y");
+    [Fact]
+    public void Deep_Null_Mismatch_Fails()
+    {
+        var (a, b) = Fixtures.EqualAggregates();
+        a.Root.Manager = null;
+        b.Root.Manager = b.Root; // non-null
         Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
+    }
+
+    [Fact]
+    public void Member_Override_Wins_Over_Type_And_Root()
+    {
+        var x = new OrderDefaultRoot { Ordered = new() { 1, 2, 3 } };
+        var y = new OrderDefaultRoot { Ordered = new() { 3, 2, 1 } };
+        Assert.True(OrderDefaultRootDeepEqual.AreDeepEqual(x, y)); // root says unordered
+
+        var a = new ForceOrderedType { Items = new() { 1, 2, 3 } };
+        var c = new ForceOrderedType { Items = new() { 3, 2, 1 } };
+        Assert.False(ForceOrderedTypeDeepEqual.AreDeepEqual(a, c)); // type forces ordered
     }
 }
