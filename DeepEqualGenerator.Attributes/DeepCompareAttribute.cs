@@ -16,7 +16,7 @@ public sealed class DeepCompareAttribute : Attribute
     /// When the target is a sequence (array or IEnumerable&lt;T&gt;), choose unordered matching (multiset).
     /// If not set, the generator falls back to the parent type's default or ordered.
     /// </summary>
-    public bool OrderInsensitive { get; set; } = true;
+    public bool OrderInsensitive { get; set; } = false; // default to ordered for safety/least surprise
 
     public string[] Members { get; set; } = [];
     public string[] IgnoreMembers { get; set; } = [];

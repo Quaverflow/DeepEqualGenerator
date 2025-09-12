@@ -4,7 +4,6 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 
 namespace DeepEqual.Generator;
@@ -38,7 +37,8 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepComparableAttributeName);
         if (deepComparable is null) { return null; }
 
-        bool includeInternals = GetNamedBool(deepComparable, "IncludePrivateMembers");
+        // Fixed: use IncludeInternals (previously read a non-existent IncludePrivateMembers)
+        bool includeInternals = GetNamedBool(deepComparable, "IncludeInternals");
         bool orderInsensitiveCollections = GetNamedBool(deepComparable, "OrderInsensitiveCollections");
         return new Target(typeSymbol, includeInternals, orderInsensitiveCollections);
     }
@@ -79,7 +79,9 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         code.AppendLine("    {");
         code.AppendLine("        static " + helperClassName + "()");
         code.AppendLine("        {");
-        foreach (var t in reachableTypes.Where(IsPubliclyVisible).OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))
+        foreach (var t in reachableTypes
+                         .Where(t => IsTypeAccessibleFromRoot(t, root))
+                         .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
         {
             var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var helper = GetHelperMethodName(t);
@@ -87,6 +89,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         }
         code.AppendLine("        }");
         code.AppendLine();
+
         code.AppendLine(root.Type.IsValueType
             ? $"        public static bool AreDeepEqual({rootFullName} left, {rootFullName} right)"
             : $"        public static bool AreDeepEqual({rootFullName}? left, {rootFullName}? right)");
@@ -106,6 +109,17 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             EmitHelperForType(code, type, root);
         }
 
+        code.AppendLine("    }");
+
+        // Ensure registration runs even if consumers only use the dynamic comparer.
+        code.AppendLine();
+        code.AppendLine($"    internal static class __DeepEqualInit_{SanitizeIdentifier(helperClassName)}");
+        code.AppendLine("    {");
+        code.AppendLine("        [System.Runtime.CompilerServices.ModuleInitializer]");
+        code.AppendLine("        internal static void Init()");
+        code.AppendLine("        {");
+        code.AppendLine($"            _ = typeof({helperClassName}); // force static .cctor to run and register helpers");
+        code.AppendLine("        }");
         code.AppendLine("    }");
 
         if (ns is not null)
@@ -128,6 +142,8 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             code.AppendLine("            if (object.ReferenceEquals(left, right)) { return true; }");
             code.AppendLine("            if (left is null || right is null) { return false; }");
             code.AppendLine("            if (!context.Enter(left, right)) { return true; }");
+            code.AppendLine("            try");
+            code.AppendLine("            {");
         }
 
         var schema = GetTypeSchema(type);
@@ -138,7 +154,12 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 
         if (!type.IsValueType)
         {
-            code.AppendLine("            context.Exit(left, right);");
+            code.AppendLine("                return true;");
+            code.AppendLine("            }");
+            code.AppendLine("            finally { context.Exit(left, right); }");
+            code.AppendLine("        }");
+            code.AppendLine();
+            return;
         }
 
         code.AppendLine("            return true;");
@@ -161,11 +182,11 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
                                  .Where(s => !string.IsNullOrWhiteSpace(s))
                                  .ToArray();
             }
-            return [];
+            return Array.Empty<string>();
         }
 
-        string[] include = [];
-        string[] ignore = [];
+        string[] include = Array.Empty<string>();
+        string[] ignore = Array.Empty<string>();
         foreach (var kv in attr.NamedArguments)
         {
             if (kv.Key == "Members") { include = ReadStringArray(kv.Value); }
@@ -200,7 +221,6 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             if (hasInclude && !includeSet!.Contains(p.Name)) { continue; }
             if (ignoreSet is not null && ignoreSet.Contains(p.Name)) { continue; }
 
-            // avoid infinite recursion for value-types that expose self-typed members unless explicitly included
             if (type.IsValueType && SymbolEqualityComparer.Default.Equals(p.Type, type) && !hasInclude) { continue; }
 
             yield return new MemberSymbol(p.Name, p.Type, p);
@@ -261,7 +281,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             }
             return;
         }
-  
+
         if (comparisonKind == EffectiveKind.Shallow)
         {
             if (TryEmitWellKnownStructCompare(code, leftLocal, rightLocal, memberType)) { return; }
@@ -280,6 +300,8 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             }
             return;
         }
+
+        // object-typed member → dynamic path
         if (memberType.SpecialType == SpecialType.System_Object)
         {
             code.AppendLine($"            if (!DynamicDeepComparer.AreEqualDynamic({leftLocal}, {rightLocal}, context)) {{ return false; }}");
@@ -292,7 +314,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             code.AppendLine($"            if ({leftLocal}.HasValue != {rightLocal}.HasValue) {{ return false; }}");
             code.AppendLine($"            if ({leftLocal}.HasValue)");
             code.AppendLine("            {");
-            EmitNullableValueCompare(code, leftLocal, rightLocal, valueT);
+            EmitNullableValueCompare(code, leftLocal, rightLocal, valueT, root);
             code.AppendLine("            }");
             return;
         }
@@ -320,38 +342,46 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         if (memberType is IArrayTypeSymbol arrayType)
         {
             var elementType = arrayType.ElementType;
-
-            if (elementType.SpecialType == SpecialType.System_Object)
-            {
-                code.AppendLine($"            if (!ComparisonHelpers.AreEqualSequencesOrdered<object>({leftLocal}, {rightLocal}, (l, r, c) => DynamicDeepComparer.AreEqualDynamic(l, r, c), context)) {{ return false; }}");
-                return;
-            }
-            var elementKind = GetEffectiveKind(elementType, null);
             var unordered = ResolveOrderInsensitive(root, deepCompareAttr, elementType);
-            var elementLambda = BuildElementComparerLambda(elementType, elementKind);
-            var api = unordered ? "AreEqualSequencesUnordered" : "AreEqualSequencesOrdered";
+            var elementKind = GetEffectiveKind(elementType, null);
+            var elementLambda = BuildElementComparerLambda(elementType, elementKind, root);
             var elementFullName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            code.AppendLine($"            if (!ComparisonHelpers.{api}<{elementFullName}>({leftLocal}, {rightLocal}, {elementLambda}, context)) {{ return false; }}");
+
+            if (unordered)
+            {
+                code.AppendLine($"            if (!ComparisonHelpers.AreEqualArrayUnordered<{elementFullName}>((Array?){leftLocal}, (Array?){rightLocal}, {elementLambda}, context)) {{ return false; }}");
+            }
+            else
+            {
+                code.AppendLine($"            if (!ComparisonHelpers.AreEqualArray<{elementFullName}>((Array?){leftLocal}, (Array?){rightLocal}, {elementLambda}, context)) {{ return false; }}");
+            }
             return;
         }
-        if (IsStringKeyedDictionary(memberType))
-        {
-            code.AppendLine($"            if (!DynamicDeepComparer.AreEqualDynamic({leftLocal}, {rightLocal}, context)) {{ return false; }}");
-            return;
-        }
+
+        // strongly-typed dictionaries (IDictionary<,> and IReadOnlyDictionary<,>)
         if (TryGetDictionaryInterface(memberType, out var keyType, out var valueType))
         {
             var keyFullName = keyType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var valueFullName = valueType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var valueKind = GetEffectiveKind(valueType, null);
-            var valueLambda = BuildElementComparerLambda(valueType, valueKind);
+            var valueLambda = BuildElementComparerLambda(valueType, valueKind, root);
 
+            // Hand over all coercion to helpers (works for IDictionary<,> and IReadOnlyDictionary<,>)
             code.AppendLine($"            if (!ComparisonHelpers.AreEqualDictionaries<{keyFullName}, {valueFullName}>(");
-            code.AppendLine($"                {leftLocal} as global::System.Collections.Generic.IDictionary<{keyFullName}, {valueFullName}>,");
-            code.AppendLine($"                {rightLocal} as global::System.Collections.Generic.IDictionary<{keyFullName}, {valueFullName}>,");
+            code.AppendLine($"                {leftLocal} as global::System.Collections.Generic.IEnumerable<global::System.Collections.Generic.KeyValuePair<{keyFullName}, {valueFullName}>>,");
+            code.AppendLine($"                {rightLocal} as global::System.Collections.Generic.IEnumerable<global::System.Collections.Generic.KeyValuePair<{keyFullName}, {valueFullName}>>,");
             code.AppendLine($"                {valueLambda}, context)) {{ return false; }}");
             return;
         }
+
+        // dynamic map path (Expando, non-generic IDictionary, IReadOnlyDictionary<string,*>)
+        if (IsStringKeyedDictionary(memberType))
+        {
+            code.AppendLine($"            if (!DynamicDeepComparer.AreEqualDynamic({leftLocal}, {rightLocal}, context)) {{ return false; }}");
+            return;
+        }
+
+        // IEnumerable<object> or object[] → dynamic element compare
         if (IsObjectEnumerable(memberType))
         {
             code.AppendLine($"            if (!ComparisonHelpers.AreEqualSequencesOrdered<object>(");
@@ -365,7 +395,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         {
             var elementKind = GetEffectiveKind(enumerableElementType!, null);
             var unordered = ResolveOrderInsensitive(root, deepCompareAttr, enumerableElementType!);
-            var elementLambda = BuildElementComparerLambda(enumerableElementType!, elementKind);
+            var elementLambda = BuildElementComparerLambda(enumerableElementType!, elementKind, root);
             var api = unordered ? "AreEqualSequencesUnordered" : "AreEqualSequencesOrdered";
             var elementFullName = enumerableElementType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
@@ -378,7 +408,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 
         if (memberType is INamedTypeSymbol namedType && IsUserObjectType(namedType))
         {
-            if (IsPubliclyVisible(namedType))
+            if (IsTypeAccessibleFromRoot(namedType, root))
             {
                 code.AppendLine($"            if (!{GetHelperMethodName(namedType)}({leftLocal}, {rightLocal}, context)) {{ return false; }}");
             }
@@ -419,18 +449,36 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             return true;
         }
 
+        // New: DateOnly / TimeOnly (net6+)
+        if (fqn == "global::System.DateOnly")
+        {
+            code.AppendLine($"            if (!ComparisonHelpers.AreEqualDateOnly({leftExpr}, {rightExpr})) {{ return false; }}");
+            return true;
+        }
+        if (fqn == "global::System.TimeOnly")
+        {
+            code.AppendLine($"            if (!ComparisonHelpers.AreEqualTimeOnly({leftExpr}, {rightExpr})) {{ return false; }}");
+            return true;
+        }
+
+        // New: Memory<T> / ReadOnlyMemory<T> -> compare contents
+        if (t is INamedTypeSymbol gn && gn.OriginalDefinition?.ToDisplayString() == "System.Memory<T>")
+        {
+            code.AppendLine($"            if (!ComparisonHelpers.AreEqualMemory({leftExpr}, {rightExpr})) {{ return false; }}");
+            return true;
+        }
+        if (t is INamedTypeSymbol gr && gr.OriginalDefinition?.ToDisplayString() == "System.ReadOnlyMemory<T>")
+        {
+            code.AppendLine($"            if (!ComparisonHelpers.AreEqualReadOnlyMemory({leftExpr}, {rightExpr})) {{ return false; }}");
+            return true;
+        }
+
         return false;
     }
 
-    private static void EmitNullableValueCompare(StringBuilder code, string leftLocal, string rightLocal, ITypeSymbol valueType)
+    private static void EmitNullableValueCompare(StringBuilder code, string leftLocal, string rightLocal, ITypeSymbol valueType, Target root)
     {
         if (TryEmitWellKnownStructCompare(code, $"{leftLocal}.Value", $"{rightLocal}.Value", valueType)) { return; }
-
-        if (valueType.SpecialType == SpecialType.System_String)
-        {
-            code.AppendLine($"                if (!ComparisonHelpers.AreEqualStrings({leftLocal}.Value, {rightLocal}.Value)) {{ return false; }}");
-            return;
-        }
 
         if (valueType.TypeKind == TypeKind.Enum)
         {
@@ -446,7 +494,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 
         if (valueType is INamedTypeSymbol vnts && IsUserObjectType(vnts))
         {
-            if (IsPubliclyVisible(vnts))
+            if (IsTypeAccessibleFromRoot(vnts, root))
             {
                 code.AppendLine($"                if (!{GetHelperMethodName(vnts)}({leftLocal}.Value, {rightLocal}.Value, context)) {{ return false; }}");
             }
@@ -460,16 +508,26 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         code.AppendLine($"                if (!object.Equals({leftLocal}.Value, {rightLocal}.Value)) {{ return false; }}");
     }
 
-    private static string BuildElementComparerLambda(ITypeSymbol elementType, EffectiveKind elementKind)
+    private static string BuildElementComparerLambda(ITypeSymbol elementType, EffectiveKind elementKind, Target root)
     {
+        // KeyValuePair<K,V>
+        if (elementType is INamedTypeSymbol kvp &&
+            kvp.ConstructedFrom?.ToDisplayString() == "System.Collections.Generic.KeyValuePair<TKey, TValue>")
+        {
+            var k = kvp.TypeArguments[0];
+            var v = kvp.TypeArguments[1];
+
+            var keyLambda = BuildElementComparerLambda(k, GetEffectiveKind(k, null), root);
+            var valLambda = BuildElementComparerLambda(v, GetEffectiveKind(v, null), root);
+
+            string keyCmp = keyLambda.Replace("(l,", "(l.Key,").Replace(", r,", ", r.Key,");
+            string valCmp = valLambda.Replace("(l,", "(l.Value,").Replace(", r,", ", r.Value,");
+            return $"(l, r, c) => {keyCmp} && {valCmp}";
+        }
+
         if (elementType is INamedTypeSymbol nt && nt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
         {
             var tArg = nt.TypeArguments[0];
-
-            if (tArg.SpecialType == SpecialType.System_String)
-            {
-                return "(l, r, c) => (l.HasValue == r.HasValue) && (!l.HasValue || ComparisonHelpers.AreEqualStrings(l.Value, r.Value))";
-            }
 
             if (tArg.TypeKind == TypeKind.Enum)
             {
@@ -486,12 +544,22 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
                 return "(l, r, c) => (l.HasValue == r.HasValue) && (!l.HasValue || ComparisonHelpers.AreEqualDateTimeOffset(l.Value, r.Value))";
             }
 
+            // DateOnly / TimeOnly
+            if (tArg.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.DateOnly")
+            {
+                return "(l, r, c) => (l.HasValue == r.HasValue) && (!l.HasValue || ComparisonHelpers.AreEqualDateOnly(l.Value, r.Value))";
+            }
+            if (tArg.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.TimeOnly")
+            {
+                return "(l, r, c) => (l.HasValue == r.HasValue) && (!l.HasValue || ComparisonHelpers.AreEqualTimeOnly(l.Value, r.Value))";
+            }
+
             if (tArg.IsValueType && tArg.SpecialType != SpecialType.None)
             {
                 return "(l, r, c) => (l.HasValue == r.HasValue) && (!l.HasValue || l.Value.Equals(r.Value))";
             }
 
-            if (tArg is INamedTypeSymbol sArg && IsUserObjectType(sArg) && IsPubliclyVisible(sArg))
+            if (tArg is INamedTypeSymbol sArg && IsUserObjectType(sArg) && IsTypeAccessibleFromRoot(sArg, root))
             {
                 var helper = GetHelperMethodName(sArg);
                 return $"(l, r, c) => (l.HasValue == r.HasValue) && (!l.HasValue || {helper}(l.Value, r.Value, c))";
@@ -515,6 +583,16 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             return "(l, r, c) => ComparisonHelpers.AreEqualDateTimeOffset(l, r)";
         }
 
+        // DateOnly / TimeOnly
+        if (elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.DateOnly")
+        {
+            return "(l, r, c) => ComparisonHelpers.AreEqualDateOnly(l, r)";
+        }
+        if (elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.TimeOnly")
+        {
+            return "(l, r, c) => ComparisonHelpers.AreEqualTimeOnly(l, r)";
+        }
+
         if (elementType.IsValueType && elementType.SpecialType != SpecialType.None)
         {
             return "(l, r, c) => l.Equals(r)";
@@ -522,7 +600,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 
         if (elementType.IsValueType && elementType is INamedTypeSymbol structType && IsUserObjectType(structType))
         {
-            if (IsPubliclyVisible(structType))
+            if (IsTypeAccessibleFromRoot(structType, root))
             {
                 var helper = GetHelperMethodName(structType);
                 return $"(l, r, c) => {helper}(l, r, c)";
@@ -545,7 +623,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             return "(l, r, c) => object.ReferenceEquals(l, r)";
         }
 
-        if (elementType is INamedTypeSymbol nts && IsUserObjectType(nts) && IsPubliclyVisible(nts))
+        if (elementType is INamedTypeSymbol nts && IsUserObjectType(nts) && IsTypeAccessibleFromRoot(nts, root))
         {
             var helper = GetHelperMethodName(nts);
             return $"(l, r, c) => object.ReferenceEquals(l, r) ? true : (l is null || r is null ? false : {helper}(l, r, c))";
@@ -554,14 +632,35 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         return "(l, r, c) => object.Equals(l, r)";
     }
 
-    private static bool IsPubliclyVisible(INamedTypeSymbol t)
+    private static bool IsTypeAccessibleFromRoot(INamedTypeSymbol t, Target root)
     {
-        if (t.DeclaredAccessibility != Accessibility.Public) { return false; }
-        var cur = t.ContainingType;
-        while (cur is not null)
+        // Public types with all public containers are always fine.
+        if (t.DeclaredAccessibility == Accessibility.Public)
         {
-            if (cur.DeclaredAccessibility != Accessibility.Public) { return false; }
-            cur = cur.ContainingType;
+            var cur = t.ContainingType;
+            while (cur is not null)
+            {
+                if (cur.DeclaredAccessibility != Accessibility.Public) { return false; }
+                cur = cur.ContainingType;
+            }
+            return true;
+        }
+
+        // Internal/protected-internal allowed only when IncludeInternals=true AND within same assembly,
+        // and all container types are public or internal/protected-internal.
+        if (!root.IncludeInternals) return false;
+        if (!SymbolEqualityComparer.Default.Equals(t.ContainingAssembly, root.Type.ContainingAssembly)) return false;
+
+        var c = t;
+        while (c is not null)
+        {
+            var acc = c.DeclaredAccessibility;
+            if (acc is Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedAndInternal)
+            {
+                c = c.ContainingType;
+                continue;
+            }
+            return false;
         }
         return true;
     }
@@ -594,7 +693,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             if (TryGetDictionaryInterface(t, out _, out var valT)) { Accumulate(valT!); return; }
             if (TryGetEnumerableInterface(t, out var elT)) { Accumulate(elT!); return; }
 
-            if (t is INamedTypeSymbol named && IsUserObjectType(named) && IsPubliclyVisible(named) && set.Add(named))
+            if (t is INamedTypeSymbol named && IsUserObjectType(named) && IsTypeAccessibleFromRoot(named, root) && set.Add(named))
             {
                 queue.Enqueue(named);
             }
@@ -619,7 +718,9 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
     {
         foreach (var i in type.AllInterfaces)
         {
-            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IDictionary<TKey, TValue>")
+            var def = i.OriginalDefinition.ToDisplayString();
+            if (def == "System.Collections.Generic.IDictionary<TKey, TValue>" ||
+                def == "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>")
             {
                 keyType = i.TypeArguments[0];
                 valueType = i.TypeArguments[1];
@@ -628,6 +729,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         }
         keyType = null; valueType = null; return false;
     }
+
     private static bool IsStringKeyedDictionary(ITypeSymbol t)
     {
         // ExpandoObject
@@ -636,13 +738,15 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             return true;
         }
 
-        // IDictionary<string, TValue>
+        // IDictionary<string, TValue> OR IReadOnlyDictionary<string, TValue>
         foreach (var i in t.AllInterfaces)
         {
-            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IDictionary<TKey, TValue>")
+            var def = i.OriginalDefinition.ToDisplayString();
+            if ((def == "System.Collections.Generic.IDictionary<TKey, TValue>" ||
+                 def == "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>") &&
+                i.TypeArguments[0].SpecialType == SpecialType.System_String)
             {
-                var k = i.TypeArguments[0];
-                if (k.SpecialType == SpecialType.System_String) { return true; }
+                return true;
             }
         }
 
@@ -652,7 +756,6 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 
     private static bool IsObjectEnumerable(ITypeSymbol t)
     {
-        // IEnumerable<object>
         foreach (var i in t.AllInterfaces)
         {
             if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>" &&
@@ -661,8 +764,6 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
                 return true;
             }
         }
-
-        // object[]
         return t is IArrayTypeSymbol at && at.ElementType.SpecialType == SpecialType.System_Object;
     }
 
