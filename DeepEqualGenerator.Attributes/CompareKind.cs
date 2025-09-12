@@ -1,4 +1,4 @@
-﻿namespace DeepEqual.Generator.Attributes;
+﻿namespace DeepEqual.Generator.Shared;
 
 public enum CompareKind
 {

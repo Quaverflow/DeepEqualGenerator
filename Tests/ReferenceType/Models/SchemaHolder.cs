@@ -1,4 +1,4 @@
-﻿using DeepEqual.Generator.Attributes;
+﻿using DeepEqual.Generator.Shared;
 using Tests.ValueType.Models;
 
 namespace Tests.ReferenceType.Models;

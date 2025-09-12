@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace DeepEqual.Generator.Attributes;
+namespace DeepEqual.Generator.Shared;
 
 /// <summary>
 /// Per-member or per-type override. Apply to:

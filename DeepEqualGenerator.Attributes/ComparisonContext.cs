@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
-namespace DeepEqual.Generator.Attributes;
+namespace DeepEqual.Generator.Shared;
 
 /// <summary>Tracks visited object pairs to break cycles in reference graphs.</summary>
 public sealed class ComparisonContext

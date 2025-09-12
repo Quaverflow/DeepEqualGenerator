@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace DeepEqual.Generator.Attributes;
+namespace DeepEqual.Generator.Shared;
 
 /// <summary>
 /// Put this on any class/struct you want a separate DeepEqual class generated for (root entry points).

@@ -1,4 +1,4 @@
-using DeepEqual.Generator.Attributes;
+using DeepEqual.Generator.Shared;
 
 namespace Tests;
 

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace DeepEqual.Generator.Attributes;
+namespace DeepEqual.Generator.Shared;
 
 /// <summary>Shared comparison primitives; written for clarity and AOT-friendliness.</summary>
 public static class ComparisonHelpers
