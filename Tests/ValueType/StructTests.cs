@@ -95,7 +95,6 @@ public sealed class StructTests
             new SimpleStruct { Count = 1, Ratio = 1, Price = 1m, WhenUtc = DateTime.SpecifyKind(new DateTime(2025,1,1), DateTimeKind.Utc), Role = SRole.None },
             new SimpleStruct { Count = 2, Ratio = 2, Price = 2m, WhenUtc = DateTime.SpecifyKind(new DateTime(2025,1,2), DateTimeKind.Utc), Role = SRole.Alpha }
         };
-
         var a = new StructArrayHolder { Items = arr1 };
         var b = new StructArrayHolder { Items = arr2 };
 

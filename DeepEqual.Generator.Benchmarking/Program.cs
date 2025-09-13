@@ -14,6 +14,24 @@ internal class Program
     }
 }
 
+public class Dict
+{
+    private Dictionary<int, string> _dict;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _dict = new Dictionary<int, string>();
+        var counter = 0;
+        while (counter < 10000)
+        {
+            _dict.Add(counter, "hello");
+            counter++;
+        }
+    }
+
+}
+
 public enum Role { None, Dev, Lead, Manager }
 
 [DeepComparable]
@@ -299,24 +317,26 @@ public class DeepGraphBenchmarks
         BigGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
 
     [Benchmark]
-    public bool Generated_NotEqual_Shallow() =>
-        BigGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
-
-    [Benchmark]
-    public bool Generated_NotEqual_Deep() =>
-        BigGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
-
-    // ---------------- Compare-NET-Objects ----------------
-
-    [Benchmark]
     public bool CNO_Equal() =>
         _cno.Compare(_eqA, _eqB).AreEqual;
+
+    [Benchmark]
+    public bool Generated_NotEqual_Shallow() =>
+        BigGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
 
     [Benchmark]
     public bool CNO_NotEqual_Shallow() =>
         _cno.Compare(_neqShallowA, _neqShallowB).AreEqual;
 
     [Benchmark]
+    public bool Generated_NotEqual_Deep() =>
+        BigGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
+
+    [Benchmark]
     public bool CNO_NotEqual_Deep() =>
         _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
+
+    // ---------------- Compare-NET-Objects ----------------
+
+
 }
