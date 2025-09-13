@@ -12,7 +12,7 @@ public static partial class DynamicDeepComparer
         if (ReferenceEquals(left, right)) { return true; }
         if (left is null || right is null) { return false; }
 
-        // strings / primitives fast-paths (unchanged)
+        // strings / primitives fast-paths
         if (left is string ls && right is string rs) { return ComparisonHelpers.AreEqualStrings(ls, rs); }
         if (IsPrimitiveLike(left) && IsPrimitiveLike(right)) { return left.Equals(right); }
         if (left is DateTime ldt && right is DateTime rdt) { return ComparisonHelpers.AreEqualDateTime(ldt, rdt); }
@@ -168,7 +168,7 @@ public static partial class DynamicDeepComparer
 
         static bool TryGetGenericCount(object o, Type kvType, out int count)
         {
-            var collIface = typeof(ICollection<>).MakeGenericType(kvType);
+            var collIface = typeof(System.Collections.Generic.ICollection<>).MakeGenericType(kvType);
             if (collIface.IsInstanceOfType(o))
             {
                 var pi = collIface.GetProperty("Count")!;
@@ -229,20 +229,7 @@ public static partial class DynamicDeepComparer
         return true;
     }
 
-    private static bool EqualDynamicSequence(IEnumerable a, IEnumerable b, ComparisonContext ctx)
-    {
-        var ea = a.GetEnumerator();
-        var eb = b.GetEnumerator();
-        while (true)
-        {
-            bool ma = ea.MoveNext(), mb = eb.MoveNext();
-            if (ma != mb) return false;
-            if (!ma) return true;
-            if (!AreEqualDynamic(ea.Current, eb.Current, ctx)) return false;
-        }
-    }
-
-    // ---- generic IDictionary<TKey,TValue> abstraction ----------------------
+    // ---- generic IDictionary<TKey, TValue> abstraction --------------------
 
     private readonly struct GenericMapView
     {
@@ -335,7 +322,7 @@ public static partial class DynamicDeepComparer
 
         static bool TryGetGenericCount(object o, Type kvType, out int count)
         {
-            var collIface = typeof(ICollection<>).MakeGenericType(kvType);
+            var collIface = typeof(System.Collections.Generic.ICollection<>).MakeGenericType(kvType);
             if (collIface.IsInstanceOfType(o))
             {
                 var pi = collIface.GetProperty("Count")!;
@@ -348,6 +335,19 @@ public static partial class DynamicDeepComparer
         static int CountEnumer(IEnumerable e)
         {
             int n = 0; var en = e.GetEnumerator(); while (en.MoveNext()) n++; return n;
+        }
+    }
+
+    private static bool EqualDynamicSequence(IEnumerable a, IEnumerable b, ComparisonContext ctx)
+    {
+        var ea = a.GetEnumerator();
+        var eb = b.GetEnumerator();
+        while (true)
+        {
+            bool ma = ea.MoveNext(), mb = eb.MoveNext();
+            if (ma != mb) return false;
+            if (!ma) return true;
+            if (!AreEqualDynamic(ea.Current, eb.Current, ctx)) return false;
         }
     }
 }

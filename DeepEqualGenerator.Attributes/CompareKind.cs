@@ -3,7 +3,7 @@
 public enum CompareKind
 {
     Deep,
-    Shallow, 
-    Reference, 
-    Skip       
+    Shallow,
+    Reference,
+    Skip
 }

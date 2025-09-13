@@ -6,6 +6,8 @@ namespace DeepEqual.Generator.Shared;
 /// <summary>Shared comparison primitives; written for clarity and AOT-friendliness.</summary>
 public static class ComparisonHelpers
 {
+    // ---- Core value equality helpers (no context) -------------------------
+
     public static bool AreEqualStrings(string? left, string? right)
         => string.Equals(left, right, StringComparison.Ordinal);
 
@@ -21,28 +23,33 @@ public static class ComparisonHelpers
     public static bool AreEqualDateTimeOffset(DateTimeOffset left, DateTimeOffset right)
         => left.Ticks == right.Ticks && left.Offset == right.Offset;
 
-    // New well-knowns
     public static bool AreEqualDateOnly(DateOnly left, DateOnly right)
         => left.DayNumber == right.DayNumber;
 
     public static bool AreEqualTimeOnly(TimeOnly left, TimeOnly right)
         => left.Ticks == right.Ticks;
 
-    public static bool AreEqualUri(Uri? left, Uri? right)
-        => ReferenceEquals(left, right) || left is not null && right is not null && left.Equals(right);
+    // ---- Contexted wrappers to use as method groups (avoid lambdas) -------
 
-    public static bool AreEqualMemory<T>(Memory<T> left, Memory<T> right)
-        => left.Span.SequenceEqual(right.Span);
+    public static bool CompareStringsWithContext(string? l, string? r, ComparisonContext _) => AreEqualStrings(l, r);
+    public static bool CompareEnumWithContext<T>(T l, T r, ComparisonContext _) where T : struct, Enum => AreEqualEnum(l, r);
+    public static bool CompareDateTimeWithContext(DateTime l, DateTime r, ComparisonContext _) => AreEqualDateTime(l, r);
+    public static bool CompareDateTimeOffsetWithContext(DateTimeOffset l, DateTimeOffset r, ComparisonContext _) => AreEqualDateTimeOffset(l, r);
+    public static bool CompareDateOnlyWithContext(DateOnly l, DateOnly r, ComparisonContext _) => AreEqualDateOnly(l, r);
+    public static bool CompareTimeOnlyWithContext(TimeOnly l, TimeOnly r, ComparisonContext _) => AreEqualTimeOnly(l, r);
+    public static bool CompareGuidWithContext(Guid l, Guid r, ComparisonContext _) => l.Equals(r);
+    public static bool CompareTimeSpanWithContext(TimeSpan l, TimeSpan r, ComparisonContext _) => l.Ticks == r.Ticks;
+    public static bool CompareByEquals<T>(T l, T r, ComparisonContext _) where T : struct => l.Equals(r);
+    public static bool CompareByObjectEquals<T>(T l, T r, ComparisonContext _) => object.Equals(l, r);
 
-    public static bool AreEqualReadOnlyMemory<T>(ReadOnlyMemory<T> left, ReadOnlyMemory<T> right)
-        => left.Span.SequenceEqual(right.Span);
+    // ---- Sequences (ordered/unordered) ------------------------------------
 
     /// <summary>Ordered sequence equality with deep element comparison.</summary>
     public static bool AreEqualSequencesOrdered<T>(
-        IEnumerable<T>? left,
-        IEnumerable<T>? right,
-        Func<T, T, ComparisonContext, bool> elementComparer,
-        ComparisonContext context)
+            IEnumerable<T>? left,
+            IEnumerable<T>? right,
+            Func<T, T, ComparisonContext, bool> elementComparer,
+            ComparisonContext context)
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
@@ -76,7 +83,8 @@ public static class ComparisonHelpers
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-        var rightList = right as IList<T> ?? [.. right];
+        // FIX: build a concrete list from 'right' (previous accidental token caused bad shape)
+        var rightList = right as IList<T> ?? new List<T>(right);
         var matched = new bool[rightList.Count];
 
         foreach (var item in left)
@@ -95,13 +103,15 @@ public static class ComparisonHelpers
             if (!found) return false;
         }
 
+        // ensure nothing remained unmatched on the right
         foreach (var t in matched)
-        {
             if (!t) return false;
-        }
 
         return true;
     }
+
+
+    // ---- Arrays ------------------------------------------------------------
 
     /// <summary>
     /// Array equality (ordered) with shape validation (rank + per-dimension lengths).
@@ -135,9 +145,28 @@ public static class ComparisonHelpers
         }
     }
 
+    /// <summary>Rank-1 typed array equality (fast path, ordered).</summary>
+    public static bool AreEqualArrayRank1<T>(
+        T[]? left,
+        T[]? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null || right is null) return false;
+        if (left.Length != right.Length) return false;
+
+        for (int i = 0; i < left.Length; i++)
+        {
+            if (!elementComparer(left[i], right[i], context))
+                return false;
+        }
+        return true;
+    }
+
     /// <summary>
     /// Array equality (unordered/multiset). Validates total element count and
-    /// ignores shape. O(n^2) but covers all array shapes without allocations.
+    /// ignores shape.
     /// </summary>
     public static bool AreEqualArrayUnordered<T>(
         Array? left,
@@ -147,7 +176,6 @@ public static class ComparisonHelpers
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
-
         if (left.Length != right.Length) return false;
 
         // Materialize right as a list for marking matches.
@@ -180,24 +208,8 @@ public static class ComparisonHelpers
         return true;
     }
 
-    /// <summary>Dictionary equality: matching keys, deep compare values.</summary>
-    public static bool AreEqualDictionaries<TKey, TValue>(
-        IDictionary<TKey, TValue>? left,
-        IDictionary<TKey, TValue>? right,
-        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
-        ComparisonContext context) where TKey : notnull
-    {
-        if (ReferenceEquals(left, right)) return true;
-        if (left is null || right is null) return false;
-        if (left.Count != right.Count) return false;
+    // ---- Dictionaries ------------------------------------------------------
 
-        foreach (var x in left)
-        {
-            if (!right.TryGetValue(x.Key, out var rv)) return false;
-            if (!valueComparer(x.Value, rv, context)) return false;
-        }
-        return true;
-    }
 
     /// <summary>
     /// Dictionary equality for any IEnumerable&lt;KeyValuePair&lt;TKey,TValue&gt;&gt; sources.

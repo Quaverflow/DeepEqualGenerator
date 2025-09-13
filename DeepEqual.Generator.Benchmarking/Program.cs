@@ -2,20 +2,24 @@
 using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
 using KellermanSoftware.CompareNetObjects;
+using System.Dynamic;
 using System.Text.Json;
 using Newtonsoft.Json.Linq;
+
+// James Foster's DeepEqual
+using DeepEqual;
+using DeepEqual.Syntax;
 
 namespace DeepEqual.Generator.Benchmarking;
 
 internal class Program
 {
-
     static void Main()
     {
-
         _ = BenchmarkRunner.Run<DeepGraphBenchmarks>();
     }
 }
+
 public enum Role { None, Dev, Lead, Manager }
 
 [DeepComparable]
@@ -26,6 +30,9 @@ public partial class BigGraph
     public Dictionary<string, OrgNode> OrgIndex { get; set; } = new(StringComparer.Ordinal);
     public List<Product> Catalog { get; set; } = new();
     public List<Customer> Customers { get; set; } = new();
+
+    // NEW: heterogeneous, JSON-like metadata on the root
+    public IDictionary<string, object?> Meta { get; set; } = new ExpandoObject();
 }
 
 public class OrgNode
@@ -33,6 +40,9 @@ public class OrgNode
     public string Name { get; set; } = "";
     public Role Role { get; set; }
     public List<OrgNode> Reports { get; set; } = new();
+
+    // NEW: Expando “extra” blob on each org node
+    public IDictionary<string, object?> Extra { get; set; } = new ExpandoObject();
 }
 
 public class Product
@@ -41,6 +51,9 @@ public class Product
     public string Name { get; set; } = "";
     public decimal Price { get; set; }
     public DateTime Introduced { get; set; }
+
+    // NEW: Expando attributes with nested arrays/maps/objects
+    public IDictionary<string, object?> Attributes { get; set; } = new ExpandoObject();
 }
 
 public class OrderLine
@@ -56,6 +69,9 @@ public class Order
     public DateTimeOffset Created { get; set; }
     public List<OrderLine> Lines { get; set; } = new();
     public Dictionary<string, string> Meta { get; set; } = new(StringComparer.Ordinal);
+
+    // NEW: Expando per-order blob (heterogeneous values)
+    public IDictionary<string, object?> Extra { get; set; } = new ExpandoObject();
 }
 
 public class Customer
@@ -63,6 +79,9 @@ public class Customer
     public Guid Id { get; set; }
     public string FullName { get; set; } = "";
     public List<Order> Orders { get; set; } = new();
+
+    // NEW: Expando profile for customers
+    public IDictionary<string, object?> Profile { get; set; } = new ExpandoObject();
 }
 
 public static class BigGraphFactory
@@ -87,13 +106,15 @@ public static class BigGraphFactory
         var catalog = new List<Product>(products);
         for (int i = 0; i < products; i++)
         {
-            catalog.Add(new Product
+            var p = new Product
             {
                 Sku = $"SKU-{i:D6}",
                 Name = $"Product {i}",
                 Price = 10 + i,
-                Introduced = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddDays(i)
-            });
+                Introduced = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddDays(i),
+                Attributes = MakeExpando(rng, $"P{i}", depth: 2)
+            };
+            catalog.Add(p);
         }
 
         var custs = new List<Customer>(customers);
@@ -102,7 +123,8 @@ public static class BigGraphFactory
             var cust = new Customer
             {
                 Id = DeterministicGuid($"C{c}"),
-                FullName = $"Customer {c}"
+                FullName = $"Customer {c}",
+                Profile = MakeExpando(rng, $"C{c}", depth: 2)
             };
 
             for (int o = 0; o < ordersPerCustomer; o++)
@@ -114,17 +136,18 @@ public static class BigGraphFactory
                     Meta = new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["channel"] = (o % 2 == 0) ? "web" : "app"
-                    }
+                    },
+                    Extra = MakeExpando(rng, $"C{c}-O{o}", depth: 1)
                 };
 
                 for (int l = 0; l < linesPerOrder; l++)
                 {
-                    var p = catalog[(l + o) % catalog.Count];
+                    var prod = catalog[(l + o) % catalog.Count];
                     order.Lines.Add(new OrderLine
                     {
-                        Sku = p.Sku,
+                        Sku = prod.Sku,
                         Qty = 1 + (l % 3),
-                        LineTotal = p.Price * (1 + (l % 3))
+                        LineTotal = prod.Price * (1 + (l % 3))
                     });
                 }
 
@@ -134,22 +157,26 @@ public static class BigGraphFactory
             custs.Add(cust);
         }
 
-        return new BigGraph
+        // Root graph
+        var graph = new BigGraph
         {
             Title = "BigGraph Bench",
             Org = root,
             OrgIndex = index,
             Catalog = catalog,
-            Customers = custs
+            Customers = custs,
+            Meta = MakeExpando(rng, "ROOT", depth: 2)
         };
+
+        // Fill org node expandos deterministically
+        FillOrgExpandos(graph.Org, rng);
+
+        return graph;
     }
 
     private static void BuildOrg(OrgNode parent, int breadth, int maxDepth, int depth, Random rng)
     {
-        if (depth >= maxDepth)
-        {
-            return;
-        }
+        if (depth >= maxDepth) return;
 
         for (int i = 0; i < breadth; i++)
         {
@@ -163,9 +190,54 @@ public static class BigGraphFactory
     {
         index[node.Name] = node;
         foreach (var r in node.Reports)
-        {
             IndexOrg(r, index);
+    }
+
+    private static void FillOrgExpandos(OrgNode node, Random rng)
+    {
+        node.Extra = MakeExpando(rng, node.Name, depth: 1);
+        foreach (var r in node.Reports)
+            FillOrgExpandos(r, rng);
+    }
+
+    /// <summary>
+    /// Builds a deterministic Expando graph with a mix of primitives, arrays, nested maps and a child expando.
+    /// Kept deterministic by the provided seed & id.
+    /// </summary>
+    private static IDictionary<string, object?> MakeExpando(Random rng, string id, int depth)
+    {
+        var exp = new ExpandoObject();
+        var d = (IDictionary<string, object?>)exp;
+
+        // primitives
+        d["id"] = id;
+        d["flag"] = (id.GetHashCode() & 1) == 0;
+
+        // arrays (ints + strings)
+        d["nums"] = new[] { NextRange(rng, id, 0), NextRange(rng, id, 1), NextRange(rng, id, 2) };
+        d["tags"] = new[] { "alpha", "beta", id };
+
+        // nested map with mixed values (including an array leaf)
+        d["map"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["x"] = new[] { 1, 2, 3 },
+            ["y"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["z"] = id.Length,
+                ["u"] = new[] { "p", "q" }
+            }
+        };
+
+        // nested expando (recurse)
+        if (depth > 0)
+        {
+            d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
         }
+
+        return d;
+
+        static int NextRange(Random r, string salt, int k)
+            => Math.Abs((salt.GetHashCode() + 31 * k)) % 10 + r.Next(0, 3);
     }
 
     private static Guid DeterministicGuid(string s)
@@ -173,13 +245,11 @@ public static class BigGraphFactory
         var bytes = System.Text.Encoding.UTF8.GetBytes(s);
         Span<byte> g = stackalloc byte[16];
         for (int i = 0; i < 16; i++)
-        {
             g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
-        }
-
         return new Guid(g);
     }
 }
+
 [MemoryDiagnoser]
 [PlainExporter, RPlotExporter]
 public class DeepGraphBenchmarks
@@ -200,27 +270,11 @@ public class DeepGraphBenchmarks
 
     private CompareLogic _cno = null!;
 
-    private JToken _eqA_J = null!;
-    private JToken _eqB_J = null!;
-    private JToken _neqDeepA_J = null!;
-    private JToken _neqDeepB_J = null!;
-
-    private string _eqA_Ser = null!;
-    private string _eqB_Ser = null!;
-    private string _neqDeepA_Ser = null!;
-    private string _neqDeepB_Ser = null!;
-
-    private static readonly JsonSerializerOptions _stjOptions = new()
-    {
-        PropertyNamingPolicy = null,
-        WriteIndented = false
-    };
-
     [GlobalSetup]
     public void Setup()
     {
         _eqA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1);
-        _eqB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1); 
+        _eqB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1);
 
         _neqShallowA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 2);
         _neqShallowB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 2);
@@ -242,18 +296,9 @@ public class DeepGraphBenchmarks
             TreatStringEmptyAndNullTheSame = false,
             IgnoreCollectionOrder = false
         });
-
-        _eqA_J = JToken.FromObject(_eqA);
-        _eqB_J = JToken.FromObject(_eqB);
-        _neqDeepA_J = JToken.FromObject(_neqDeepA);
-        _neqDeepB_J = JToken.FromObject(_neqDeepB);
-
-        // STJ precompute
-        _eqA_Ser = JsonSerializer.Serialize(_eqA, _stjOptions);
-        _eqB_Ser = JsonSerializer.Serialize(_eqB, _stjOptions);
-        _neqDeepA_Ser = JsonSerializer.Serialize(_neqDeepA, _stjOptions);
-        _neqDeepB_Ser = JsonSerializer.Serialize(_neqDeepB, _stjOptions);
     }
+
+    // ---------------- Generated ----------------
 
     [Benchmark(Baseline = true)]
     public bool Generated_Equal() =>
@@ -267,47 +312,9 @@ public class DeepGraphBenchmarks
     public bool Generated_NotEqual_Deep() =>
         BigGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
 
-    [Benchmark]
-    public bool CNO_Equal() =>
-        _cno.Compare(_eqA, _eqB).AreEqual;
+    // ---------------- Compare-NET-Objects ----------------
 
     [Benchmark]
     public bool CNO_NotEqual_Shallow() =>
         _cno.Compare(_neqShallowA, _neqShallowB).AreEqual;
-
-    [Benchmark]
-    public bool CNO_NotEqual_Deep() =>
-        _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
-
-    [Benchmark]
-    public bool JToken_FromObject_Equal() =>
-        JToken.DeepEquals(JToken.FromObject(_eqA), JToken.FromObject(_eqB));
-
-    [Benchmark]
-    public bool JToken_FromObject_NotEqual_Deep() =>
-        JToken.DeepEquals(JToken.FromObject(_neqDeepA), JToken.FromObject(_neqDeepB));
-
-    [Benchmark]
-    public bool JToken_Precomputed_Equal() =>
-        JToken.DeepEquals(_eqA_J, _eqB_J);
-
-    [Benchmark]
-    public bool JToken_Precomputed_NotEqual_Deep() =>
-        JToken.DeepEquals(_neqDeepA_J, _neqDeepB_J);
-
-    [Benchmark]
-    public bool STJ_Serialize_StringEquals_Equal() =>
-        JsonSerializer.Serialize(_eqA, _stjOptions) == JsonSerializer.Serialize(_eqB, _stjOptions);
-
-    [Benchmark]
-    public bool STJ_Serialize_StringEquals_NotEqual_Deep() =>
-        JsonSerializer.Serialize(_neqDeepA, _stjOptions) == JsonSerializer.Serialize(_neqDeepB, _stjOptions);
-
-    [Benchmark]
-    public bool STJ_Precomputed_StringEquals_Equal() =>
-        _eqA_Ser == _eqB_Ser;
-
-    [Benchmark]
-    public bool STJ_Precomputed_StringEquals_NotEqual_Deep() =>
-        _neqDeepA_Ser == _neqDeepB_Ser;
 }
