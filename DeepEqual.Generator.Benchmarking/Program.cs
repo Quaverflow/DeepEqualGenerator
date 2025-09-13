@@ -268,8 +268,8 @@ public class DeepGraphBenchmarks
 {
     [Params(3)] public int OrgBreadth;
     [Params(3)] public int OrgDepth;
-    [Params(200)] public int Products;
-    [Params(200)] public int Customers;
+    [Params(2000)] public int Products;
+    [Params(2000)] public int Customers;
     [Params(3)] public int OrdersPerCustomer;
     [Params(4)] public int LinesPerOrder;
 
