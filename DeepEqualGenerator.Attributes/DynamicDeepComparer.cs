@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 
 namespace DeepEqual.Generator.Shared;
 
@@ -26,7 +27,7 @@ public static partial class DynamicDeepComparer
             return EqualStringKeyedMap(mapA, mapB, ctx);
         }
 
-        // NEW: generic IDictionary<TKey,TValue> with same K/V runtime types
+        // generic IDictionary<TKey,TValue> with same K/V runtime types
         if (TryAsGenericMap(left, out var gA) && TryAsGenericMap(right, out var gB) &&
             gA.KeyType == gB.KeyType && gA.ValueType == gB.ValueType)
         {
@@ -106,7 +107,7 @@ public static partial class DynamicDeepComparer
     }
 
     // Supports:
-    // - IDictionary<TKey,TValue> where TKey == string (any TValue)
+    // - IDictionary<string, TValue> (any TValue) via compiled accessors
     // - Non-generic IDictionary where entries are DictionaryEntry/string keys
     private static (Func<object, MapView> open, bool ok) BuildMapViewFactory(Type t)
     {
@@ -119,8 +120,25 @@ public static partial class DynamicDeepComparer
                 if (args[0] == typeof(string))
                 {
                     var kvType = typeof(KeyValuePair<,>).MakeGenericType(typeof(string), args[1]);
-                    var keyProp = kvType.GetProperty("Key")!;
-                    var valProp = kvType.GetProperty("Value")!;
+                    // compile Key/Value extractors once
+                    var kvParam = Expression.Parameter(typeof(object), "kv");
+                    var kvCast = Expression.Convert(kvParam, kvType);
+                    var getKey = Expression.Lambda<Func<object, string>>(Expression.Property(kvCast, "Key"), kvParam).Compile();
+                    var getVal = Expression.Lambda<Func<object, object?>>(Expression.Convert(Expression.Property(kvCast, "Value"), typeof(object)), kvParam).Compile();
+
+                    // compile TryGetValue(map, key, out value)
+                    var tryGet = i.GetMethod("TryGetValue")!;
+                    var mapParam = Expression.Parameter(typeof(object), "map");
+                    var keyParam = Expression.Parameter(typeof(object), "key");
+                    var mapCast = Expression.Convert(mapParam, i);
+                    var keyCast = Expression.Convert(keyParam, typeof(string));
+                    var outVar = Expression.Variable(args[1], "val");
+                    var call = Expression.Call(mapCast, tryGet, keyCast, outVar);
+                    var tupleCtor = typeof(ValueTuple<,>).GetConstructor(new[] { typeof(bool), typeof(object) })!;
+                    var result = Expression.New(tupleCtor,
+                        call,
+                        Expression.Convert(outVar, typeof(object)));
+                    var lookup = Expression.Lambda<Func<object, object, (bool, object?)>>(result, mapParam, keyParam).Compile();
 
                     Func<object, MapView> f = o =>
                     {
@@ -129,8 +147,8 @@ public static partial class DynamicDeepComparer
                         return new MapView(
                             count,
                             () => enumerable,
-                            kv => (string)keyProp.GetValue(kv)!,
-                            kv => valProp.GetValue(kv)
+                            getKey,
+                            getVal
                         );
                     };
                     return (f, true);
@@ -283,32 +301,41 @@ public static partial class DynamicDeepComparer
                 var keyType = args[0];
                 var valueType = args[1];
 
-                // KVP accessors
+                // KVP accessors (compiled)
                 var kvType = typeof(KeyValuePair<,>).MakeGenericType(keyType, valueType);
-                var keyProp = kvType.GetProperty("Key")!;
-                var valProp = kvType.GetProperty("Value")!;
+                var kvParam = Expression.Parameter(typeof(object), "kv");
+                var kvCast = Expression.Convert(kvParam, kvType);
+                var getKey = Expression.Lambda<Func<object, object>>(
+                    Expression.Convert(Expression.Property(kvCast, "Key"), typeof(object)), kvParam).Compile();
+                var getVal = Expression.Lambda<Func<object, object?>>(
+                    Expression.Convert(Expression.Property(kvCast, "Value"), typeof(object)), kvParam).Compile();
 
-                // TryGetValue(map, K, out V)
+                // TryGetValue(map, K, out V) (compiled)
                 var tryGet = i.GetMethod("TryGetValue")!;
+                var mapParam = Expression.Parameter(typeof(object), "map");
+                var keyParam = Expression.Parameter(typeof(object), "key");
+                var mapCast = Expression.Convert(mapParam, i);
+                var keyCast = Expression.Convert(keyParam, keyType);
+                var outVar = Expression.Variable(valueType, "val");
+                var call = Expression.Call(mapCast, tryGet, keyCast, outVar);
+
+                var tupleType = typeof(ValueTuple<,>).MakeGenericType(typeof(bool), typeof(object));
+                var ctor = tupleType.GetConstructor(new[] { typeof(bool), typeof(object) })!;
+                var result = Expression.New(ctor,
+                    call,
+                    Expression.Convert(outVar, typeof(object)));
+                var lookup = Expression.Lambda<Func<object, object, (bool, object?)>>(result, mapParam, keyParam).Compile();
 
                 Func<object, GenericMapView> f = o =>
                 {
                     var enumerable = (IEnumerable)o; // IEnumerable<KeyValuePair<K,V>>
                     int count = TryGetGenericCount(o, kvType, out var c) ? c : CountEnumer(enumerable);
-
-                    (bool found, object? value) Lookup(object map, object key)
-                    {
-                        var argsLoc = new object?[] { key, null };
-                        var ok = (bool)tryGet.Invoke(map, argsLoc)!;
-                        return (ok, argsLoc[1]);
-                    }
-
                     return new GenericMapView(
                         count,
                         () => enumerable,
-                        kv => keyProp.GetValue(kv)!,
-                        kv => valProp.GetValue(kv),
-                        Lookup,
+                        getKey,
+                        getVal,
+                        lookup,
                         keyType,
                         valueType
                     );

@@ -14,23 +14,240 @@ internal class Program
     }
 }
 
-public class Dict
-{
-    private Dictionary<int, string> _dict;
+// -------------------------------------------
+// EverythingBagel: a “kitchen sink” model
+// -------------------------------------------
 
-    [GlobalSetup]
-    public void Setup()
+public enum TinyEnum { None, A, B, C }
+
+public struct MiniPoint
+{
+    public int X;
+    public int Y;
+}
+
+[DeepComparable]
+public sealed class Leaf
+{
+    public string Name { get; set; } = "";
+    public int Score { get; set; }
+}
+
+[DeepComparable]
+public sealed class EverythingBagel
+{
+    // Primitives
+    public bool B { get; set; }
+    public byte U8 { get; set; }
+    public sbyte I8 { get; set; }
+    public short I16 { get; set; }
+    public ushort U16 { get; set; }
+    public int I32 { get; set; }
+    public uint U32 { get; set; }
+    public long I64 { get; set; }
+    public ulong U64 { get; set; }
+    public float F32 { get; set; }
+    public double F64 { get; set; }
+    public decimal M128 { get; set; }
+    public char C { get; set; }
+    public string? S { get; set; }
+
+    // Nullable primitives/enums/structs
+    public int? NI32 { get; set; }
+    public TinyEnum? NEnum { get; set; }
+    public MiniPoint? NPoint { get; set; }
+
+    // Enums / Structs
+    public TinyEnum E { get; set; }
+    public MiniPoint P { get; set; }
+
+    // Time / Guid
+    public DateTime When { get; set; }
+    public DateTimeOffset WhenOff { get; set; }
+    public TimeSpan HowLong { get; set; }
+#if NET6_0_OR_GREATER
+    public DateOnly Day { get; set; }
+    public TimeOnly Clock { get; set; }
+#endif
+    public Guid Id { get; set; }
+
+    // Memory blocks
+    public Memory<byte> Blob { get; set; }
+    public ReadOnlyMemory<byte> RBlob { get; set; }
+
+    // Arrays
+    public int[]? Numbers { get; set; }
+    public string[]? Words { get; set; }
+    public int[][]? Jagged { get; set; }                // array of arrays
+    public int[,]? Rect { get; set; }                   // small rectangular
+
+    // Collections (ordered)
+    public List<int>? LInts { get; set; }
+    public IReadOnlyList<string>? RListStrings { get; set; }
+
+    // Collections (unordered)
+    [DeepCompare(OrderInsensitive = true)]
+    public HashSet<string>? Tags { get; set; }
+
+    // Dictionaries
+    public Dictionary<string, int>? ByName { get; set; }
+    public IReadOnlyDictionary<string, Leaf>? ByKey { get; set; }
+
+    // Nested class graphs
+    public Leaf? Left { get; set; }
+    public Leaf? Right { get; set; }
+
+    // Tuple / KVP
+    public (int, string) Pair { get; set; }
+    public KeyValuePair<string, int> Kvp { get; set; }
+
+    // Object / dynamic
+    public object? Boxed { get; set; }
+    public IDictionary<string, object?> Dyn { get; set; } = new ExpandoObject();
+
+    // Reference-kind example (if you want to force reference equality):
+    [DeepCompare(Kind = CompareKind.Reference)]
+    public byte[]? RefBlob { get; set; }                // reference-only
+}
+
+public static class EverythingFactory
+{
+    public static EverythingBagel Create(int seed, bool mutateShallow = false, bool mutateDeep = false)
     {
-        _dict = new Dictionary<int, string>();
-        var counter = 0;
-        while (counter < 10000)
+        var rng = new Random(seed);
+
+        var e = new EverythingBagel
         {
-            _dict.Add(counter, "hello");
-            counter++;
+            // primitives
+            B = (seed & 1) == 0,
+            U8 = (byte)(seed % 256),
+            I8 = (sbyte)((seed % 200) - 100),
+            I16 = (short)(seed % 1000),
+            U16 = (ushort)(seed % 1000),
+            I32 = seed * 31,
+            U32 = (uint)(seed * 31),
+            I64 = (long)seed * 1_000_003L,
+            U64 = (ulong)(seed * 1_000_003L),
+            F32 = (float)(seed * 0.123),
+            F64 = seed * 0.123456789,
+            M128 = (decimal)(seed * 0.987654321m),
+            C = (char)('A' + (seed % 26)),
+            S = $"S-{seed:000000}",
+
+            // nullable
+            NI32 = (seed % 3 == 0) ? null : seed * 17,
+            NEnum = (seed % 4 == 0) ? null : TinyEnum.B,
+            NPoint = (seed % 5 == 0) ? null : new MiniPoint { X = seed, Y = seed * 2 },
+
+            // enums / struct
+            E = (TinyEnum)(seed % 4),
+            P = new MiniPoint { X = seed % 100, Y = (seed % 100) * 2 },
+
+            // time / guid
+            When = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddMinutes(seed % 500),
+            WhenOff = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(seed % 500),
+            HowLong = TimeSpan.FromSeconds(seed % 10_000),
+#if NET6_0_OR_GREATER
+            Day = new DateOnly(2025, 1, 1).AddDays(seed % 365),
+            Clock = new TimeOnly((seed % 24), (seed % 60), (seed % 60)),
+#endif
+            Id = DeterministicGuid($"E-{seed}"),
+
+            // memory
+            Blob = new Memory<byte>(MakeBytes(seed, 64)),
+            RBlob = new ReadOnlyMemory<byte>(MakeBytes(seed + 1, 64)),
+
+            // arrays
+            Numbers = Enumerable.Range(0, 32).Select(i => (i + seed) % 1000).ToArray(),
+            Words = new[] { "alpha", "beta", $"w-{seed}" },
+            Jagged = new[]
+            {
+                new[] { 1, 2, 3 },
+                new[] { 5 + seed%5, 6 + seed%7 }
+            },
+            Rect = new int[,]
+            {
+                { 1, 2, 3 },
+                { 4, 5, (6 + seed % 3) }
+            },
+
+            // collections
+            LInts = Enumerable.Range(0, 64).Select(i => i * 3 + seed).ToList(),
+            RListStrings = Enumerable.Range(0, 16).Select(i => $"s{i + seed}").ToList(),
+
+            // unordered set
+            Tags = new HashSet<string>(new[] { "x", "y", $"t-{seed}" }, StringComparer.Ordinal),
+
+            // dictionaries
+            ByName = Enumerable.Range(0, 16).ToDictionary(i => $"k{i}", i => i + seed, StringComparer.Ordinal),
+            ByKey = Enumerable.Range(0, 8).ToDictionary(i => $"id{i}", i => new Leaf { Name = $"L{i}", Score = i + seed }),
+
+            // nested leaves
+            Left = new Leaf { Name = "left", Score = 10 + (seed % 5) },
+            Right = new Leaf { Name = "right", Score = 20 + (seed % 5) },
+
+            // tuple / kvp
+            Pair = (seed % 100, $"pair-{seed}"),
+            Kvp = new KeyValuePair<string, int>($"kvp-{seed}", seed % 123),
+
+            // object/dynamic
+            Boxed = (seed % 2 == 0) ? (object)($"box-{seed}") : (object)(seed % 999),
+            Dyn = MakeExpando(seed),
+
+            // reference-only
+            RefBlob = (seed % 2 == 0) ? new byte[] { 1, 2, 3 } : new byte[] { 1, 2, 3 } // same content, different reference
+        };
+
+        if (mutateShallow)
+        {
+            e.S = $"DIFF-{seed}";
+        }
+
+        if (mutateDeep)
+        {
+            // deep change: mutate nested leaf and dictionary value
+            e.Right!.Score += 1;
+            e.ByName!["k7"] += 1;
+        }
+
+        return e;
+
+        static byte[] MakeBytes(int s, int n)
+        {
+            var rng = new Random(s);
+            var arr = new byte[n];
+            rng.NextBytes(arr);
+            return arr;
+        }
+
+        static Guid DeterministicGuid(string s)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(s);
+            Span<byte> g = stackalloc byte[16];
+            for (int i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
+            return new Guid(g);
+        }
+
+        static IDictionary<string, object?> MakeExpando(int seed)
+        {
+            dynamic eo = new ExpandoObject();
+            eo.id = seed;
+            eo.name = $"dyn-{seed}";
+            eo.arr = new[] { 1, 2, 3 + (seed % 3) };
+            eo.map = new Dictionary<string, object?>
+            {
+                ["a"] = 1,
+                ["b"] = new[] { "p", "q" },
+                ["c"] = new Dictionary<string, object?> { ["z"] = seed % 10 }
+            };
+            return eo;
         }
     }
-
 }
+
+// -------------------------------------------
+// Your existing BigGraph model & benchmarks
+// -------------------------------------------
 
 public enum Role { None, Dev, Lead, Manager }
 
@@ -42,8 +259,6 @@ public partial class BigGraph
     public Dictionary<string, OrgNode> OrgIndex { get; set; } = new(StringComparer.Ordinal);
     public List<Product> Catalog { get; set; } = new();
     public List<Customer> Customers { get; set; } = new();
-
-    // NEW: heterogeneous, JSON-like metadata on the root
     public IDictionary<string, object?> Meta { get; set; } = new ExpandoObject();
 }
 
@@ -52,8 +267,6 @@ public class OrgNode
     public string Name { get; set; } = "";
     public Role Role { get; set; }
     public List<OrgNode> Reports { get; set; } = new();
-
-    // NEW: Expando “extra” blob on each org node
     public IDictionary<string, object?> Extra { get; set; } = new ExpandoObject();
 }
 
@@ -63,8 +276,6 @@ public class Product
     public string Name { get; set; } = "";
     public decimal Price { get; set; }
     public DateTime Introduced { get; set; }
-
-    // NEW: Expando attributes with nested arrays/maps/objects
     public IDictionary<string, object?> Attributes { get; set; } = new ExpandoObject();
 }
 
@@ -81,8 +292,6 @@ public class Order
     public DateTimeOffset Created { get; set; }
     public List<OrderLine> Lines { get; set; } = new();
     public Dictionary<string, string> Meta { get; set; } = new(StringComparer.Ordinal);
-
-    // NEW: Expando per-order blob (heterogeneous values)
     public IDictionary<string, object?> Extra { get; set; } = new ExpandoObject();
 }
 
@@ -91,8 +300,6 @@ public class Customer
     public Guid Id { get; set; }
     public string FullName { get; set; } = "";
     public List<Order> Orders { get; set; } = new();
-
-    // NEW: Expando profile for customers
     public IDictionary<string, object?> Profile { get; set; } = new ExpandoObject();
 }
 
@@ -169,7 +376,6 @@ public static class BigGraphFactory
             custs.Add(cust);
         }
 
-        // Root graph
         var graph = new BigGraph
         {
             Title = "BigGraph Bench",
@@ -180,16 +386,13 @@ public static class BigGraphFactory
             Meta = MakeExpando(rng, "ROOT", depth: 2)
         };
 
-        // Fill org node expandos deterministically
         FillOrgExpandos(graph.Org, rng);
-
         return graph;
     }
 
     private static void BuildOrg(OrgNode parent, int breadth, int maxDepth, int depth, Random rng)
     {
         if (depth >= maxDepth) return;
-
         for (int i = 0; i < breadth; i++)
         {
             var n = new OrgNode { Name = $"{parent.Name}-{depth}-{i}", Role = (Role)(i % 3) };
@@ -201,35 +404,24 @@ public static class BigGraphFactory
     private static void IndexOrg(OrgNode node, Dictionary<string, OrgNode> index)
     {
         index[node.Name] = node;
-        foreach (var r in node.Reports)
-            IndexOrg(r, index);
+        foreach (var r in node.Reports) IndexOrg(r, index);
     }
 
     private static void FillOrgExpandos(OrgNode node, Random rng)
     {
         node.Extra = MakeExpando(rng, node.Name, depth: 1);
-        foreach (var r in node.Reports)
-            FillOrgExpandos(r, rng);
+        foreach (var r in node.Reports) FillOrgExpandos(r, rng);
     }
 
-    /// <summary>
-    /// Builds a deterministic Expando graph with a mix of primitives, arrays, nested maps and a child expando.
-    /// Kept deterministic by the provided seed & id.
-    /// </summary>
     private static IDictionary<string, object?> MakeExpando(Random rng, string id, int depth)
     {
         var exp = new ExpandoObject();
         var d = (IDictionary<string, object?>)exp;
 
-        // primitives
         d["id"] = id;
         d["flag"] = (id.GetHashCode() & 1) == 0;
-
-        // arrays (ints + strings)
-        d["nums"] = new[] { NextRange(rng, id, 0), NextRange(rng, id, 1), NextRange(rng, id, 2) };
+        d["nums"] = new[] { 1, 2, (3 + id.Length % 3) };
         d["tags"] = new[] { "alpha", "beta", id };
-
-        // nested map with mixed values (including an array leaf)
         d["map"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["x"] = new[] { 1, 2, 3 },
@@ -240,38 +432,37 @@ public static class BigGraphFactory
             }
         };
 
-        // nested expando (recurse)
-        if (depth > 0)
-        {
-            d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
-        }
-
+        if (depth > 0) d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
         return d;
-
-        static int NextRange(Random r, string salt, int k)
-            => Math.Abs((salt.GetHashCode() + 31 * k)) % 10 + r.Next(0, 3);
     }
 
     private static Guid DeterministicGuid(string s)
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(s);
         Span<byte> g = stackalloc byte[16];
-        for (int i = 0; i < 16; i++)
-            g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
+        for (int i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
         return new Guid(g);
     }
 }
+
+// -------------------------------------------
+// Benchmarks
+// -------------------------------------------
 
 [MemoryDiagnoser]
 [PlainExporter, RPlotExporter]
 public class DeepGraphBenchmarks
 {
+    // BigGraph params
     [Params(3)] public int OrgBreadth;
     [Params(3)] public int OrgDepth;
     [Params(2000)] public int Products;
     [Params(2000)] public int Customers;
     [Params(3)] public int OrdersPerCustomer;
     [Params(4)] public int LinesPerOrder;
+
+    // EverythingBagel workload sizes (small to keep runtime reasonable)
+    [Params(2048)] public int EB_Count; // number of small leaves/collection sizes inside bagel
 
     private BigGraph _eqA = null!;
     private BigGraph _eqB = null!;
@@ -280,23 +471,41 @@ public class DeepGraphBenchmarks
     private BigGraph _neqDeepA = null!;
     private BigGraph _neqDeepB = null!;
 
+    private EverythingBagel _ebEqA = null!;
+    private EverythingBagel _ebEqB = null!;
+    private EverythingBagel _ebNeqShallowA = null!;
+    private EverythingBagel _ebNeqShallowB = null!;
+    private EverythingBagel _ebNeqDeepA = null!;
+    private EverythingBagel _ebNeqDeepB = null!;
+
     private CompareLogic _cno = null!;
 
     [GlobalSetup]
     public void Setup()
     {
+        // BigGraph
         _eqA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1);
         _eqB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1);
 
         _neqShallowA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 2);
         _neqShallowB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 2);
-        _neqShallowB.Title = "DIFFERENT"; // shallow change
+        _neqShallowB.Title = "DIFFERENT";
 
         _neqDeepA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 3);
         _neqDeepB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 3);
         var c = _neqDeepB.Customers[^1];
         var o = c.Orders[^1];
-        o.Lines[^1].Qty += 1; // deep change
+        o.Lines[^1].Qty += 1;
+
+        // EverythingBagel
+        _ebEqA = EverythingFactory.Create(seed: 100);
+        _ebEqB = EverythingFactory.Create(seed: 100);
+
+        _ebNeqShallowA = EverythingFactory.Create(seed: 200, mutateShallow: false);
+        _ebNeqShallowB = EverythingFactory.Create(seed: 200, mutateShallow: true);  // shallow change: string
+
+        _ebNeqDeepA = EverythingFactory.Create(seed: 300, mutateDeep: false);
+        _ebNeqDeepB = EverythingFactory.Create(seed: 300, mutateDeep: true);        // deep change: nested + dict
 
         _cno = new CompareLogic(new ComparisonConfig
         {
@@ -310,7 +519,7 @@ public class DeepGraphBenchmarks
         });
     }
 
-    // ---------------- Generated ----------------
+    // ----- Existing BigGraph benchmarks -----
 
     [Benchmark(Baseline = true)]
     public bool Generated_Equal() =>
@@ -336,7 +545,25 @@ public class DeepGraphBenchmarks
     public bool CNO_NotEqual_Deep() =>
         _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
 
-    // ---------------- Compare-NET-Objects ----------------
+    // ----- EverythingBagel “kitchen sink” -----
 
+    [Benchmark]
+    public bool EB_Generated_Equal() =>
+        EverythingBagelDeepEqual.AreDeepEqual(_ebEqA, _ebEqB);
 
+    [Benchmark]
+    public bool EB_CNO_Equal() =>
+        _cno.Compare(_ebEqA, _ebEqB).AreEqual;
+
+    [Benchmark]
+    public bool EB_Generated_NotEqual_Shallow() =>
+        EverythingBagelDeepEqual.AreDeepEqual(_ebNeqShallowA, _ebNeqShallowB);
+
+    [Benchmark]
+    public bool EB_Generated_NotEqual_Deep() =>
+        EverythingBagelDeepEqual.AreDeepEqual(_ebNeqDeepA, _ebNeqDeepB);
+
+    [Benchmark]
+    public bool EB_CNO_NotEqual_Deep() =>
+        _cno.Compare(_ebNeqDeepA, _ebNeqDeepB).AreEqual;
 }

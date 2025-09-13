@@ -9,11 +9,12 @@ using System.Runtime.InteropServices;
 
 namespace DeepEqual.Generator.Shared;
 
-/// <summary>
-/// Shared comparison primitives used by the generated code.
-/// Includes span-based fast paths for arrays/lists, pooled buffers for unordered compares,
-/// and optimized dictionary equality that iterates the smaller side first.
-/// </summary>
+// ---- struct functor interface (zero-delegate element comparer) ----
+public interface IElementComparer<T>
+{
+    bool Invoke(T left, T right, ComparisonContext context);
+}
+
 public static class ComparisonHelpers
 {
     // ---------------- simple values ----------------
@@ -71,75 +72,60 @@ public static class ComparisonHelpers
         return false;
     }
 
-    /// <summary>
-    /// Ordered sequence equality with deep element comparison.
-    /// Fast paths: O(1) Count precheck, T[]/List&lt;T&gt; span/indexer loops, SIMD for byte[].
-    /// </summary>
-    public static bool AreEqualSequencesOrdered<T>(
+    // ---- NEW: struct-functor overloads (hot paths) ----
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualSequencesOrdered<T, TComparer>(
         IEnumerable<T>? left,
         IEnumerable<T>? right,
-        Func<T, T, ComparisonContext, bool> elementComparer,
+        TComparer comparer,
         ComparisonContext context)
+        where TComparer : struct, IElementComparer<T>
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-        // O(1) Count precheck (when available)
         if (TryGetNonEnumeratingCount(left, out var lc) &&
             TryGetNonEnumeratingCount(right, out var rc) &&
-            lc != rc)
-        {
-            return false;
-        }
+            lc != rc) return false;
 
-        // Span/List fast path (both sides must expose a span)
         if (TryGetSpan(left, out var ls) && TryGetSpan(right, out var rs))
         {
             if (ls.Length != rs.Length) return false;
 
             if (typeof(T) == typeof(byte))
             {
-                // byte[] vs byte[]
-                if (left is byte[] lx && right is byte[] rb)
-                {
-                    return lx.AsSpan().SequenceEqual(rb);
-                }
-
+                if (left is byte[] lx && right is byte[] rb) return lx.AsSpan().SequenceEqual(rb);
 #if NET5_0_OR_GREATER
                 if (left is List<byte> lbl && right is List<byte> rbl)
-                {
                     return CollectionsMarshal.AsSpan(lbl).SequenceEqual(CollectionsMarshal.AsSpan(rbl));
-                }
 #endif
             }
+
             for (int i = 0; i < ls.Length; i++)
-            {
-                if (!elementComparer(ls[i], rs[i], context)) return false;
-            }
+                if (!comparer.Invoke(ls[i], rs[i], context)) return false;
+
             return true;
         }
 
-        // IList<T> fast path
         if (left is IList<T> la && right is IList<T> lb)
         {
             int n = la.Count;
             if (n != lb.Count) return false;
             for (int i = 0; i < n; i++)
-                if (!elementComparer(la[i], lb[i], context)) return false;
+                if (!comparer.Invoke(la[i], lb[i], context)) return false;
             return true;
         }
 
-        // IReadOnlyList<T> fast path
         if (left is IReadOnlyList<T> rla && right is IReadOnlyList<T> rlb)
         {
             int n = rla.Count;
             if (n != rlb.Count) return false;
             for (int i = 0; i < n; i++)
-                if (!elementComparer(rla[i], rlb[i], context)) return false;
+                if (!comparer.Invoke(rla[i], rlb[i], context)) return false;
             return true;
         }
 
-        // Enumerator fallback
         using var el = left.GetEnumerator();
         using var er = right.GetEnumerator();
         while (true)
@@ -148,73 +134,74 @@ public static class ComparisonHelpers
             var mr = er.MoveNext();
             if (ml != mr) return false;
             if (!ml) return true;
-            if (!elementComparer(el.Current, er.Current, context)) return false;
+            if (!comparer.Invoke(el.Current, er.Current, context)) return false;
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsHashFriendly<T>()
+    private sealed class DateTimeExactComparer : IEqualityComparer<DateTime>
     {
-        var t = typeof(T);
-        return t.IsPrimitive || t.IsEnum ||
-               t == typeof(string) ||
-               t == typeof(Guid) ||
-               t == typeof(DateTime) ||
-               t == typeof(DateTimeOffset);
+        public static readonly DateTimeExactComparer Instance = new();
+        public bool Equals(DateTime x, DateTime y) => AreEqualDateTime(x, y);
+        public int GetHashCode(DateTime x) => HashCode.Combine(x.Kind, x.Ticks);
     }
 
-    /// <summary>
-    /// Unordered (multiset) sequence equality.
-    /// - Hash-multiset fast path for primitives/enums/string/Guid/DateTime/DateTimeOffset (no delegate invokes).
-    /// - Pooled O(n²) matcher for deep comparers (no permanent allocations).
-    /// </summary>
-    public static bool AreEqualSequencesUnordered<T>(
+    private sealed class DateTimeOffsetExactComparer : IEqualityComparer<DateTimeOffset>
+    {
+        public static readonly DateTimeOffsetExactComparer Instance = new();
+        public bool Equals(DateTimeOffset x, DateTimeOffset y) => AreEqualDateTimeOffset(x, y);
+        public int GetHashCode(DateTimeOffset x) => HashCode.Combine(x.Offset, x.Ticks);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool TryGetHashFriendlyComparer<T>(out IEqualityComparer<T>? cmp)
+    {
+        var t = typeof(T);
+        if (t.IsPrimitive || t.IsEnum || t == typeof(string) || t == typeof(Guid))
+        { cmp = EqualityComparer<T>.Default; return true; }
+        if (t == typeof(DateTime))
+        { cmp = (IEqualityComparer<T>)(object)DateTimeExactComparer.Instance; return true; }
+        if (t == typeof(DateTimeOffset))
+        { cmp = (IEqualityComparer<T>)(object)DateTimeOffsetExactComparer.Instance; return true; }
+        cmp = null; return false;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualSequencesUnordered<T, TComparer>(
         IEnumerable<T>? left,
         IEnumerable<T>? right,
-        Func<T, T, ComparisonContext, bool> elementComparer,
+        TComparer comparer,
         ComparisonContext context)
+        where TComparer : struct, IElementComparer<T>
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
         if (TryGetNonEnumeratingCount(left, out var lc) &&
             TryGetNonEnumeratingCount(right, out var rc) &&
-            lc != rc)
-        {
-            return false;
-        }
+            lc != rc) return false;
 
-        // Hash-multiset for "cheap" values
-        if (IsHashFriendly<T>())
+        if (TryGetHashFriendlyComparer<T>(out var cmp))
         {
-            int capacity = 0;
-            if (TryGetNonEnumeratingCount(right, out var rc2)) capacity = rc2;
-
-            var counts = capacity > 0
-                ? new Dictionary<T, int>(capacity, EqualityComparer<T>.Default)
-                : new Dictionary<T, int>(EqualityComparer<T>.Default);
+            int capacity = TryGetNonEnumeratingCount(right, out var rc2) ? rc2 : 0;
+            var counts = capacity > 0 ? new Dictionary<T, int>(capacity, cmp!) : new Dictionary<T, int>(cmp!);
 
             foreach (var x in right)
             {
                 if (counts.TryGetValue(x, out var c)) counts[x] = c + 1;
                 else counts[x] = 1;
             }
-
             foreach (var x in left)
             {
                 if (!counts.TryGetValue(x, out var c)) return false;
                 if (c == 1) counts.Remove(x);
                 else counts[x] = c - 1;
             }
-
             return counts.Count == 0;
         }
 
-        // Deep comparer path: pool buffers, O(n²) matching
         var poolT = ArrayPool<T>.Shared;
         var poolB = ArrayPool<bool>.Shared;
 
-        // materialize right into a pooled array
         T[] rArr;
         int n = 0;
 
@@ -250,7 +237,7 @@ public static class ComparisonHelpers
                 for (int i = 0; i < n; i++)
                 {
                     if (matched[i]) continue;
-                    if (elementComparer(lx, rArr[i], context))
+                    if (comparer.Invoke(lx, rArr[i], context))
                     {
                         matched[i] = true;
                         found = true;
@@ -272,14 +259,15 @@ public static class ComparisonHelpers
         }
     }
 
-    // ---------------- arrays ----------------
+    // ---- arrays ----
 
-    /// <summary>Rank-1 array equality with indexer loop; SIMD for byte[].</summary>
-    public static bool AreEqualArrayRank1<T>(
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualArrayRank1<T, TComparer>(
         T[]? left,
         T[]? right,
-        Func<T, T, ComparisonContext, bool> elementComparer,
+        TComparer comparer,
         ComparisonContext context)
+        where TComparer : struct, IElementComparer<T>
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
@@ -291,17 +279,18 @@ public static class ComparisonHelpers
                 return lb.AsSpan().SequenceEqual(rb);
         }
         for (int i = 0; i < left.Length; i++)
-            if (!elementComparer(left[i], right[i], context)) return false;
+            if (!comparer.Invoke(left[i], right[i], context)) return false;
 
         return true;
     }
 
-    /// <summary>General (any-rank) array equality; shape precheck + elementwise compare.</summary>
-    public static bool AreEqualArray<T>(
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualArray<T, TComparer>(
         Array? left,
         Array? right,
-        Func<T, T, ComparisonContext, bool> elementComparer,
+        TComparer comparer,
         ComparisonContext context)
+        where TComparer : struct, IElementComparer<T>
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
@@ -317,9 +306,7 @@ public static class ComparisonHelpers
             {
                 int n = la.Length;
                 for (int i = 0; i < n; i++)
-                {
-                    if (!elementComparer(la[i], ra[i], context)) return false;
-                }
+                    if (!comparer.Invoke(la[i], ra[i], context)) return false;
                 return true;
             }
 
@@ -328,18 +315,14 @@ public static class ComparisonHelpers
             int n1 = left.Length;
 
             for (int i = 0; i < n1; i++)
-            {
-                if (!elementComparer((T)left.GetValue(lbL + i)!, (T)right.GetValue(lbR + i)!, context))
+                if (!comparer.Invoke((T)left.GetValue(lbL + i)!, (T)right.GetValue(lbR + i)!, context))
                     return false;
-            }
             return true;
         }
 
         for (int d = 0; d < left.Rank; d++)
         {
             if (left.GetLength(d) != right.GetLength(d)) return false;
-            // Optional (stricter) lower-bound check; uncomment if you want to treat different lower bounds as unequal:
-            // if (left.GetLowerBound(d) != right.GetLowerBound(d)) return false;
         }
 
         var ea = left.GetEnumerator();
@@ -350,34 +333,29 @@ public static class ComparisonHelpers
             bool mb = eb.MoveNext();
             if (ma != mb) return false;
             if (!ma) return true;
-            if (!elementComparer((T)ea.Current!, (T)eb.Current!, context)) return false;
+            if (!comparer.Invoke((T)ea.Current!, (T)eb.Current!, context)) return false;
         }
     }
 
-    /// <summary>Array multiset equality: flattens right once (pooled) and matches with deep comparer.</summary>
-    public static bool AreEqualArrayUnordered<T>(
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualArrayUnordered<T, TComparer>(
         Array? left,
         Array? right,
-        Func<T, T, ComparisonContext, bool> elementComparer,
+        TComparer comparer,
         ComparisonContext context)
+        where TComparer : struct, IElementComparer<T>
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
         if (left.Rank != right.Rank) return false;
 
-        static int Total(Array a)
-        {
-            int c = 1;
-            for (int d = 0; d < a.Rank; d++) c *= a.GetLength(d);
-            return c;
-        }
+        static int Total(Array a) { int c = 1; for (int d = 0; d < a.Rank; d++) c *= a.GetLength(d); return c; }
 
         int lc = Total(left);
         int rc = Total(right);
         if (lc != rc) return false;
 
-        // flatten right into pooled array
         var pool = ArrayPool<T>.Shared;
         var rArr = pool.Rent(rc);
         int n = 0;
@@ -395,7 +373,7 @@ public static class ComparisonHelpers
                 for (int i = 0; i < n; i++)
                 {
                     if (matched[i]) continue;
-                    if (elementComparer(x, rArr[i], context))
+                    if (comparer.Invoke(x, rArr[i], context))
                     {
                         matched[i] = true;
                         found = true;
@@ -417,67 +395,38 @@ public static class ComparisonHelpers
         }
     }
 
-    // ---------------- dictionaries ----------------
+    // ---- dictionaries ----
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool DictCore<TKey, TValue>(
+    private static bool DictCore<TKey, TValue, TComparer>(
         IReadOnlyDictionary<TKey, TValue> a,
         IReadOnlyDictionary<TKey, TValue> b,
-        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
-        ComparisonContext context) where TKey : notnull
+        TComparer comparer,
+        ComparisonContext context) where TComparer : struct, IElementComparer<TValue>
+        where TKey : notnull
     {
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
         if (a.Count != b.Count) return false;
 
-        // iterate the smaller map for better cache behavior
         var small = a.Count <= b.Count ? a : b;
         var large = ReferenceEquals(small, a) ? b : a;
 
         foreach (var kv in small)
         {
             if (!large.TryGetValue(kv.Key, out var rv)) return false;
-            if (!valueComparer(kv.Value, rv, context)) return false;
+            if (!comparer.Invoke(kv.Value, rv, context)) return false;
         }
         return true;
     }
 
-    /// <summary>Typed dictionary fast path (IDictionary).</summary>
-    public static bool AreEqualDictionaries<TKey, TValue>(
-        IDictionary<TKey, TValue>? left,
-        IDictionary<TKey, TValue>? right,
-        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
-        ComparisonContext context) where TKey : notnull
-    {
-        if (ReferenceEquals(left, right)) return true;
-        if (left is null || right is null) return false;
-
-        return DictCore(new ReadOnlyDictShim<TKey, TValue>(left),
-                        new ReadOnlyDictShim<TKey, TValue>(right),
-                        valueComparer, context);
-    }
-
-    /// <summary>Typed dictionary fast path (IReadOnlyDictionary).</summary>
-    public static bool AreEqualReadOnlyDictionaries<TKey, TValue>(
-        IReadOnlyDictionary<TKey, TValue>? left,
-        IReadOnlyDictionary<TKey, TValue>? right,
-        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
-        ComparisonContext context) where TKey : notnull
-    {
-        if (ReferenceEquals(left, right)) return true;
-        if (left is null || right is null) return false;
-
-        return DictCore(left, right, valueComparer, context);
-    }
-
-    /// <summary>
-    /// Flexible entry that tries IDictionary and IReadOnlyDictionary before falling back to KVP enumerables.
-    /// </summary>
-    public static bool AreEqualDictionariesAny<TKey, TValue>(
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualDictionariesAny<TKey, TValue, TComparer>(
         object? left,
         object? right,
-        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
-        ComparisonContext context) where TKey : notnull
+        TComparer comparer,
+        ComparisonContext context)
+        where TComparer : struct, IElementComparer<TValue> where TKey : notnull
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
@@ -485,25 +434,23 @@ public static class ComparisonHelpers
         if (left is IDictionary<TKey, TValue> ld && right is IDictionary<TKey, TValue> rd)
             return DictCore(new ReadOnlyDictShim<TKey, TValue>(ld),
                             new ReadOnlyDictShim<TKey, TValue>(rd),
-                            valueComparer, context);
+                            comparer, context);
 
         if (left is IReadOnlyDictionary<TKey, TValue> lrd && right is IReadOnlyDictionary<TKey, TValue> rrd)
-            return DictCore(lrd, rrd, valueComparer, context);
+            return DictCore(lrd, rrd, comparer, context);
 
-        // Fallback: treat as enumerable KVPs
         return AreEqualDictionaryEnumerables(left as IEnumerable<KeyValuePair<TKey, TValue>>,
                                              right as IEnumerable<KeyValuePair<TKey, TValue>>,
-                                             valueComparer, context);
+                                             comparer, context);
     }
 
-    /// <summary>
-    /// Enumerable KVP fallback (builds a lookup for right once; capacity pre-sized when available).
-    /// </summary>
-    public static bool AreEqualDictionaryEnumerables<TKey, TValue>(
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool AreEqualDictionaryEnumerables<TKey, TValue, TComparer>(
         IEnumerable<KeyValuePair<TKey, TValue>>? left,
         IEnumerable<KeyValuePair<TKey, TValue>>? right,
-        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
-        ComparisonContext context) where TKey : notnull
+        TComparer comparer,
+        ComparisonContext context)
+        where TComparer : struct, IElementComparer<TValue> where TKey : notnull
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
@@ -514,9 +461,7 @@ public static class ComparisonHelpers
         else if (right is ICollection<KeyValuePair<TKey, TValue>> c)
             capacity = c.Count;
 
-        var rmap = capacity > 0
-            ? new Dictionary<TKey, TValue>(capacity)
-            : new Dictionary<TKey, TValue>();
+        var rmap = capacity > 0 ? new Dictionary<TKey, TValue>(capacity) : new Dictionary<TKey, TValue>();
 
         int rcount = 0;
         foreach (var kv in right) { rmap[kv.Key] = kv.Value; rcount++; }
@@ -526,13 +471,11 @@ public static class ComparisonHelpers
         {
             lcount++;
             if (!rmap.TryGetValue(kv.Key, out var rv)) return false;
-            if (!valueComparer(kv.Value, rv, context)) return false;
+            if (!comparer.Invoke(kv.Value, rv, context)) return false;
         }
 
         return lcount == rcount;
     }
-
-    // ---------------- internal shims ----------------
 
     private readonly struct ReadOnlyDictShim<TKey, TValue> : IReadOnlyDictionary<TKey, TValue>
     {
@@ -548,7 +491,59 @@ public static class ComparisonHelpers
         IEnumerator IEnumerable.GetEnumerator() => _d.GetEnumerator();
     }
 
-    // ---------------- optional tiny wrappers (kept for inlining opportunities) ----------------
+    // ---- Back-compat: delegate-based overloads forward to struct-functor versions ----
+
+    private readonly struct FuncAdapter<T> : IElementComparer<T>
+    {
+        private readonly Func<T, T, ComparisonContext, bool> _f;
+        public FuncAdapter(Func<T, T, ComparisonContext, bool> f) => _f = f;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Invoke(T l, T r, ComparisonContext c) => _f(l, r, c);
+    }
+
+    public static bool AreEqualSequencesOrdered<T>(
+        IEnumerable<T>? left,
+        IEnumerable<T>? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
+        => AreEqualSequencesOrdered<T, FuncAdapter<T>>(left, right, new FuncAdapter<T>(elementComparer), context);
+
+    public static bool AreEqualSequencesUnordered<T>(
+        IEnumerable<T>? left,
+        IEnumerable<T>? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
+        => AreEqualSequencesUnordered<T, FuncAdapter<T>>(left, right, new FuncAdapter<T>(elementComparer), context);
+
+    public static bool AreEqualArrayRank1<T>(
+        T[]? left,
+        T[]? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
+        => AreEqualArrayRank1<T, FuncAdapter<T>>(left, right, new FuncAdapter<T>(elementComparer), context);
+
+    public static bool AreEqualArray<T>(
+        Array? left,
+        Array? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
+        => AreEqualArray<T, FuncAdapter<T>>(left, right, new FuncAdapter<T>(elementComparer), context);
+
+    public static bool AreEqualArrayUnordered<T>(
+        Array? left,
+        Array? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
+        => AreEqualArrayUnordered<T, FuncAdapter<T>>(left, right, new FuncAdapter<T>(elementComparer), context);
+
+    public static bool AreEqualDictionariesAny<TKey, TValue>(
+        object? left,
+        object? right,
+        Func<TValue, TValue, ComparisonContext, bool> valueComparer,
+        ComparisonContext context) where TKey : notnull
+        => AreEqualDictionariesAny<TKey, TValue, FuncAdapter<TValue>>(left, right, new FuncAdapter<TValue>(valueComparer), context);
+
+    // ---- tiny wrappers (kept for inlining opportunities) ----
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool CompareByEquals<T>(T l, T r, ComparisonContext _) where T : struct
