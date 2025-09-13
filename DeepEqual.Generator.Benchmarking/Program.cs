@@ -3,12 +3,6 @@ using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
 using KellermanSoftware.CompareNetObjects;
 using System.Dynamic;
-using System.Text.Json;
-using Newtonsoft.Json.Linq;
-
-// James Foster's DeepEqual
-using DeepEqual;
-using DeepEqual.Syntax;
 
 namespace DeepEqual.Generator.Benchmarking;
 
@@ -278,13 +272,13 @@ public class DeepGraphBenchmarks
 
         _neqShallowA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 2);
         _neqShallowB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 2);
-        _neqShallowB.Title = "DIFFERENT";
+        _neqShallowB.Title = "DIFFERENT"; // shallow change
 
         _neqDeepA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 3);
         _neqDeepB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 3);
         var c = _neqDeepB.Customers[^1];
         var o = c.Orders[^1];
-        o.Lines[^1].Qty += 1;
+        o.Lines[^1].Qty += 1; // deep change
 
         _cno = new CompareLogic(new ComparisonConfig
         {
@@ -315,6 +309,14 @@ public class DeepGraphBenchmarks
     // ---------------- Compare-NET-Objects ----------------
 
     [Benchmark]
+    public bool CNO_Equal() =>
+        _cno.Compare(_eqA, _eqB).AreEqual;
+
+    [Benchmark]
     public bool CNO_NotEqual_Shallow() =>
         _cno.Compare(_neqShallowA, _neqShallowB).AreEqual;
+
+    [Benchmark]
+    public bool CNO_NotEqual_Deep() =>
+        _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
 }

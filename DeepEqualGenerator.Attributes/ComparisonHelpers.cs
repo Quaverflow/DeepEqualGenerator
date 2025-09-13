@@ -44,36 +44,46 @@ public static class ComparisonHelpers
 
     // ---- Sequences (ordered/unordered) ------------------------------------
 
-    /// <summary>Ordered sequence equality with deep element comparison.</summary>
+    private static bool TryGetNonEnumeratingCount<T>(IEnumerable<T>? seq, out int count)
+    {
+        switch (seq)
+        {
+            case ICollection<T> c: count = c.Count; return true;
+            case IReadOnlyCollection<T> rc: count = rc.Count; return true;
+            case System.Collections.ICollection nc: count = nc.Count; return true;
+            default: count = 0; return false;
+        }
+    }
+
+    // Ordered comparison
     public static bool AreEqualSequencesOrdered<T>(
-            IEnumerable<T>? left,
-            IEnumerable<T>? right,
-            Func<T, T, ComparisonContext, bool> elementComparer,
-            ComparisonContext context)
+        IEnumerable<T>? left,
+        IEnumerable<T>? right,
+        Func<T, T, ComparisonContext, bool> elementComparer,
+        ComparisonContext context)
     {
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
+        // NEW: O(1) length precheck when available
+        if (TryGetNonEnumeratingCount(left, out var lc) &&
+            TryGetNonEnumeratingCount(right, out var rc) &&
+            lc != rc)
+            return false;
+
         using var el = left.GetEnumerator();
         using var er = right.GetEnumerator();
-
         while (true)
         {
             var ml = el.MoveNext();
             var mr = er.MoveNext();
             if (ml != mr) return false;
             if (!ml) return true;
-
-            if (!elementComparer(el.Current, er.Current, context))
-                return false;
+            if (!elementComparer(el.Current, er.Current, context)) return false;
         }
     }
 
-    /// <summary>
-    /// Unordered (multiset) sequence equality using deep element comparison.
-    /// O(n^2) worst-case but correct without requiring a hash/comparer for T.
-    /// Favor ordered where possible; switch to unordered only when you must.
-    /// </summary>
+    // Unordered (multiset) comparison
     public static bool AreEqualSequencesUnordered<T>(
         IEnumerable<T>? left,
         IEnumerable<T>? right,
@@ -83,7 +93,13 @@ public static class ComparisonHelpers
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-        // FIX: build a concrete list from 'right' (previous accidental token caused bad shape)
+        // NEW: O(1) length precheck when available
+        if (TryGetNonEnumeratingCount(left, out var lc) &&
+            TryGetNonEnumeratingCount(right, out var rc) &&
+            lc != rc)
+            return false;
+
+        // existing logic…
         var rightList = right as IList<T> ?? new List<T>(right);
         var matched = new bool[rightList.Count];
 
@@ -93,20 +109,11 @@ public static class ComparisonHelpers
             for (var i = 0; i < rightList.Count; i++)
             {
                 if (matched[i]) continue;
-                if (elementComparer(item, rightList[i], context))
-                {
-                    matched[i] = true;
-                    found = true;
-                    break;
-                }
+                if (elementComparer(item, rightList[i], context)) { matched[i] = true; found = true; break; }
             }
             if (!found) return false;
         }
-
-        // ensure nothing remained unmatched on the right
-        foreach (var t in matched)
-            if (!t) return false;
-
+        foreach (var m in matched) if (!m) return false;
         return true;
     }
 
