@@ -160,7 +160,12 @@ Now two `List<Customer>` collections are equal if they contain the same customer
 ```csharp
 var opts = new ComparisonOptions
 {
-    FloatEpsilon = 0f,              DoubleEpsilon = 0d,             DecimalEpsilon = 0m,            TreatNaNEqual = false,          StringComparison = StringComparison.Ordinal };
+    FloatEpsilon = 0f,
+    DoubleEpsilon = 0d,
+    DecimalEpsilon = 0m,
+    TreatNaNEqual = false,
+    StringComparison = StringComparison.Ordinal
+};
 ```
 
 Defaults are strict equality for numbers and case-sensitive ordinal for strings.
