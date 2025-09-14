@@ -6,8 +6,22 @@
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 		<IsRoslynComponent>true</IsRoslynComponent>
 		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<PackageId>DeepEqual.Generator</PackageId>
+		<Version>1.0.1</Version>
+		<Authors>Mirko Sangrigoli</Authors>
+		<Company>Quaverflow</Company>
+		<Description>High-performance deep equality source generator for .NET.</Description>
+		<PackageTags>deep-equality;source-generator;dotnet;performance;analyzers</PackageTags>
+		<RepositoryUrl>https://github.com/Quaverflow/DeepEqualGenerator</RepositoryUrl>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageReadmeFile>Readme.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
 	</PropertyGroup>
-
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="*">
 			<PrivateAssets>all</PrivateAssets>
@@ -18,5 +32,13 @@
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
+		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="$(OutputPath)DeepEqual.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="..\Readme.md" Pack="true" PackagePath="\" />
+		<None Include="..\icon.png" Pack="true" PackagePath="\" />
 	</ItemGroup>
 </Project>
