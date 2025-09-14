@@ -32,7 +32,6 @@ public static partial class DynamicDeepComparer
             gA.KeyType == gB.KeyType && gA.ValueType == gB.ValueType)
         {
             if (gA.Count != gB.Count) return false;
-
             foreach (var kv in gA.Enumerate())
             {
                 var key = gA.GetKey(kv);
@@ -42,6 +41,18 @@ public static partial class DynamicDeepComparer
                 if (!AreEqualDynamic(val, rv, ctx)) return false;
             }
             return true;
+        }
+       
+        if (left is IDictionary<string, object?> ldict && right is IDictionary<string, object?> rdict)
+        {
+            return ComparisonHelpers.AreEqualDictionariesAny<string, object?, DynamicValueComparer>(
+                ldict, rdict, new DynamicValueComparer(), ctx);
+        }
+
+        // 3) Fallback: string-keyed map abstraction (non-generic IDictionary etc.)
+        if (TryAsStringKeyedMap(left, out var strA) && TryAsStringKeyedMap(right, out var strB))
+        {
+            return EqualStringKeyedMap(strA, strB, ctx);
         }
 
         // IEnumerable (not string): ordered dynamic element comparison
@@ -64,6 +75,13 @@ public static partial class DynamicDeepComparer
         o is bool or byte or sbyte or short or ushort or int or uint or long or ulong or char or float or double or decimal || o.GetType().IsEnum;
 
     // ---- string-keyed map abstraction -------------------------------------
+    private readonly struct DynamicValueComparer : IElementComparer<object?>
+    {
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        public bool Invoke(object? l, object? r, ComparisonContext c)
+            => AreEqualDynamic(l, r, c);
+    }
 
     private readonly struct MapView
     {

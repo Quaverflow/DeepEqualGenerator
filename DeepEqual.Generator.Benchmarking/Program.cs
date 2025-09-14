@@ -1,7 +1,6 @@
 ﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
-using KellermanSoftware.CompareNetObjects;
 using System.Dynamic;
 
 namespace DeepEqual.Generator.Benchmarking;
@@ -14,17 +13,13 @@ internal class Program
     }
 }
 
-// -------------------------------------------
-// EverythingBagel: a “kitchen sink” model
-// -------------------------------------------
+// ------------------------------
+// Models (unchanged)
+// ------------------------------
 
 public enum TinyEnum { None, A, B, C }
 
-public struct MiniPoint
-{
-    public int X;
-    public int Y;
-}
+public struct MiniPoint { public int X; public int Y; }
 
 [DeepComparable]
 public sealed class Leaf
@@ -36,7 +31,6 @@ public sealed class Leaf
 [DeepComparable]
 public sealed class EverythingBagel
 {
-    // Primitives
     public bool B { get; set; }
     public byte U8 { get; set; }
     public sbyte I8 { get; set; }
@@ -52,16 +46,13 @@ public sealed class EverythingBagel
     public char C { get; set; }
     public string? S { get; set; }
 
-    // Nullable primitives/enums/structs
     public int? NI32 { get; set; }
     public TinyEnum? NEnum { get; set; }
     public MiniPoint? NPoint { get; set; }
 
-    // Enums / Structs
     public TinyEnum E { get; set; }
     public MiniPoint P { get; set; }
 
-    // Time / Guid
     public DateTime When { get; set; }
     public DateTimeOffset WhenOff { get; set; }
     public TimeSpan HowLong { get; set; }
@@ -71,54 +62,42 @@ public sealed class EverythingBagel
 #endif
     public Guid Id { get; set; }
 
-    // Memory blocks
     public Memory<byte> Blob { get; set; }
     public ReadOnlyMemory<byte> RBlob { get; set; }
 
-    // Arrays
     public int[]? Numbers { get; set; }
     public string[]? Words { get; set; }
-    public int[][]? Jagged { get; set; }                // array of arrays
-    public int[,]? Rect { get; set; }                   // small rectangular
+    public int[][]? Jagged { get; set; }
+    public int[,]? Rect { get; set; }
 
-    // Collections (ordered)
     public List<int>? LInts { get; set; }
     public IReadOnlyList<string>? RListStrings { get; set; }
 
-    // Collections (unordered)
     [DeepCompare(OrderInsensitive = true)]
     public HashSet<string>? Tags { get; set; }
 
-    // Dictionaries
     public Dictionary<string, int>? ByName { get; set; }
     public IReadOnlyDictionary<string, Leaf>? ByKey { get; set; }
 
-    // Nested class graphs
     public Leaf? Left { get; set; }
     public Leaf? Right { get; set; }
 
-    // Tuple / KVP
     public (int, string) Pair { get; set; }
     public KeyValuePair<string, int> Kvp { get; set; }
 
-    // Object / dynamic
     public object? Boxed { get; set; }
     public IDictionary<string, object?> Dyn { get; set; } = new ExpandoObject();
 
-    // Reference-kind example (if you want to force reference equality):
     [DeepCompare(Kind = CompareKind.Reference)]
-    public byte[]? RefBlob { get; set; }                // reference-only
+    public byte[]? RefBlob { get; set; }
 }
 
 public static class EverythingFactory
 {
     public static EverythingBagel Create(int seed, bool mutateShallow = false, bool mutateDeep = false)
     {
-        var rng = new Random(seed);
-
         var e = new EverythingBagel
         {
-            // primitives
             B = (seed & 1) == 0,
             U8 = (byte)(seed % 256),
             I8 = (sbyte)((seed % 200) - 100),
@@ -134,16 +113,13 @@ public static class EverythingFactory
             C = (char)('A' + (seed % 26)),
             S = $"S-{seed:000000}",
 
-            // nullable
             NI32 = (seed % 3 == 0) ? null : seed * 17,
             NEnum = (seed % 4 == 0) ? null : TinyEnum.B,
             NPoint = (seed % 5 == 0) ? null : new MiniPoint { X = seed, Y = seed * 2 },
 
-            // enums / struct
             E = (TinyEnum)(seed % 4),
             P = new MiniPoint { X = seed % 100, Y = (seed % 100) * 2 },
 
-            // time / guid
             When = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddMinutes(seed % 500),
             WhenOff = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(seed % 500),
             HowLong = TimeSpan.FromSeconds(seed % 10_000),
@@ -153,11 +129,9 @@ public static class EverythingFactory
 #endif
             Id = DeterministicGuid($"E-{seed}"),
 
-            // memory
             Blob = new Memory<byte>(MakeBytes(seed, 64)),
             RBlob = new ReadOnlyMemory<byte>(MakeBytes(seed + 1, 64)),
 
-            // arrays
             Numbers = Enumerable.Range(0, 32).Select(i => (i + seed) % 1000).ToArray(),
             Words = new[] { "alpha", "beta", $"w-{seed}" },
             Jagged = new[]
@@ -171,45 +145,32 @@ public static class EverythingFactory
                 { 4, 5, (6 + seed % 3) }
             },
 
-            // collections
             LInts = Enumerable.Range(0, 64).Select(i => i * 3 + seed).ToList(),
             RListStrings = Enumerable.Range(0, 16).Select(i => $"s{i + seed}").ToList(),
 
-            // unordered set
             Tags = new HashSet<string>(new[] { "x", "y", $"t-{seed}" }, StringComparer.Ordinal),
 
-            // dictionaries
             ByName = Enumerable.Range(0, 16).ToDictionary(i => $"k{i}", i => i + seed, StringComparer.Ordinal),
             ByKey = Enumerable.Range(0, 8).ToDictionary(i => $"id{i}", i => new Leaf { Name = $"L{i}", Score = i + seed }),
 
-            // nested leaves
             Left = new Leaf { Name = "left", Score = 10 + (seed % 5) },
             Right = new Leaf { Name = "right", Score = 20 + (seed % 5) },
 
-            // tuple / kvp
             Pair = (seed % 100, $"pair-{seed}"),
             Kvp = new KeyValuePair<string, int>($"kvp-{seed}", seed % 123),
 
-            // object/dynamic
             Boxed = (seed % 2 == 0) ? (object)($"box-{seed}") : (object)(seed % 999),
             Dyn = MakeExpando(seed),
 
-            // reference-only
-            RefBlob = (seed % 2 == 0) ? new byte[] { 1, 2, 3 } : new byte[] { 1, 2, 3 } // same content, different reference
+            RefBlob = (seed % 2 == 0) ? new byte[] { 1, 2, 3 } : new byte[] { 1, 2, 3 }
         };
 
-        if (mutateShallow)
-        {
-            e.S = $"DIFF-{seed}";
-        }
-
+        if (mutateShallow) e.S = $"DIFF-{seed}";
         if (mutateDeep)
         {
-            // deep change: mutate nested leaf and dictionary value
             e.Right!.Score += 1;
             e.ByName!["k7"] += 1;
         }
-
         return e;
 
         static byte[] MakeBytes(int s, int n)
@@ -244,10 +205,6 @@ public static class EverythingFactory
         }
     }
 }
-
-// -------------------------------------------
-// Your existing BigGraph model & benchmarks
-// -------------------------------------------
 
 public enum Role { None, Dev, Lead, Manager }
 
@@ -388,81 +345,437 @@ public static class BigGraphFactory
 
         FillOrgExpandos(graph.Org, rng);
         return graph;
-    }
 
-    private static void BuildOrg(OrgNode parent, int breadth, int maxDepth, int depth, Random rng)
-    {
-        if (depth >= maxDepth) return;
-        for (int i = 0; i < breadth; i++)
+        static void BuildOrg(OrgNode parent, int breadth, int maxDepth, int depth, Random rng)
         {
-            var n = new OrgNode { Name = $"{parent.Name}-{depth}-{i}", Role = (Role)(i % 3) };
-            parent.Reports.Add(n);
-            BuildOrg(n, breadth, maxDepth, depth + 1, rng);
-        }
-    }
-
-    private static void IndexOrg(OrgNode node, Dictionary<string, OrgNode> index)
-    {
-        index[node.Name] = node;
-        foreach (var r in node.Reports) IndexOrg(r, index);
-    }
-
-    private static void FillOrgExpandos(OrgNode node, Random rng)
-    {
-        node.Extra = MakeExpando(rng, node.Name, depth: 1);
-        foreach (var r in node.Reports) FillOrgExpandos(r, rng);
-    }
-
-    private static IDictionary<string, object?> MakeExpando(Random rng, string id, int depth)
-    {
-        var exp = new ExpandoObject();
-        var d = (IDictionary<string, object?>)exp;
-
-        d["id"] = id;
-        d["flag"] = (id.GetHashCode() & 1) == 0;
-        d["nums"] = new[] { 1, 2, (3 + id.Length % 3) };
-        d["tags"] = new[] { "alpha", "beta", id };
-        d["map"] = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["x"] = new[] { 1, 2, 3 },
-            ["y"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            if (depth >= maxDepth) return;
+            for (int i = 0; i < breadth; i++)
             {
-                ["z"] = id.Length,
-                ["u"] = new[] { "p", "q" }
+                var n = new OrgNode { Name = $"{parent.Name}-{depth}-{i}", Role = (Role)(i % 3) };
+                parent.Reports.Add(n);
+                BuildOrg(n, breadth, maxDepth, depth + 1, rng);
             }
-        };
+        }
 
-        if (depth > 0) d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
-        return d;
-    }
+        static void IndexOrg(OrgNode node, Dictionary<string, OrgNode> index)
+        {
+            index[node.Name] = node;
+            foreach (var r in node.Reports) IndexOrg(r, index);
+        }
 
-    private static Guid DeterministicGuid(string s)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(s);
-        Span<byte> g = stackalloc byte[16];
-        for (int i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
-        return new Guid(g);
+        static void FillOrgExpandos(OrgNode node, Random rng)
+        {
+            node.Extra = MakeExpando(rng, node.Name, depth: 1);
+            foreach (var r in node.Reports) FillOrgExpandos(r, rng);
+        }
+
+        static IDictionary<string, object?> MakeExpando(Random rng, string id, int depth)
+        {
+            var exp = new ExpandoObject();
+            var d = (IDictionary<string, object?>)exp;
+
+            d["id"] = id;
+            d["flag"] = (id.GetHashCode() & 1) == 0;
+            d["nums"] = new[] { 1, 2, (3 + id.Length % 3) };
+            d["tags"] = new[] { "alpha", "beta", id };
+            d["map"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["x"] = new[] { 1, 2, 3 },
+                ["y"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["z"] = id.Length,
+                    ["u"] = new[] { "p", "q" }
+                }
+            };
+
+            if (depth > 0) d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
+            return d;
+        }
+
+        static Guid DeterministicGuid(string s)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(s);
+            Span<byte> g = stackalloc byte[16];
+            for (int i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
+            return new Guid(g);
+        }
     }
 }
 
-// -------------------------------------------
-// Benchmarks
-// -------------------------------------------
+// ------------------------------
+// Manual comparers (semantics match your generator)
+// ------------------------------
+
+static class ManualValueComparer
+{
+    public static bool AreEqual(object? a, object? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        // Exact type match for boxed primitives/strings/guids, etc.
+        if (a.GetType() != b.GetType()) return false;
+
+        switch (a)
+        {
+            case string sa: return sa == (string)b!;
+            case bool va: return va == (bool)b!;
+            case char ca: return ca == (char)b!;
+            case sbyte sb: return sb == (sbyte)b!;
+            case byte by: return by == (byte)b!;
+            case short sh: return sh == (short)b!;
+            case ushort ush: return ush == (ushort)b!;
+            case int ia: return ia == (int)b!;
+            case uint uia: return uia == (uint)b!;
+            case long la: return la == (long)b!;
+            case ulong ula: return ula == (ulong)b!;
+            case float fa: return fa == (float)b!;
+            case double da: return da == (double)b!;
+            case decimal de: return de == (decimal)b!;
+            case Guid ga: return ga == (Guid)b!;
+            case DateTime dt: return dt == (DateTime)b!;
+            case DateTimeOffset dto: return dto == (DateTimeOffset)b!;
+            case TimeSpan tsp: return tsp == (TimeSpan)b!;
+#if NET6_0_OR_GREATER
+            case DateOnly don: return don == (DateOnly)b!;
+            case TimeOnly ton: return ton == (TimeOnly)b!;
+#endif
+            case TinyEnum ee: return ee == (TinyEnum)b!;
+            case MiniPoint mp: return ((MiniPoint)b!).X == mp.X && ((MiniPoint)b!).Y == mp.Y;
+
+            case byte[] arrA:          // Only used for RefBlob which is reference-only; handled by caller, not here.
+                // Should not hit here for RefBlob equality; generator uses reference semantics due to attribute.
+                return ReferenceEquals(arrA, b);
+
+            case Array aa:
+                return ArrayEqual(aa, (Array)b!);
+
+            case IDictionary<string, object?> da1:
+                return DictObjectEqual(da1, (IDictionary<string, object?>)b!);
+
+            case Leaf la1:
+                return LeafEqual(la1, (Leaf)b!);
+
+            default:
+                // Fallback for types we explicitly support elsewhere via strongly-typed paths.
+                return a.Equals(b);
+        }
+    }
+
+    private static bool ArrayEqual(Array a, Array b)
+    {
+        if (a.Rank != b.Rank) return false;
+        for (int d = 0; d < a.Rank; d++)
+            if (a.GetLength(d) != b.GetLength(d)) return false;
+
+        if (a is int[] ai && b is int[] bi) return SequenceEqual(ai, bi);
+        if (a is string[] as1 && b is string[] bs1) return SequenceEqual(as1, bs1);
+        if (a is int[][] aj && b is int[][] bj)
+        {
+            if (aj.Length != bj.Length) return false;
+            for (int i = 0; i < aj.Length; i++)
+                if (!SequenceEqual(aj[i], bj[i])) return false;
+            return true;
+        }
+
+        // Generic rectangular compare
+        var idx = new int[a.Rank];
+        return WalkRect(a, b, 0, idx);
+
+        static bool WalkRect(Array a, Array b, int dim, int[] idx)
+        {
+            if (dim == a.Rank)
+            {
+                var va = a.GetValue(idx);
+                var vb = b.GetValue(idx);
+                return Equals(va, vb);
+            }
+            for (int i = 0; i < a.GetLength(dim); i++)
+            {
+                idx[dim] = i;
+                if (!WalkRect(a, b, dim + 1, idx)) return false;
+            }
+            return true;
+        }
+
+        static bool SequenceEqual<T>(T[] x, T[] y)
+        {
+            if (x.Length != y.Length) return false;
+            for (int i = 0; i < x.Length; i++)
+                if (!Equals(x[i], y[i])) return false;
+            return true;
+        }
+    }
+
+    private static bool DictObjectEqual(IDictionary<string, object?> a, IDictionary<string, object?> b)
+    {
+        if (a.Count != b.Count) return false;
+        foreach (var kv in a)
+        {
+            if (!b.TryGetValue(kv.Key, out var bv)) return false;
+            if (!AreEqual(kv.Value, bv)) return false;
+        }
+        return true;
+    }
+
+    public static bool LeafEqual(Leaf? a, Leaf? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return a.Name == b.Name && a.Score == b.Score;
+    }
+}
+
+static class ManualEverythingComparer
+{
+    public static bool AreEqual(EverythingBagel? a, EverythingBagel? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        if (a.B != b.B || a.U8 != b.U8 || a.I8 != b.I8 || a.I16 != b.I16 || a.U16 != b.U16 ||
+            a.I32 != b.I32 || a.U32 != b.U32 || a.I64 != b.I64 || a.U64 != b.U64 ||
+            a.F32 != b.F32 || a.F64 != b.F64 || a.M128 != b.M128 || a.C != b.C ||
+            a.S != b.S) return false;
+
+        if (a.NI32 != b.NI32 || a.NEnum != b.NEnum ||
+            !(a.NPoint is null ? b.NPoint is null :
+              (b.NPoint is not null && a.NPoint.Value.X == b.NPoint.Value.X && a.NPoint.Value.Y == b.NPoint.Value.Y)))
+            return false;
+
+        if (a.E != b.E || a.P.X != b.P.X || a.P.Y != b.P.Y) return false;
+
+        if (a.When != b.When || a.WhenOff != b.WhenOff || a.HowLong != b.HowLong) return false;
+#if NET6_0_OR_GREATER
+        if (a.Day != b.Day || a.Clock != b.Clock) return false;
+#endif
+        if (a.Id != b.Id) return false;
+
+        if (!a.Blob.Span.SequenceEqual(b.Blob.Span)) return false;
+        if (!a.RBlob.Span.SequenceEqual(b.RBlob.Span)) return false;
+
+        if (!ArrayEqual(a.Numbers, b.Numbers)) return false;
+        if (!ArrayEqual(a.Words, b.Words)) return false;
+        if (!JaggedEqual(a.Jagged, b.Jagged)) return false;
+        if (!RectEqual(a.Rect, b.Rect)) return false;
+
+        if (!ListEqual(a.LInts, b.LInts)) return false;
+        if (!ListEqual(a.RListStrings, b.RListStrings)) return false;
+
+        if (!SetEqual(a.Tags, b.Tags)) return false;
+
+        if (!DictEqual(a.ByName, b.ByName)) return false;
+        if (!DictEqualLeaf(a.ByKey, b.ByKey)) return false;
+
+        if (!ManualValueComparer.LeafEqual(a.Left, b.Left)) return false;
+        if (!ManualValueComparer.LeafEqual(a.Right, b.Right)) return false;
+
+        if (a.Pair != b.Pair) return false;
+        if (a.Kvp.Key != b.Kvp.Key || a.Kvp.Value != b.Kvp.Value) return false;
+
+        // Boxed: generator uses deep semantics for primitives/strings; keep strict type+value.
+        if (!ManualValueComparer.AreEqual(a.Boxed, b.Boxed)) return false;
+
+        // Dyn (Expando): deep compare as dictionary<string,object?>
+        if (!DictObjEqual(a.Dyn, b.Dyn)) return false;
+
+        // RefBlob: reference-only due to attribute
+        if (!ReferenceEquals(a.RefBlob, b.RefBlob)) return false;
+
+        return true;
+
+        static bool ArrayEqual<T>(T[]? x, T[]? y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
+            if (x.Length != y.Length) return false;
+            for (int i = 0; i < x.Length; i++) if (!Equals(x[i], y[i])) return false;
+            return true;
+        }
+
+        static bool JaggedEqual<T>(T[][]? a, T[][]? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+                if (!ArrayEqual(a[i], b[i])) return false;
+            return true;
+        }
+
+        static bool RectEqual<T>(T[,]? a, T[,]? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.GetLength(0) != b.GetLength(0) || a.GetLength(1) != b.GetLength(1)) return false;
+            for (int i = 0; i < a.GetLength(0); i++)
+                for (int j = 0; j < a.GetLength(1); j++)
+                    if (!Equals(a[i, j], b[i, j])) return false;
+            return true;
+        }
+
+        static bool ListEqual<T>(IReadOnlyList<T>? a, IReadOnlyList<T>? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+                if (!Equals(a[i], b[i])) return false;
+            return true;
+        }
+
+        static bool SetEqual(HashSet<string>? a, HashSet<string>? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            return a.SetEquals(b);
+        }
+
+        static bool DictEqual(Dictionary<string, int>? a, Dictionary<string, int>? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Count != b.Count) return false;
+            foreach (var (k, v) in a)
+                if (!b.TryGetValue(k, out var bv) || v != bv) return false;
+            return true;
+        }
+
+        static bool DictEqualLeaf(IReadOnlyDictionary<string, Leaf>? a, IReadOnlyDictionary<string, Leaf>? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Count != b.Count) return false;
+            foreach (var (k, v) in a)
+                if (!b.TryGetValue(k, out var bv) || !ManualValueComparer.LeafEqual(v, bv)) return false;
+            return true;
+        }
+
+        static bool DictObjEqual(IDictionary<string, object?> a, IDictionary<string, object?> b)
+            => ManualValueComparer.AreEqual(a, b);
+    }
+}
+
+static class ManualBigGraphComparer
+{
+    public static bool AreEqual(BigGraph? a, BigGraph? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        if (!string.Equals(a.Title, b.Title, StringComparison.Ordinal)) return false;
+
+        if (!OrgEqual(a.Org, b.Org)) return false;
+
+        if (!ListEqual(a.Catalog, b.Catalog, ProductEqual)) return false;
+
+        if (!ListEqual(a.Customers, b.Customers, CustomerEqual)) return false;
+
+        // OrgIndex: your generator would compare it if included in model; we include equality by key+reference to same OrgNode.
+        if (!DictOrgEqual(a.OrgIndex, b.OrgIndex)) return false;
+
+        // Meta: Expando deep compare
+        if (!ManualValueComparer.AreEqual(a.Meta, b.Meta)) return false;
+
+        return true;
+
+        static bool OrgEqual(OrgNode? a, OrgNode? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (!string.Equals(a.Name, b.Name, StringComparison.Ordinal)) return false;
+            if (a.Role != b.Role) return false;
+            if (!ListEqual(a.Reports, b.Reports, OrgEqual)) return false;
+            if (!ManualValueComparer.AreEqual(a.Extra, b.Extra)) return false; // Expando
+            return true;
+        }
+
+        static bool ProductEqual(Product? a, Product? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Sku != b.Sku || a.Name != b.Name) return false;
+            if (a.Price != b.Price || a.Introduced != b.Introduced) return false;
+            if (!ManualValueComparer.AreEqual(a.Attributes, b.Attributes)) return false; // Expando
+            return true;
+        }
+
+        static bool OrderLineEqual(OrderLine? a, OrderLine? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            return a.Sku == b.Sku && a.Qty == b.Qty && a.LineTotal == b.LineTotal;
+        }
+
+        static bool OrderEqual(Order? a, Order? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Id != b.Id || a.Created != b.Created) return false;
+            if (!ListEqual(a.Lines, b.Lines, OrderLineEqual)) return false;
+            if (!DictEqual(a.Meta, b.Meta)) return false;
+            if (!ManualValueComparer.AreEqual(a.Extra, b.Extra)) return false; // Expando
+            return true;
+        }
+
+        static bool CustomerEqual(Customer? a, Customer? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Id != b.Id || a.FullName != b.FullName) return false;
+            if (!ListEqual(a.Orders, b.Orders, OrderEqual)) return false;
+            if (!ManualValueComparer.AreEqual(a.Profile, b.Profile)) return false; // Expando
+            return true;
+        }
+
+        static bool DictEqual(Dictionary<string, string>? a, Dictionary<string, string>? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Count != b.Count) return false;
+            foreach (var (k, v) in a)
+                if (!b.TryGetValue(k, out var bv) || !string.Equals(v, bv, StringComparison.Ordinal)) return false;
+            return true;
+        }
+
+        static bool DictOrgEqual(Dictionary<string, OrgNode>? a, Dictionary<string, OrgNode>? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Count != b.Count) return false;
+            foreach (var (k, v) in a)
+                if (!b.TryGetValue(k, out var bv) || !OrgEqual(v, bv)) return false;
+            return true;
+        }
+
+        static bool ListEqual<T>(List<T>? a, List<T>? b, Func<T?, T?, bool> eq)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+                if (!eq(a[i], b[i])) return false;
+            return true;
+        }
+    }
+}
+
+// ------------------------------
+// Benchmarks (Generated vs Manual only)
+// ------------------------------
 
 [MemoryDiagnoser]
-[PlainExporter, RPlotExporter]
+[PlainExporter]
 public class DeepGraphBenchmarks
 {
-    // BigGraph params
     [Params(3)] public int OrgBreadth;
     [Params(3)] public int OrgDepth;
-    [Params(2000)] public int Products;
-    [Params(2000)] public int Customers;
+    [Params(200)] public int Products;
+    [Params(200)] public int Customers;
     [Params(3)] public int OrdersPerCustomer;
     [Params(4)] public int LinesPerOrder;
 
-    // EverythingBagel workload sizes (small to keep runtime reasonable)
-    [Params(2048)] public int EB_Count; // number of small leaves/collection sizes inside bagel
+    [Params(256)] public int EB_Count;
 
     private BigGraph _eqA = null!;
     private BigGraph _eqB = null!;
@@ -478,12 +791,9 @@ public class DeepGraphBenchmarks
     private EverythingBagel _ebNeqDeepA = null!;
     private EverythingBagel _ebNeqDeepB = null!;
 
-    private CompareLogic _cno = null!;
-
     [GlobalSetup]
     public void Setup()
     {
-        // BigGraph
         _eqA = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1);
         _eqB = BigGraphFactory.Create(OrgBreadth, OrgDepth, Products, Customers, OrdersPerCustomer, LinesPerOrder, seed: 1);
 
@@ -497,73 +807,34 @@ public class DeepGraphBenchmarks
         var o = c.Orders[^1];
         o.Lines[^1].Qty += 1;
 
-        // EverythingBagel
+        // Bagels
         _ebEqA = EverythingFactory.Create(seed: 100);
         _ebEqB = EverythingFactory.Create(seed: 100);
 
         _ebNeqShallowA = EverythingFactory.Create(seed: 200, mutateShallow: false);
-        _ebNeqShallowB = EverythingFactory.Create(seed: 200, mutateShallow: true);  // shallow change: string
+        _ebNeqShallowB = EverythingFactory.Create(seed: 200, mutateShallow: true);
 
         _ebNeqDeepA = EverythingFactory.Create(seed: 300, mutateDeep: false);
-        _ebNeqDeepB = EverythingFactory.Create(seed: 300, mutateDeep: true);        // deep change: nested + dict
-
-        _cno = new CompareLogic(new ComparisonConfig
-        {
-            Caching = true,
-            MaxDifferences = 1,
-            ComparePrivateFields = false,
-            ComparePrivateProperties = false,
-            IgnoreObjectTypes = false,
-            TreatStringEmptyAndNullTheSame = false,
-            IgnoreCollectionOrder = false
-        });
+        _ebNeqDeepB = EverythingFactory.Create(seed: 300, mutateDeep: true);
     }
 
-    // ----- Existing BigGraph benchmarks -----
+    // ---- BigGraph
+    [Benchmark(Baseline = true)] public bool Generated_BigGraph_Equal() => BigGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+    [Benchmark] public bool Manual_BigGraph_Equal() => ManualBigGraphComparer.AreEqual(_eqA, _eqB);
 
-    [Benchmark(Baseline = true)]
-    public bool Generated_Equal() =>
-        BigGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+    [Benchmark] public bool Generated_BigGraph_NotEqual_Shallow() => BigGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
+    [Benchmark] public bool Manual_BigGraph_NotEqual_Shallow() => ManualBigGraphComparer.AreEqual(_neqShallowA, _neqShallowB);
 
-    [Benchmark]
-    public bool CNO_Equal() =>
-        _cno.Compare(_eqA, _eqB).AreEqual;
+    [Benchmark] public bool Generated_BigGraph_NotEqual_Deep() => BigGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
+    [Benchmark] public bool Manual_BigGraph_NotEqual_Deep() => ManualBigGraphComparer.AreEqual(_neqDeepA, _neqDeepB);
 
-    [Benchmark]
-    public bool Generated_NotEqual_Shallow() =>
-        BigGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
+    // ---- EverythingBagel
+    [Benchmark] public bool Generated_Bagel_Equal() => EverythingBagelDeepEqual.AreDeepEqual(_ebEqA, _ebEqB);
+    [Benchmark] public bool Manual_Bagel_Equal() => ManualEverythingComparer.AreEqual(_ebEqA, _ebEqB);
 
-    [Benchmark]
-    public bool CNO_NotEqual_Shallow() =>
-        _cno.Compare(_neqShallowA, _neqShallowB).AreEqual;
+    [Benchmark] public bool Generated_Bagel_NotEqual_Shallow() => EverythingBagelDeepEqual.AreDeepEqual(_ebNeqShallowA, _ebNeqShallowB);
+    [Benchmark] public bool Manual_Bagel_NotEqual_Shallow() => ManualEverythingComparer.AreEqual(_ebNeqShallowA, _ebNeqShallowB);
 
-    [Benchmark]
-    public bool Generated_NotEqual_Deep() =>
-        BigGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
-
-    [Benchmark]
-    public bool CNO_NotEqual_Deep() =>
-        _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
-
-    // ----- EverythingBagel “kitchen sink” -----
-
-    [Benchmark]
-    public bool EB_Generated_Equal() =>
-        EverythingBagelDeepEqual.AreDeepEqual(_ebEqA, _ebEqB);
-
-    [Benchmark]
-    public bool EB_CNO_Equal() =>
-        _cno.Compare(_ebEqA, _ebEqB).AreEqual;
-
-    [Benchmark]
-    public bool EB_Generated_NotEqual_Shallow() =>
-        EverythingBagelDeepEqual.AreDeepEqual(_ebNeqShallowA, _ebNeqShallowB);
-
-    [Benchmark]
-    public bool EB_Generated_NotEqual_Deep() =>
-        EverythingBagelDeepEqual.AreDeepEqual(_ebNeqDeepA, _ebNeqDeepB);
-
-    [Benchmark]
-    public bool EB_CNO_NotEqual_Deep() =>
-        _cno.Compare(_ebNeqDeepA, _ebNeqDeepB).AreEqual;
+    [Benchmark] public bool Generated_Bagel_NotEqual_Deep() => EverythingBagelDeepEqual.AreDeepEqual(_ebNeqDeepA, _ebNeqDeepB);
+    [Benchmark] public bool Manual_Bagel_NotEqual_Deep() => ManualEverythingComparer.AreEqual(_ebNeqDeepA, _ebNeqDeepB);
 }
