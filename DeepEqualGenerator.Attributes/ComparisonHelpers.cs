@@ -4,11 +4,6 @@ using System.Collections.Generic;
 
 namespace DeepEqual.Generator.Shared;
 
-public interface IElementComparer<in T>
-{
-    bool Invoke(T left, T right, ComparisonContext context);
-}
-
 public static class ComparisonHelpers
 {
     public static bool AreEqualStrings(string? a, string? b, ComparisonContext context)
