@@ -69,8 +69,8 @@ public sealed class ComparisonContext
             {
                 unchecked
                 {
-                    int a = RuntimeHelpers.GetHashCode(obj.Left);
-                    int b = RuntimeHelpers.GetHashCode(obj.Right);
+                    var a = RuntimeHelpers.GetHashCode(obj.Left);
+                    var b = RuntimeHelpers.GetHashCode(obj.Right);
                     return (a * 397) ^ b;
                 }
             }

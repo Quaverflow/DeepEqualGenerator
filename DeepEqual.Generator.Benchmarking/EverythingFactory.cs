@@ -83,7 +83,7 @@ public static class EverythingFactory
         {
             var bytes = System.Text.Encoding.UTF8.GetBytes(s);
             Span<byte> g = stackalloc byte[16];
-            for (int i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
+            for (var i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
             return new Guid(g);
         }
 

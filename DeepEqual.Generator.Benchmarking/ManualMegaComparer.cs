@@ -12,10 +12,10 @@ static class ManualMegaComparer
 
         if (a.Bagels.Count != b.Bagels.Count) return false;
         var matched = new bool[b.Bagels.Count];
-        for (int i = 0; i < a.Bagels.Count; i++)
+        for (var i = 0; i < a.Bagels.Count; i++)
         {
-            bool ok = false;
-            for (int j = 0; j < b.Bagels.Count; j++)
+            var ok = false;
+            for (var j = 0; j < b.Bagels.Count; j++)
             {
                 if (matched[j]) continue;
                 if (ManualEverythingComparer.AreEqual(a.Bagels[i], b.Bagels[j])) { matched[j] = true; ok = true; break; }
@@ -28,12 +28,12 @@ static class ManualMegaComparer
             if (!b.BagelIndex.TryGetValue(k, out var bv) || !ManualEverythingComparer.AreEqual(v, bv)) return false;
 
         if (a.Jaggy.Length != b.Jaggy.Length) return false;
-        for (int i = 0; i < a.Jaggy.Length; i++)
+        for (var i = 0; i < a.Jaggy.Length; i++)
         {
             var ax = a.Jaggy[i];
             var bx = b.Jaggy[i];
             if (ax.Length != bx.Length) return false;
-            for (int j = 0; j < ax.Length; j++)
+            for (var j = 0; j < ax.Length; j++)
                 if (ax[j] != bx[j]) return false;
         }
 
@@ -43,7 +43,7 @@ static class ManualMegaComparer
         if (!a.RData.Span.SequenceEqual(b.RData.Span)) return false;
 
         if (a.Mixed.Count != b.Mixed.Count) return false;
-        for (int i = 0; i < a.Mixed.Count; i++)
+        for (var i = 0; i < a.Mixed.Count; i++)
             if (!ManualValueComparer.AreEqual(a.Mixed[i], b.Mixed[i])) return false;
 
         if (!DictObjEqual(a.Meta, b.Meta)) return false;
@@ -52,7 +52,7 @@ static class ManualMegaComparer
         if (!ManualValueComparer.AreEqual(a.Polymorph, b.Polymorph)) return false;
 
         if (a.ForcedOrdered.Count != b.ForcedOrdered.Count) return false;
-        for (int i = 0; i < a.ForcedOrdered.Count; i++)
+        for (var i = 0; i < a.ForcedOrdered.Count; i++)
             if (a.ForcedOrdered[i] != b.ForcedOrdered[i]) return false;
 
         return true;

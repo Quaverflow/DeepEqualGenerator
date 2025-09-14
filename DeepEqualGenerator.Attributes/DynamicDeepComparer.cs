@@ -39,7 +39,7 @@ public static class DynamicDeepComparer
         if (left is Array arrA && right is Array arrB)
         {
             if (arrA.Length != arrB.Length) return false;
-            for (int i = 0; i < arrA.Length; i++)
+            for (var i = 0; i < arrA.Length; i++)
             {
                 if (!AreEqualDynamic(arrA.GetValue(i), arrB.GetValue(i), context)) return false;
             }
@@ -86,8 +86,8 @@ public static class DynamicDeepComparer
         var eb = b.GetEnumerator();
         while (true)
         {
-            bool ma = ea.MoveNext();
-            bool mb = eb.MoveNext();
+            var ma = ea.MoveNext();
+            var mb = eb.MoveNext();
             if (ma != mb) return false;
             if (!ma) return true;
             if (!AreEqualDynamic(ea.Current, eb.Current, context)) return false;

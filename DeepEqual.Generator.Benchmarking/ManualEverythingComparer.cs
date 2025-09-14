@@ -58,7 +58,7 @@ static class ManualEverythingComparer
             if (ReferenceEquals(x, y)) return true;
             if (x is null || y is null) return false;
             if (x.Length != y.Length) return false;
-            for (int i = 0; i < x.Length; i++) if (!Equals(x[i], y[i])) return false;
+            for (var i = 0; i < x.Length; i++) if (!Equals(x[i], y[i])) return false;
             return true;
         }
 
@@ -67,7 +67,7 @@ static class ManualEverythingComparer
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
             if (a.Length != b.Length) return false;
-            for (int i = 0; i < a.Length; i++)
+            for (var i = 0; i < a.Length; i++)
                 if (!ArrayEqual(a[i], b[i])) return false;
             return true;
         }
@@ -77,8 +77,8 @@ static class ManualEverythingComparer
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
             if (a.GetLength(0) != b.GetLength(0) || a.GetLength(1) != b.GetLength(1)) return false;
-            for (int i = 0; i < a.GetLength(0); i++)
-            for (int j = 0; j < a.GetLength(1); j++)
+            for (var i = 0; i < a.GetLength(0); i++)
+            for (var j = 0; j < a.GetLength(1); j++)
                 if (!Equals(a[i, j], b[i, j])) return false;
             return true;
         }
@@ -88,7 +88,7 @@ static class ManualEverythingComparer
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
             if (a.Count != b.Count) return false;
-            for (int i = 0; i < a.Count; i++)
+            for (var i = 0; i < a.Count; i++)
                 if (!Equals(a[i], b[i])) return false;
             return true;
         }

@@ -51,7 +51,7 @@ public static class ComparisonHelpers
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
         if (a.Length != b.Length) return false;
-        for (int i = 0; i < a.Length; i++)
+        for (var i = 0; i < a.Length; i++)
         {
             if (!comparer.Invoke(a[i], b[i], context)) return false;
         }
@@ -64,7 +64,7 @@ public static class ComparisonHelpers
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
         if (a.Rank != b.Rank) return false;
-        for (int d = 0; d < a.Rank; d++)
+        for (var d = 0; d < a.Rank; d++)
         {
             if (a.GetLength(d) != b.GetLength(d)) return false;
         }
@@ -75,7 +75,7 @@ public static class ComparisonHelpers
             var va = (TElement)a.GetValue(indices)!;
             var vb = (TElement)b.GetValue(indices)!;
             if (!comparer.Invoke(va, vb, context)) return false;
-            int dim = a.Rank - 1;
+            var dim = a.Rank - 1;
             while (dim >= 0)
             {
                 indices[dim]++;
@@ -110,8 +110,8 @@ public static class ComparisonHelpers
         using var eb = b.GetEnumerator();
         while (true)
         {
-            bool ma = ea.MoveNext();
-            bool mb = eb.MoveNext();
+            var ma = ea.MoveNext();
+            var mb = eb.MoveNext();
             if (ma != mb) return false;
             if (!ma) return true;
             if (!comparer.Invoke(ea.Current, eb.Current, context)) return false;
@@ -155,7 +155,7 @@ public static class ComparisonHelpers
         if (a.Length != b.Length) return false;
         var sa = a.Span;
         var sb = b.Span;
-        for (int i = 0; i < sa.Length; i++)
+        for (var i = 0; i < sa.Length; i++)
         {
             if (!comparer.Invoke(sa[i], sb[i], context)) return false;
         }
@@ -168,7 +168,7 @@ public static class ComparisonHelpers
         if (a.Length != b.Length) return false;
         var sa = a.Span;
         var sb = b.Span;
-        for (int i = 0; i < sa.Length; i++)
+        for (var i = 0; i < sa.Length; i++)
         {
             if (!comparer.Invoke(sa[i], sb[i], context)) return false;
         }
@@ -181,10 +181,10 @@ public static class ComparisonHelpers
         if (a.Count != b.Count) return false;
         if (a.Count == 0) return true;
         var matched = new bool[b.Count];
-        for (int i = 0; i < a.Count; i++)
+        for (var i = 0; i < a.Count; i++)
         {
-            bool found = false;
-            for (int j = 0; j < b.Count; j++)
+            var found = false;
+            for (var j = 0; j < b.Count; j++)
             {
                 if (matched[j]) continue;
                 if (comparer.Invoke(a[i], b[j], context))

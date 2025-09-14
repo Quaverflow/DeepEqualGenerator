@@ -22,7 +22,7 @@ public static class BigGraphFactory
         IndexOrg(root, index);
 
         var catalog = new List<Product>(products);
-        for (int i = 0; i < products; i++)
+        for (var i = 0; i < products; i++)
         {
             var p = new Product
             {
@@ -36,7 +36,7 @@ public static class BigGraphFactory
         }
 
         var custs = new List<Customer>(customers);
-        for (int c = 0; c < customers; c++)
+        for (var c = 0; c < customers; c++)
         {
             var cust = new Customer
             {
@@ -45,7 +45,7 @@ public static class BigGraphFactory
                 Profile = MakeExpando(rng, $"C{c}", depth: 2)
             };
 
-            for (int o = 0; o < ordersPerCustomer; o++)
+            for (var o = 0; o < ordersPerCustomer; o++)
             {
                 var order = new Order
                 {
@@ -58,7 +58,7 @@ public static class BigGraphFactory
                     Extra = MakeExpando(rng, $"C{c}-O{o}", depth: 1)
                 };
 
-                for (int l = 0; l < linesPerOrder; l++)
+                for (var l = 0; l < linesPerOrder; l++)
                 {
                     var prod = catalog[(l + o) % catalog.Count];
                     order.Lines.Add(new OrderLine
@@ -91,7 +91,7 @@ public static class BigGraphFactory
         static void BuildOrg(OrgNode parent, int breadth, int maxDepth, int depth, Random rng)
         {
             if (depth >= maxDepth) return;
-            for (int i = 0; i < breadth; i++)
+            for (var i = 0; i < breadth; i++)
             {
                 var n = new OrgNode { Name = $"{parent.Name}-{depth}-{i}", Role = (Role)(i % 3) };
                 parent.Reports.Add(n);
@@ -136,7 +136,7 @@ public static class BigGraphFactory
         {
             var bytes = System.Text.Encoding.UTF8.GetBytes(s);
             Span<byte> g = stackalloc byte[16];
-            for (int i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
+            for (var i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
             return new Guid(g);
         }
     }

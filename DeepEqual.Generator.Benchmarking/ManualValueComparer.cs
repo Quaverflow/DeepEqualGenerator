@@ -45,7 +45,7 @@ static class ManualValueComparer
     private static bool ArrayEqual(Array a, Array b)
     {
         if (a.Rank != b.Rank) return false;
-        for (int d = 0; d < a.Rank; d++)
+        for (var d = 0; d < a.Rank; d++)
             if (a.GetLength(d) != b.GetLength(d)) return false;
 
         if (a is int[] ai && b is int[] bi) return SequenceEqual(ai, bi);
@@ -53,7 +53,7 @@ static class ManualValueComparer
         if (a is int[][] aj && b is int[][] bj)
         {
             if (aj.Length != bj.Length) return false;
-            for (int i = 0; i < aj.Length; i++)
+            for (var i = 0; i < aj.Length; i++)
                 if (!SequenceEqual(aj[i], bj[i])) return false;
             return true;
         }
@@ -69,7 +69,7 @@ static class ManualValueComparer
                 var vb = b.GetValue(idx);
                 return Equals(va, vb);
             }
-            for (int i = 0; i < a.GetLength(dim); i++)
+            for (var i = 0; i < a.GetLength(dim); i++)
             {
                 idx[dim] = i;
                 if (!WalkRect(a, b, dim + 1, idx)) return false;
@@ -80,7 +80,7 @@ static class ManualValueComparer
         static bool SequenceEqual<T>(T[] x, T[] y)
         {
             if (x.Length != y.Length) return false;
-            for (int i = 0; i < x.Length; i++)
+            for (var i = 0; i < x.Length; i++)
                 if (!Equals(x[i], y[i])) return false;
             return true;
         }

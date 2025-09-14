@@ -21,7 +21,7 @@ public static class MegaFactory
         };
 
         mr.Bagels = new List<EverythingBagel>(bagelsCount);
-        for (int i = 0; i < bagelsCount; i++)
+        for (var i = 0; i < bagelsCount; i++)
             mr.Bagels.Add(EverythingFactory.Create(seed + i));
 
         mr.BagelIndex = mr.Bagels.Select((b, i) => (b, i)).ToDictionary(t => $"bk{t.i:000}", t => t.b, StringComparer.Ordinal);
