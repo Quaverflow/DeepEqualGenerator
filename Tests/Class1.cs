@@ -482,7 +482,7 @@ namespace DeepEqual.Tests3
             {
                 Names = new List<string> { "y", "x", "y" },
                 People = new List<Person> { new Person { Name = "p2", Age = 2 }, new Person { Name = "p1", Age = 1 } },
-                ForcedOrdered = new List<int> { 1, 2, 3 } // keep same order here
+                ForcedOrdered = new List<int> { 1, 2, 3 }
             };
             Assert.True(RootOrderInsensitiveCollectionsDeepEqual.AreDeepEqual(a, b));
 

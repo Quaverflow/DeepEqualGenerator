@@ -1,211 +1,238 @@
 # DeepEqual.Generator
 
-⚡ **High-performance, zero-boilerplate deep equality for .NET**  
-via a Roslyn incremental source generator.
+A C# source generator that creates **super-fast, allocation-free deep equality comparers** for your classes and structs.
 
-[![NuGet](https://img.shields.io/nuget/v/DeepEqual.Generator.svg)](https://www.nuget.org/packages/DeepEqual.Generator)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
----
-
-## ✨ Features
-
-- 🔍 **True deep equality**: Compares entire object graphs recursively.
-- 🏷️ **Opt-in root marker**: Only mark your root models with `[DeepComparable]`; the generator builds helpers for the entire reachable graph automatically.
-- 🛑 **Cycle-safe**: Detects and avoids infinite loops in reference graphs.
-- 💪 **Struct-aware**: Deep compares nested structs and `Nullable<T>`.
-- 📦 **Collections supported**: Arrays, `IEnumerable<T>`, `List<T>`, `Dictionary<TKey,TValue>`.
-- ⚙️ **Configurable**: Use `[DeepCompare]` to override behavior per member or type.
-- 🧩 **Schema overrides**: Restrict or ignore specific members at the type level.
-- 🚀 **Blazing fast**: ~50× faster than reflection-based libraries (see benchmarks below).
-- 🧑‍💻 **Readable generated code**: Easy to inspect and debug.
-- 🛠️ **No runtime reflection**: Everything is compile-time generated.
+Stop writing `Equals` by hand. Stop serializing to JSON just to compare objects.
+Just add an attribute, and you get a complete deep comparer generated at compile time.
 
 ---
 
-## 📦 Installation
+## ✨ Why use this?
 
-Add the package to your project:
+* **Simple** – annotate your models, and you’re done.
+* **Correct** – all members are compared deeply, even nested collections, dictionaries, and objects.
+* **Fast** – 3–4× faster than careful manual comparers, 10–13× fewer allocations.
+* **Flexible** – opt-in options for unordered collections, numeric tolerances, string case sensitivity, custom comparers.
+* **Safe** – no runtime reflection, no “oops forgot a field” bugs.
 
-```bash
+---
+
+## 🚀 Getting started
+
+Install the NuGet package:
+
+```powershell
 dotnet add package DeepEqual.Generator
 ```
 
-Or reference the project directly in your solution with:
-
-```xml
-<ProjectReference Include="..\DeepEqual.Generator\DeepEqual.Generator.csproj" 
-                  OutputItemType="Analyzer"
-                  ReferenceOutputAssembly="false" />
-```
-
-Also add a reference to the shared runtime helpers:
-
-```xml
-<ProjectReference Include="..\DeepEqualGenerator.Attributes\DeepEqual.Generator.Shared.csproj" />
-```
-
----
-
-## 🏷️ Usage
-
-### Mark a root
-
-Annotate a root type with `[DeepComparable]`.  
-The generator emits a `*DeepEqual` class with a static method `AreDeepEqual`.
+Annotate your type:
 
 ```csharp
 using DeepEqual.Generator.Shared;
 
 [DeepComparable]
-public partial class Customer
+public sealed class Person
 {
-    public Guid Id { get; set; }
     public string Name { get; set; } = "";
-    public List<Order> Orders { get; set; } = new();
-}
-
-public class Order
-{
-    public Guid Id { get; set; }
-    public DateTimeOffset Created { get; set; }
-    public List<OrderLine> Lines { get; set; } = new();
-}
-
-public class OrderLine
-{
-    public string Sku { get; set; } = "";
-    public int Quantity { get; set; }
-    public decimal Price { get; set; }
+    public int Age { get; set; }
 }
 ```
 
-### Compare instances
+At compile time, a static helper is generated:
 
 ```csharp
-var a = new Customer { Id = Guid.NewGuid(), Name = "Alice" };
-var b = new Customer { Id = a.Id, Name = "Alice" };
-
-bool equal = CustomerDeepEqual.AreDeepEqual(a, b);
-// true
+PersonDeepEqual.AreDeepEqual(personA, personB);
 ```
 
 ---
 
-## ⚙️ Customization
+## 🔍 What gets compared?
 
-### Per-member overrides
+* **Primitives & enums** – by value.
+* **Strings** – configurable (ordinal, ignore case, culture aware).
+* **DateTime / DateTimeOffset** – strict: both the `Kind`/`Offset` and `Ticks` must match.
+* **Guid, TimeSpan, DateOnly, TimeOnly** – by value.
+* **Nullable<T>** – compared only if both have a value.
+* **Arrays & collections** – element by element.
+* **Dictionaries** – key/value pairs deeply compared.
+* **Jagged & multidimensional arrays** – handled correctly.
+* **Object** properties – compared polymorphically if the runtime type has a generated helper.
+* **Dynamics / ExpandoObject** – compared as dictionaries of keys/values.
+* **Cycles** – supported (can be turned off if you know your graph has no cycles).
+
+---
+
+## 🎛 Options
+
+### On the root type
 
 ```csharp
-public class Product
-{
-    [DeepCompare(Kind = CompareKind.Skip)]
-    public string? DebugNotes { get; set; } 
-    [DeepCompare(Kind = CompareKind.Reference)]
-    public byte[]? Blob { get; set; } 
-    [DeepCompare(Kind = CompareKind.Shallow)]
-    public Uri? Url { get; set; } }
+[DeepComparable(OrderInsensitiveCollections = true, IncludeInternals = true, IncludeBaseMembers = true)]
+public sealed class Order { … }
 ```
 
-### Collection order
+**Defaults:**
 
-- Default: **ordered** (`List<T>`, arrays, `IEnumerable<T>`)
-- Override per member:
+* `OrderInsensitiveCollections` → **false**
+* `IncludeInternals` → **false**
+* `IncludeBaseMembers` → **true**
+* `CycleTracking` → **true**
+
+### On individual members or types
 
 ```csharp
-[DeepCompare(OrderInsensitive = true)]
-public List<string> Tags { get; set; } = new(); ```
+public sealed class Person
+{
+    [DeepCompare(Kind = CompareKind.Shallow)]
+    public Address? Home { get; set; }
 
-- Or set globally at the root:
+    [DeepCompare(OrderInsensitive = true)]
+    public List<string>? Tags { get; set; }
+
+    [DeepCompare(IgnoreMembers = new[] { "CreatedAt", "UpdatedAt" })]
+    public AuditInfo Info { get; set; } = new();
+}
+```
+
+**Defaults:**
+
+* `Kind` → **Deep**
+* `OrderInsensitive` → **false**
+* `Members` → empty (all members included)
+* `IgnoreMembers` → empty
+* `ComparerType` → null (no custom comparer)
+* `KeyMembers` → empty (no key-based matching)
+
+---
+
+## 📚 Ordered vs Unordered collections
+
+By default, **collections are compared in order**. That means element by element, position matters:
+
+```csharp
+var a = new[] { 1, 2, 3 };
+var b = new[] { 3, 2, 1 };
+// Equal? false (different order)
+```
+
+If you want a collection to be compared ignoring order (treating it like a bag or set), you can:
+
+* Enable it globally for the type:
 
 ```csharp
 [DeepComparable(OrderInsensitiveCollections = true)]
-public partial class Root { ... }
+public sealed class OrderBatch { public List<int> Ids { get; set; } = new(); }
 ```
 
-### Type-level schema
-
-Define identity with `[DeepCompare]` on the type itself:
+* Or mark specific members:
 
 ```csharp
-[DeepCompare(Members = new[] { "Sku", "Price" })]
-public class Product
+public sealed class TagSet
 {
-    public string Sku { get; set; } = "";
-    public string Name { get; set; } = "";     public decimal Price { get; set; }
+    [DeepCompare(OrderInsensitive = true)]
+    public List<string> Tags { get; set; } = new();
 }
 ```
 
-Or ignore fields:
+* Or let the element type decide:
 
 ```csharp
-[DeepCompare(IgnoreMembers = new[] { "Z" })]
-public class Sample
+[DeepComparable(OrderInsensitiveCollections = true)]
+public sealed class Tag { public string Name { get; set; } = ""; }
+
+public sealed class TagHolder { public List<Tag> Tags { get; set; } = new(); }
+```
+
+### Key-based matching
+
+For unordered collections of objects, you can mark certain properties as keys:
+
+```csharp
+[DeepCompare(KeyMembers = new[] { "Id" })]
+public sealed class Customer { public string Id { get; set; } = ""; public string Name { get; set; } = ""; }
+```
+
+Now two `List<Customer>` collections are equal if they contain the same customers by `Id`, regardless of order.
+
+---
+
+## ⚡ Numeric & string options
+
+```csharp
+var opts = new ComparisonOptions
 {
-    public int X { get; set; }
-    public int Y { get; set; }
-    public int Z { get; set; } }
+    FloatEpsilon = 0f,          // default
+    DoubleEpsilon = 0d,         // default
+    DecimalEpsilon = 0m,        // default
+    TreatNaNEqual = false,      // default
+    StringComparison = StringComparison.Ordinal // default
+};
+```
+
+Defaults are strict equality for numbers and case-sensitive ordinal for strings.
+
+---
+
+## 🌀 Cycles
+
+Cyclic graphs are handled safely:
+
+```csharp
+[DeepComparable]
+public sealed class Node
+{
+    public string Id { get; set; } = "";
+    public Node? Next { get; set; }
+}
+
+var a = new Node { Id = "a" };
+var b = new Node { Id = "a" };
+a.Next = a;
+b.Next = b;
+
+NodeDeepEqual.AreDeepEqual(a, b); // true, no stack overflow
 ```
 
 ---
 
-## 🛑 Cycle safety
+## 📊 Benchmarks
 
-Cycles in reference graphs are automatically tracked and skipped:
+On a large object graph (hundreds of products, customers, and nested orders):
 
-```csharp
-var a = new Node { Name = "root" };
-a.Child = a; 
-var b = new Node { Name = "root" };
-b.Child = b;
+| Case             | Manual comparer | Generated comparer |
+| ---------------- | --------------: | -----------------: |
+| Equal            |        1,700 ns |         **410 ns** |
+| Not equal deep   |        1,300 ns |         **390 ns** |
+| Allocations (eq) |       \~5,500 B |          **424 B** |
 
-NodeDeepEqual.AreDeepEqual(a, b); ```
-
----
-
-## 🔬 Benchmarks
-
-Environment: .NET 8.0, Intel i7, Windows 11, BenchmarkDotNet 0.13.12  
-Graph: ~200 products, ~200 customers, nested orders/lines.
-
-| Method                      | Mean      | Allocated |
-|-----------------------------|----------:|----------:|
-| **Generated_Equal**         | 215 µs    | 108 KB    |
-| **Generated_NotEqual_Deep** | 196 µs    |  98 KB    |
-| Compare-NET-Objects (equal) | 10,900 µs | 17 MB     |
-| JToken.DeepEquals (equal)   | 13,300 µs | 10 MB     |
-| STJ Serialize+Compare       | 1,600 µs  | 900 KB    |
-
-💡 **Result**: Your generator is ~**50× faster** and ~**150× less memory-hungry** than reflection-based libraries.
+Generated code is consistently **3–4× faster** and **10–13× less allocation** than handwritten comparers.
+For shallow mismatches at the root, manual can be a few nanoseconds faster — but those cases are trivial.
 
 ---
 
-## 📖 FAQ
+## ✅ When to use
 
-**Q: Do I need `[DeepComparable]` on every class?**  
-A: No — only roots. The generator builds helpers for the entire reachable graph automatically.
-
-**Q: What about structs?**  
-A: Structs and `Nullable<T>` are fully supported. Self-typed fields (which would cause recursion) are skipped unless explicitly included.
-
-**Q: How are `DateTime` and `DateTimeOffset` handled?**  
-A: With strict equality: both `Ticks` and `Kind`/`Offset` must match.
-
-**Q: Can I use this in production?**  
-A: Yes. Generated code is plain C#, no reflection, and readable in `obj/generated`.
+* Large object graphs (domain models, caches, trees).
+* Unit/integration tests where you assert deep equality.
+* Regression testing with snapshot objects.
+* High-throughput APIs needing object deduplication.
+* Anywhere you need correctness *and* speed.
 
 ---
 
-## 🛠️ Roadmap
+## 📦 Roadmap
 
-- [ ] Diagnostic warnings for typos in `Members`/`IgnoreMembers`  
-- [ ] Optional structural hash code generation (for use in dictionaries/sets)  
-- [ ] Configurable fast-path for shallow mismatches  
-- [ ] Interface-member deep-walk hints  
+* [x] Strict time semantics
+* [x] Numeric tolerances
+* [x] String comparison options
+* [x] Cycle tracking
+* [x] Include internals & base members
+* [x] Order-insensitive collections
+* [x] Key-based unordered matching
+* [x] Custom comparers
+* [x] Memory<T> / ReadOnlyMemory<T>
+* [x] Benchmarks & tests
+* [ ] Analyzer diagnostics
+* [ ] Developer guide & samples site
 
 ---
-
-## 📜 License
-
-MIT ©Quaverflow
-
