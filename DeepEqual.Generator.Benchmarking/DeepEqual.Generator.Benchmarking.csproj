@@ -16,7 +16,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\DeepEqual.Generator\DeepEqual.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="..\DeepEqualGenerator.Attributes\DeepEqual.Generator.Shared.csproj" />
+		<ProjectReference Include="..\DeepEqual.Generator.Shared\DeepEqual.Generator.Shared.csproj" />
 	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="DeepEqual" Version="5.1.0" />
