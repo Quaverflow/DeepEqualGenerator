@@ -329,6 +329,23 @@ namespace DeepEqual.Tests3
         public List<Item> Items { get; init; } = new();
     }
 
+    // === ADDED: minimal new POCOs for missing scenarios ===
+    [DeepComparable] public sealed class ZooList { public List<IAnimal?> Animals { get; init; } = new(); } // keeps your original failing test shape
+    // Polymorphism in other containers:
+    [DeepComparable] public sealed class ZooArray { public IAnimal[] Animals { get; init; } = Array.Empty<IAnimal>(); }                         // array of interface
+    [DeepComparable] public sealed class ZooRoList { public IReadOnlyList<IAnimal> Animals { get; init; } = new List<IAnimal>(); }             // IReadOnlyList of interface
+    // Dictionary with interface values + read-only view:
+    [DeepComparable] public sealed class ZooDict { public Dictionary<string, IAnimal> Pets { get; init; } = new(); }
+    [DeepComparable] public sealed class ZooRoDict { public IReadOnlyDictionary<string, IAnimal> Pets { get; init; } = new System.Collections.ObjectModel.ReadOnlyDictionary<string, IAnimal>(new Dictionary<string, IAnimal>()); }
+    // Composite KeyMembers using existing Item (Name + X):
+    [DeepComparable]
+    public sealed class CompositeKeyBag
+    {
+        [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { nameof(Item.Name), nameof(Item.X) })]
+        public List<Item> Items { get; init; } = new();
+    }
+    // IEnumerable<T> holder to compare vs list/array
+    [DeepComparable] public sealed class EnumerableHolder { public IEnumerable<int> Seq { get; init; } = Array.Empty<int>(); }
 
     public class StructTests
     {
@@ -595,6 +612,26 @@ namespace DeepEqual.Tests3
             Assert.False(MemoryHolderDeepEqual.AreDeepEqual(a, c));
         }
 
+        // === ADDED: Memory/ROM slices and default(empty) equality ===
+        [Fact]
+        public void Memory_And_ReadOnlyMemory_Slices_And_Defaults()
+        {
+            var base1 = new byte[] { 0, 1, 2, 3, 4, 5 };
+            var base2 = new byte[] { 0, 1, 2, 3, 4, 5 };
+            var base3 = new byte[] { 0, 1, 9, 3, 4, 5 };
+
+            var a = new MemoryHolder { Buf = new Memory<byte>(base1).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base1).Slice(1, 3) };
+            var b = new MemoryHolder { Buf = new Memory<byte>(base2).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base2).Slice(1, 3) };
+            var c = new MemoryHolder { Buf = new Memory<byte>(base3).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base3).Slice(1, 3) };
+
+            Assert.True(MemoryHolderDeepEqual.AreDeepEqual(a, b));
+            Assert.False(MemoryHolderDeepEqual.AreDeepEqual(a, c));
+
+            var d = new MemoryHolder { Buf = default, RBuf = default };
+            var e = new MemoryHolder { Buf = default, RBuf = default };
+            Assert.True(MemoryHolderDeepEqual.AreDeepEqual(d, e));
+        }
+
         [Fact]
         public void Dynamics_Expando_Missing_And_Nested_Diff()
         {
@@ -829,7 +866,7 @@ namespace DeepEqual.Tests3
         {
             var A = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 } } };
             var B = new KeyedBag { Items = new() { new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }, new() { Name = "x", X = 1 } } };
-            var C = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "y", X = 9 } } };             Assert.True(KeyedBagDeepEqual.AreDeepEqual(A, B));
+            var C = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "y", X = 9 } } }; Assert.True(KeyedBagDeepEqual.AreDeepEqual(A, B));
             Assert.False(KeyedBagDeepEqual.AreDeepEqual(A, C));
         }
 
@@ -856,9 +893,102 @@ namespace DeepEqual.Tests3
             Assert.False(OptsHolderDeepEqual.AreDeepEqual(a, b, strict));
         }
 
-
         [DeepComparable] public sealed class OptsHolder { public string? S { get; init; } public double D { get; init; } public decimal M { get; init; } }
+
+        // === ADDED: Polymorphism inside other containers (array / IReadOnlyList) ===
+        [Fact]
+        public void Polymorphism_In_Array_And_ReadOnlyList()
+        {
+            var arrA = new ZooArray { Animals = new IAnimal[] { new Cat { Age = 4, Name = "Rex" } } };
+            var arrB = new ZooArray { Animals = new IAnimal[] { new Cat { Age = 4, Name = "Rex" } } };
+            var arrC = new ZooArray { Animals = new IAnimal[] { new Cat { Age = 5, Name = "Rex" } } };
+            Assert.True(ZooArrayDeepEqual.AreDeepEqual(arrA, arrB));
+            Assert.False(ZooArrayDeepEqual.AreDeepEqual(arrA, arrC));
+
+            var roA = new ZooRoList { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 3, Name = "Mog" } } };
+            var roB = new ZooRoList { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 3, Name = "Mog" } } };
+            var roC = new ZooRoList { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 2, Name = "Mog" } } };
+            Assert.True(ZooRoListDeepEqual.AreDeepEqual(roA, roB));
+            Assert.False(ZooRoListDeepEqual.AreDeepEqual(roA, roC));
+        }
+
+        // === ADDED: Polymorphic collections handle nulls ===
+        [Fact]
+        public void Polymorphic_Collections_Handle_Nulls()
+        {
+            var A = new ZooList { Animals = new() { new Cat { Age = 1, Name = "A" }, null } };
+            var B = new ZooList { Animals = new() { new Cat { Age = 1, Name = "A" }, null } };
+            var C = new ZooList { Animals = new() { new Cat { Age = 1, Name = "A" }, new Cat { Age = 2, Name = "B" } } };
+            Assert.True(ZooListDeepEqual.AreDeepEqual(A, B));
+            Assert.False(ZooListDeepEqual.AreDeepEqual(A, C));
+        }
+
+        // === ADDED: Dictionary with interface values, polymorphic compare and type mismatch ===
+        [Fact]
+        public void Dictionary_Value_Polymorphism_And_Type_Mismatch()
+        {
+            var A = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 5, Name = "D" } } };
+            var B = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 5, Name = "D" } } };
+            var C = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 6, Name = "D" } } };
+            Assert.True(ZooDictDeepEqual.AreDeepEqual(A, B));
+            Assert.False(ZooDictDeepEqual.AreDeepEqual(A, C));
+
+            // Type mismatch (Cat vs Dog) → false even if data happens to match
+            var D = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Dog { Age = 5, Name = "D" } } };
+            Assert.False(ZooDictDeepEqual.AreDeepEqual(A, D));
+        }
+
+        // === ADDED: IReadOnlyDictionary wrapper equality ===
+        [Fact]
+        public void ReadOnlyDictionary_Wraps_Are_Equal()
+        {
+            var baseMap = new Dictionary<string, IAnimal> { ["x"] = new Cat { Age = 1, Name = "A" } };
+            var r1 = new ZooRoDict { Pets = new System.Collections.ObjectModel.ReadOnlyDictionary<string, IAnimal>(baseMap) };
+            var r2 = new ZooRoDict { Pets = new System.Collections.ObjectModel.ReadOnlyDictionary<string, IAnimal>(new Dictionary<string, IAnimal>(baseMap)) };
+            Assert.True(ZooRoDictDeepEqual.AreDeepEqual(r1, r2));
+        }
+
+        // === ADDED: Dictionary key comparer behavior (Ordinal vs OrdinalIgnoreCase) ===
+        [Fact]
+        public void Dictionary_Key_Comparer_Case_Sensitivity()
+        {
+            var a1 = new Dictionary<string, IAnimal>(StringComparer.Ordinal) { ["a"] = new Cat { Age = 1, Name = "X" } };
+            var a2 = new Dictionary<string, IAnimal>(StringComparer.Ordinal) { ["A"] = new Cat { Age = 1, Name = "X" } };
+            var b1 = new Dictionary<string, IAnimal>(StringComparer.OrdinalIgnoreCase) { ["a"] = new Cat { Age = 1, Name = "X" } };
+            var b2 = new Dictionary<string, IAnimal>(StringComparer.OrdinalIgnoreCase) { ["A"] = new Cat { Age = 1, Name = "X" } };
+
+            Assert.False(ZooDictDeepEqual.AreDeepEqual(new ZooDict { Pets = a1 }, new ZooDict { Pets = a2 }));
+            Assert.True(ZooDictDeepEqual.AreDeepEqual(new ZooDict { Pets = b1 }, new ZooDict { Pets = b2 }));
+        }
+
+        // === ADDED: Composite KeyMembers (Name + X) on unordered list ===
+        [Fact]
+        public void Unordered_List_With_Composite_KeyMembers()
+        {
+            var A = new CompositeKeyBag { Items = new() { new Item { Name = "a", X = 1 }, new Item { Name = "b", X = 2 } } };
+            var B = new CompositeKeyBag { Items = new() { new Item { Name = "b", X = 2 }, new Item { Name = "a", X = 1 } } };
+            var C = new CompositeKeyBag { Items = new() { new Item { Name = "b", X = 99 }, new Item { Name = "a", X = 1 } } };
+            Assert.True(CompositeKeyBagDeepEqual.AreDeepEqual(A, B));
+            Assert.False(CompositeKeyBagDeepEqual.AreDeepEqual(A, C));
+        }
+
+        // === ADDED: IEnumerable<T> vs array/list equality by content ===
+        [Fact]
+        public void IEnumerable_List_Array_Content_Equality()
+        {
+            var list = new List<int> { 1, 2, 3 };
+            var arr = new[] { 1, 2, 3 };
+            var A = new EnumerableHolder { Seq = list };
+            var B = new EnumerableHolder { Seq = arr };
+            Assert.True(EnumerableHolderDeepEqual.AreDeepEqual(A, B));
+        }
     }
+}
+[DeepComparable]
+public sealed class Dog : DeepEqual.Tests3.IAnimal
+{
+    public int Age { get; init; }
+    public string Name { get; init; } = "";
 }
 [DeepComparable] public sealed class FloatHolder { public float F { get; init; } }
 [DeepComparable] public sealed class DoubleWeird { public double D { get; init; } }
