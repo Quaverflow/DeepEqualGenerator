@@ -53,7 +53,7 @@ namespace DeepEqual.Generator.Shared
         /// handle graphs with loops (e.g., parent &lt;-&gt; child). This prevents infinite recursion.
         /// </para>
         /// <para>
-        /// Leave this off only if you are sure your graphs have no cycles and you want the absolute minimum overhead.
+        /// Leave this off only if you are sure your graphs have no cycles, and you want the absolute minimum overhead.
         /// </para>
         /// </remarks>
         public bool CycleTracking { get; set; }
