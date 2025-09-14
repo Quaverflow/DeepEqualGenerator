@@ -5,19 +5,23 @@ namespace DeepEqual.Generator.Shared;
 
 public static class GeneratedHelperRegistry
 {
-        private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _map = new();
+    private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> comparerMap = new();
 
     public static void Register<T>(Func<T, T, ComparisonContext, bool> comparer)
     {
-        _map[typeof(T)] = (l, r, c) => comparer((T)l, (T)r, c);
+        comparerMap[typeof(T)] = (l, r, c) => comparer((T)l, (T)r, c);
     }
 
-    public static bool TryCompareSameType(Type t, object l, object r, ComparisonContext ctx, out bool equal)
+    public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context, out bool equal)
     {
-        if (_map.TryGetValue(t, out var f))
+        if (comparerMap.TryGetValue(runtimeType, out var comparer))
         {
-            equal = f(l, r, ctx); return true;
+            equal = comparer(left, right, context);
+            return true;
         }
-        equal = false; return false;
+        equal = false;
+        return false;
     }
+
+    public static bool HasComparer(Type runtimeType) => comparerMap.ContainsKey(runtimeType);
 }

@@ -3,46 +3,69 @@ using System.Runtime.CompilerServices;
 
 namespace DeepEqual.Generator.Shared;
 
-/// <summary>Tracks visited object pairs to break cycles in reference graphs.</summary>
 public sealed class ComparisonContext
 {
-    private readonly bool _enabled;
-    private readonly HashSet<ObjectPair>? _visited;
+    private readonly bool tracking;
+    private readonly HashSet<RefPair> visited;
+    private readonly Stack<RefPair> stack;
 
-    /// <summary>A singleton, disabled instance used when we know cycles cannot occur.</summary>
-    public static readonly ComparisonContext NoTracking = new(enabled: false);
+    public static ComparisonContext NoTracking { get; } = new ComparisonContext(false);
 
-    public ComparisonContext(bool enabled = true)
+    public ComparisonContext() : this(true) { }
+
+    private ComparisonContext(bool enableTracking)
     {
-        _enabled = enabled;
-        if (enabled)
-            _visited = new HashSet<ObjectPair>(ObjectPair.ReferenceComparer.Instance);
+        tracking = enableTracking;
+        if (tracking)
+        {
+            visited = new HashSet<RefPair>(RefPair.Comparer.Instance);
+            stack = new Stack<RefPair>();
+        }
+        else
+        {
+            visited = null!;
+            stack = null!;
+        }
     }
 
     public bool Enter(object left, object right)
-        => !_enabled || _visited!.Add(new ObjectPair(left, right));
+    {
+        if (!tracking) return true;
+        var pair = new RefPair(left, right);
+        if (!visited.Add(pair)) return false;
+        stack.Push(pair);
+        return true;
+    }
 
     public void Exit(object left, object right)
     {
-        if (_enabled) _visited!.Remove(new ObjectPair(left, right));
+        if (!tracking) return;
+        if (stack.Count == 0) return;
+        var last = stack.Pop();
+        visited.Remove(last);
     }
 
-    private readonly struct ObjectPair(object left, object right)
+    private readonly struct RefPair
     {
-        private object Left { get; } = left;
-        private object Right { get; } = right;
+        public readonly object Left;
+        public readonly object Right;
 
-        public sealed class ReferenceComparer : IEqualityComparer<ObjectPair>
+        public RefPair(object left, object right)
         {
-            public static readonly ReferenceComparer Instance = new();
-            public bool Equals(ObjectPair x, ObjectPair y)
-                => ReferenceEquals(x.Left, y.Left) && ReferenceEquals(x.Right, y.Right);
-            public int GetHashCode(ObjectPair p)
+            Left = left;
+            Right = right;
+        }
+
+        public sealed class Comparer : IEqualityComparer<RefPair>
+        {
+            public static readonly Comparer Instance = new Comparer();
+            public bool Equals(RefPair x, RefPair y) => ReferenceEquals(x.Left, y.Left) && ReferenceEquals(x.Right, y.Right);
+            public int GetHashCode(RefPair obj)
             {
                 unchecked
                 {
-                    var a = RuntimeHelpers.GetHashCode(p.Left);
-                    var b = RuntimeHelpers.GetHashCode(p.Right);
+                    int a = RuntimeHelpers.GetHashCode(obj.Left);
+                    int b = RuntimeHelpers.GetHashCode(obj.Right);
                     return (a * 397) ^ b;
                 }
             }
