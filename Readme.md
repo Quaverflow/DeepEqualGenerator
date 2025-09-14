@@ -11,32 +11,47 @@ Just add an attribute, and you get a complete deep comparer generated at compile
 
 * **Simple** – annotate your models, and you’re done.
 * **Flexible** – opt-in options for unordered collections, numeric tolerances, string case sensitivity, custom comparers.
+* **Robust** – covers tricky cases (cycles, sets, dictionaries, polymorphism) that manual code often misses.
+
+---
 
 ## ⚡ Why is it faster than handwritten code?
-- **Compile-time codegen**: the comparer is emitted at build time as optimized IL — no reflection, no runtime expression building.  
-- **Direct member access**: it expands equality checks into straight-line code instead of generic loops or helper calls.  
-- **No allocations**: avoids closures, iterators, or boxing that sneak into LINQ or naive implementations.  
 
-Result: consistently **5–7× faster** than hand-written comparers, with fewer allocations.
+* **Compile-time codegen**: emitted at build time as optimized IL — no reflection, no runtime expression building.
+* **Direct member access**: expands equality checks into straight-line code instead of generic loops or helper calls.
+* **No allocations**: avoids closures, iterators, or boxing that sneak into LINQ or naive implementations.
+
+Result: consistently **5–7× faster** than handwritten comparers, and orders of magnitude faster than JSON/library approaches.
 
 ---
 
 ## 🛡️ Why is it more robust?
-- **Covers corner cases**: handles nested collections, dictionaries, sets, polymorphism, and reference cycles without special-casing in user code.  
-- **Deterministic**: guarantees the same behavior across types and shapes — no surprises when you add or reorder fields.  
-- **Safer than manual**: no risk of forgetting a property or comparing the wrong shape.  
 
-In short: you get **the performance of hand-tuned code**, but with **the coverage of a well-tested library** — and without the runtime overhead.
+* **Covers corner cases**: nested collections, dictionaries, sets, polymorphism, reference cycles.
+* **Deterministic**: guarantees the same behavior regardless of field order or shape.
+* **Safer than manual**: no risk of forgetting a property or comparing the wrong shape.
+
+In short: you get **the speed of hand-tuned code**, but with **the coverage of a well-tested library** — and without runtime overhead.
 
 ---
 
-## 🚀 Getting started
+## 📦 Installation
 
-Install the NuGet package:
+You need **two packages**:
 
 ```powershell
+dotnet add package DeepEqual.Generator.Shared
 dotnet add package DeepEqual.Generator
 ```
+
+* **Shared** → contains runtime comparers and attributes.
+* **Generator** → analyzer that emits the equality code at compile time.
+
+If you install only the generator, builds will fail because the generated code depends on the runtime package.
+
+---
+
+## 🚀 Quick start
 
 Annotate your type:
 
@@ -59,18 +74,18 @@ PersonDeepEqual.AreDeepEqual(personA, personB);
 
 ---
 
-## 🔍 What gets compared?
+## 🔍 Supported comparisons
 
 * **Primitives & enums** – by value.
 * **Strings** – configurable (ordinal, ignore case, culture aware).
-* **DateTime / DateTimeOffset** – strict: both the `Kind`/`Offset` and `Ticks` must match.
+* **DateTime / DateTimeOffset** – strict (both `Kind`/`Offset` and `Ticks` must match).
 * **Guid, TimeSpan, DateOnly, TimeOnly** – by value.
 * **Nullable<T>** – compared only if both have a value.
 * **Arrays & collections** – element by element.
 * **Dictionaries** – key/value pairs deeply compared.
 * **Jagged & multidimensional arrays** – handled correctly.
 * **Object** properties – compared polymorphically if the runtime type has a generated helper.
-* **Dynamics / ExpandoObject** – compared as dictionaries of keys/values.
+* **Dynamics / ExpandoObject** – compared as dictionaries.
 * **Cycles** – supported (can be turned off if you know your graph has no cycles).
 
 ---
@@ -91,7 +106,7 @@ public sealed class Order { … }
 * `IncludeBaseMembers` → **true**
 * `CycleTracking` → **true**
 
-### On individual members or types
+### On individual members
 
 ```csharp
 public sealed class Person
@@ -107,36 +122,20 @@ public sealed class Person
 }
 ```
 
-**Defaults:**
-
-* `Kind` → **Deep**
-* `OrderInsensitive` → **false**
-* `Members` → empty (all members included)
-* `IgnoreMembers` → empty
-* `ComparerType` → null (no custom comparer)
-* `KeyMembers` → empty (no key-based matching)
-
 ---
 
-## 📚 Ordered vs Unordered collections
+## 📚 Ordered vs unordered collections
 
-By default, **collections are compared in order**. That means element by element, position matters:
+By default, collections are compared **in order**. If you want them compared ignoring order (like sets), you can:
 
-```csharp
-var a = new[] { 1, 2, 3 };
-var b = new[] { 3, 2, 1 };
-```
-
-If you want a collection to be compared ignoring order (treating it like a bag or set), you can:
-
-* Enable it globally for the type:
+* Enable globally:
 
 ```csharp
 [DeepComparable(OrderInsensitiveCollections = true)]
 public sealed class OrderBatch { public List<int> Ids { get; set; } = new(); }
 ```
 
-* Or mark specific members:
+* On specific members:
 
 ```csharp
 public sealed class TagSet
@@ -146,25 +145,12 @@ public sealed class TagSet
 }
 ```
 
-* Or let the element type decide:
-
-```csharp
-[DeepComparable(OrderInsensitiveCollections = true)]
-public sealed class Tag { public string Name { get; set; } = ""; }
-
-public sealed class TagHolder { public List<Tag> Tags { get; set; } = new(); }
-```
-
-### Key-based matching
-
-For unordered collections of objects, you can mark certain properties as keys:
+* Or use **key-based matching**:
 
 ```csharp
 [DeepCompare(KeyMembers = new[] { "Id" })]
 public sealed class Customer { public string Id { get; set; } = ""; public string Name { get; set; } = ""; }
 ```
-
-Now two `List<Customer>` collections are equal if they contain the same customers by `Id`, regardless of order.
 
 ---
 
@@ -181,7 +167,7 @@ var opts = new ComparisonOptions
 };
 ```
 
-Defaults are strict equality for numbers and case-sensitive ordinal for strings.
+Defaults: strict equality for numbers and case-sensitive ordinal for strings.
 
 ---
 
@@ -202,111 +188,23 @@ var b = new Node { Id = "a" };
 a.Next = a;
 b.Next = b;
 
-NodeDeepEqual.AreDeepEqual(a, b); 
+NodeDeepEqual.AreDeepEqual(a, b);
 ```
 
 ---
 
 ## 📊 Benchmarks
 
-This document summarizes benchmark results comparing different approaches to deep object equality in .NET.  
-Our **source-generated comparer** is listed first, followed by manual implementations and popular libraries.
+The generated comparer outperforms handwritten, JSON, and popular libraries by a wide margin:
 
----
-
-## 🏆 Generated Comparer (this project)
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | **0.0003** | **120 B**   |
-| NotEqual (Shallow) | 0.000004 | 0 |
-| NotEqual (Deep)    | **0.0003** | **120 B** |
-
-✅ Fastest overall across equality and deep inequality checks  
-✅ Minimal allocations  
-✅ Beats manual implementations by **5–7×** on deep checks  
-✅ Outperforms libraries and JSON-based approaches by **orders of magnitude**
-
-⚠️ **Note**: For **shallow inequality** (quick “not equal” exit), handwritten code is still faster (fractions of a microsecond), but the difference is negligible in practice.
-
----
-
-## ✍️ Manual Implementations
-### Hand-written (non-LINQ)
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 0.0016 | 3,264 B |
-| NotEqual (Shallow) | **0.000001** | 0 |
-| NotEqual (Deep)    | 0.0016 | 3,264 B |
-
-### Hand-written (LINQ style)
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 0.0021 | 3,504 B |
-| NotEqual (Shallow) | **0.000001** | 0 |
-| NotEqual (Deep)    | 0.0021 | 3,504 B |
-
-⚠️ Slower than generated by **5–8×** in deep checks, with significantly more allocations.  
-⚠️ Shallow inequality is slightly faster than generated, but only by fractions of a microsecond.
-
----
-
-## 📦 JSON Serialization Approaches
-### Newtonsoft.Json
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 1,613.124 | 2,035,568 B |
-| NotEqual (Shallow) | 1,477.597 | 2,032,768 B |
-| NotEqual (Deep)    | 1,664.072 | 2,035,568 B |
-
-### System.Text.Json
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 1,401.291 | 1,398,629 B |
-| NotEqual (Shallow) | 752.367 | 428,893 B |
-| NotEqual (Deep)    | 1,385.706 | 1,368,765 B |
-
-⚠️ Thousands of times slower than generated/manual.  
-⚠️ Huge allocations (MBs per comparison).  
-❌ Only useful for debugging or one-off checks, not performance-critical paths.
-
----
-
-## 🔍 Library Comparers
-### Compare-Net-Objects
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 2,099.460 | 3,418,352 B |
-| NotEqual (Shallow) | 0.002 | 4,728 B |
-| NotEqual (Deep)    | 2,060.454 | 3,352,279 B |
-
-### ObjectsComparer
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 13,526.608 | 13,932,553 B |
-| NotEqual (Shallow) | 0.002 | 2,208 B |
-| NotEqual (Deep)    | 12,964.030 | 13,552,951 B |
-
-### FluentAssertions
-| Scenario   | Time (ms) | Allocations |
-|------------|----------:|------------:|
-| Equal      | 10,817.864 | 21,793,862 B |
-| NotEqual (Shallow) | 11,609.765 | 21,891,734 B |
-| NotEqual (Deep)    | 11,488.218 | 21,921,875 B |
-
-⚠️ **10–50 seconds per 1,000 calls**.  
-⚠️ Allocations in **tens of MBs**.  
-✅ Great for **unit tests** (readability), but unsuitable for production performance.
-
----
-
-## 📊 Takeaways
-- **Generated comparer is the clear winner**:  
-  - Sub-millisecond performance for deep equality  
-  - Near-zero allocations  
-  - Outperforms manual and library approaches by wide margins
-- Manual comparers are OK for small/shallow checks, and win **slightly** on trivial “not equal” cases — but the difference is negligible compared to their cost in deep checks.
-- JSON and library-based solutions are **magnitudes slower** and consume massive memory.
-- **FluentAssertions / ObjectsComparer / Compare-Net-Objects** are best kept for **testing** and **diagnostics**, not runtime paths.
+| Method              |    Equal | Allocations |
+| ------------------- | -------: | ----------: |
+| **Generated**       |   0.3 µs |       120 B |
+| Handwritten (Linq)  |   2.1 µs |      3.5 KB |
+| JSON (STJ)          |  1.401 s |      1.4 MB |
+| Compare-Net-Objects |  2.099 s |      3.4 MB |
+| ObjectsComparer     | 13.527 s |       13 MB |
+| FluentAssertions    | 10.818 s |       21 MB |
 
 ---
 
@@ -335,4 +233,5 @@ Our **source-generated comparer** is listed first, followed by manual implementa
 * [ ] Analyzer diagnostics
 * [ ] Developer guide & samples site
 
----
+
+update the benchmark to use the unit next to the number and increase unit ns, ms, s, etc, based on the number size
