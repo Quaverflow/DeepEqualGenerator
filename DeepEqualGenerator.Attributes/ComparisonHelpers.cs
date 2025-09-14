@@ -15,15 +15,9 @@ public static class ComparisonHelpers
 
     public static bool AreEqualEnum<T>(T a, T b) where T : struct, Enum => EqualityComparer<T>.Default.Equals(a, b);
 
-    public static bool AreEqualDateTime(DateTime a, DateTime b)
-    {
-        return a.Kind == b.Kind && a.Ticks == b.Ticks;
-    }
+    public static bool AreEqualDateTime(DateTime a, DateTime b) => a.Kind == b.Kind && a.Ticks == b.Ticks;
 
-    public static bool AreEqualDateTimeOffset(DateTimeOffset a, DateTimeOffset b)
-    {
-        return a.Offset == b.Offset && a.UtcTicks == b.UtcTicks;
-    }
+    public static bool AreEqualDateTimeOffset(DateTimeOffset a, DateTimeOffset b) => a.Offset == b.Offset && a.UtcTicks == b.UtcTicks;
 
     public static bool AreEqualDateOnly(DateOnly a, DateOnly b) => a.DayNumber == b.DayNumber;
 
