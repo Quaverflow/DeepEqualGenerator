@@ -132,7 +132,10 @@ By default, collections are compared **in order**. If you want them compared ign
 
 ```csharp
 [DeepComparable(OrderInsensitiveCollections = true)]
-public sealed class OrderBatch { public List<int> Ids { get; set; } = new(); }
+public sealed class OrderBatch
+{
+    public List<int> Ids { get; set; } = new();
+}
 ```
 
 * On specific members:
@@ -149,7 +152,11 @@ public sealed class TagSet
 
 ```csharp
 [DeepCompare(KeyMembers = new[] { "Id" })]
-public sealed class Customer { public string Id { get; set; } = ""; public string Name { get; set; } = ""; }
+public sealed class Customer
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+}
 ```
 
 ---
