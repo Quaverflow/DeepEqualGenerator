@@ -966,6 +966,12 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         if (type.IsValueType && type.SpecialType != SpecialType.None)
             return l + ".Equals(" + r + ")";
 
+        if (type.TypeKind == TypeKind.Interface || (type is INamedTypeSymbol nabs && nabs.IsAbstract))
+        {
+            var ts = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            return "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + ts + ">(" + l + ", " + r + ", " + ctxVar + ")";
+        }
+
         if (type is INamedTypeSymbol nts && IsUserObjectType(nts))
         {
             var ts = nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
