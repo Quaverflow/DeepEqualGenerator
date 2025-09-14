@@ -1,5 +1,6 @@
 ﻿using DeepEqual.Generator.Shared;
-using DeepEqual.Generator.Tests.Models;
+
+namespace DeepEqual.Generator.Tests.Models;
 
 [DeepComparable(CycleTracking = true)]
 public sealed class PolyCycleNode

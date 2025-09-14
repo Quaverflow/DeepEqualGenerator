@@ -1,6 +1,8 @@
 ﻿using System.Globalization;
 using DeepEqual.Generator.Shared;
 
+namespace DeepEqual.Generator.Tests.Models;
+
 [DeepComparable(CycleTracking = true)]
 public sealed class CultureCycleNode
 {

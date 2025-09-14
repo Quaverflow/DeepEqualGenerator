@@ -1,7 +1,7 @@
 ﻿using DeepEqual.Generator.Shared;
 using DeepEqual.Generator.Tests.Models;
 
-namespace DeepEqual.Tests3;
+namespace DeepEqual.Generator.Tests.Tests;
 
 public class CollectionsTests
 {

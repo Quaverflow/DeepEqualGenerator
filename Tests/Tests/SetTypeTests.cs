@@ -1,5 +1,7 @@
 ﻿using DeepEqual.Generator.Tests.Models;
 
+namespace DeepEqual.Generator.Tests.Tests;
+
 public class SetTypeTests
 {
     [Fact]

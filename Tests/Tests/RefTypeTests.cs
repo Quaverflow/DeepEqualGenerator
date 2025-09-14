@@ -1,7 +1,7 @@
 ﻿using System.Dynamic;
 using DeepEqual.Generator.Tests.Models;
 
-namespace DeepEqual.Tests3;
+namespace DeepEqual.Generator.Tests.Tests;
 
 public class RefTypeTests
 {
