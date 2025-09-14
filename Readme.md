@@ -133,7 +133,10 @@ If you want a collection to be compared ignoring order (treating it like a bag o
 
 ```csharp
 [DeepComparable(OrderInsensitiveCollections = true)]
-public sealed class OrderBatch { public List<int> Ids { get; set; } = new(); }
+public sealed class OrderBatch
+{
+    public List<int> Ids { get; set; } = new();
+}
 ```
 
 * Or mark specific members:
@@ -150,9 +153,15 @@ public sealed class TagSet
 
 ```csharp
 [DeepComparable(OrderInsensitiveCollections = true)]
-public sealed class Tag { public string Name { get; set; } = ""; }
+public sealed class Tag
+{
+    public string Name { get; set; } = "";
+}
 
-public sealed class TagHolder { public List<Tag> Tags { get; set; } = new(); }
+public sealed class TagHolder
+{
+    public List<Tag> Tags { get; set; } = new();
+}
 ```
 
 ### Key-based matching
@@ -161,7 +170,11 @@ For unordered collections of objects, you can mark certain properties as keys:
 
 ```csharp
 [DeepCompare(KeyMembers = new[] { "Id" })]
-public sealed class Customer { public string Id { get; set; } = ""; public string Name { get; set; } = ""; }
+public sealed class Customer
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+}
 ```
 
 Now two `List<Customer>` collections are equal if they contain the same customers by `Id`, regardless of order.
