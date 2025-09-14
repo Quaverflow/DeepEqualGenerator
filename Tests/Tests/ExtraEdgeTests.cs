@@ -54,11 +54,11 @@ public class ExtraEdgeTests
     [Fact]
     public void Polymorphism_Inside_Collections()
     {
-        var A = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
-        var B = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
-        var C = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mewz" } } };
-        Assert.True(ZooListDeepEqual.AreDeepEqual(A, B));
-        Assert.False(ZooListDeepEqual.AreDeepEqual(A, C));
+        var a = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
+        var b = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
+        var c = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mewz" } } };
+        Assert.True(ZooListDeepEqual.AreDeepEqual(a, b));
+        Assert.False(ZooListDeepEqual.AreDeepEqual(a, c));
     }
 
     [DeepComparable] public sealed class BucketItem { public string K { get; init; } = ""; public int V { get; init; } }
@@ -72,11 +72,11 @@ public class ExtraEdgeTests
     [Fact]
     public void Keyed_Unordered_SameCounts_But_DeepValue_Diff_Is_False()
     {
-        var A = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 2 } } };
-        var B = new Bucketed { Items = new() { new() { K = "a", V = 2 }, new() { K = "a", V = 1 } } };
-        var C = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 99 } } };
-        Assert.True(BucketedDeepEqual.AreDeepEqual(A, B));
-        Assert.False(BucketedDeepEqual.AreDeepEqual(A, C));
+        var a = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 2 } } };
+        var b = new Bucketed { Items = new() { new() { K = "a", V = 2 }, new() { K = "a", V = 1 } } };
+        var c = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 99 } } };
+        Assert.True(BucketedDeepEqual.AreDeepEqual(a, b));
+        Assert.False(BucketedDeepEqual.AreDeepEqual(a, c));
     }
 
     [DeepComparable] public sealed class DictShapeA { public Dictionary<string, int> Map { get; init; } = new(); }

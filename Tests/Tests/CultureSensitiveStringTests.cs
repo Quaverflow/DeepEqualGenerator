@@ -14,12 +14,12 @@ public class CultureSensitiveStringTests
         {
             CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
 
-            var A = new StringHolder { Value = "I" };               var B = new StringHolder { Value = "ı" };   
+            var a = new StringHolder { Value = "I" };               var b = new StringHolder { Value = "ı" };   
             var opts = new ComparisonOptions { StringComparison = StringComparison.CurrentCultureIgnoreCase };
-            Assert.True(StringHolderDeepEqual.AreDeepEqual(A, B, opts));
+            Assert.True(StringHolderDeepEqual.AreDeepEqual(a, b, opts));
 
             var ordinal = new ComparisonOptions { StringComparison = StringComparison.OrdinalIgnoreCase };
-            Assert.False(StringHolderDeepEqual.AreDeepEqual(A, B, ordinal));
+            Assert.False(StringHolderDeepEqual.AreDeepEqual(a, b, ordinal));
         }
         finally
         {

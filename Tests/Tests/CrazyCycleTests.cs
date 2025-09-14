@@ -22,25 +22,25 @@ public class CrazyCycleTests
         b1.Next = b2diff; b2diff.Next = b1;
         Assert.False(PolyCycleNodeDeepEqual.AreDeepEqual(a1, b1));
 
-        var b2type = new PolyCycleNode { Id = 2, Animal = new Cat { Age = 5, Name = "D" } };
-        b1.Next = b2type; b2type.Next = b1;
+        var b2Type = new PolyCycleNode { Id = 2, Animal = new Cat { Age = 5, Name = "D" } };
+        b1.Next = b2Type; b2Type.Next = b1;
         Assert.False(PolyCycleNodeDeepEqual.AreDeepEqual(a1, b1));
     }
 
     [Fact]
     public void CultureInfo_In_Cycle_Compares_By_Instance_Semantics()
     {
-        var enGB1 = CultureInfo.GetCultureInfo("en-GB");
-        var enGB2 = CultureInfo.GetCultureInfo("en-GB");
-        var itIT = CultureInfo.GetCultureInfo("it-IT");
+        var enGb1 = CultureInfo.GetCultureInfo("en-GB");
+        var enGb2 = CultureInfo.GetCultureInfo("en-GB");
+        var itIt = CultureInfo.GetCultureInfo("it-IT");
 
-        var a = new CultureCycleNode { Culture = enGB1 };
+        var a = new CultureCycleNode { Culture = enGb1 };
         a.Next = a;
 
-        var b = new CultureCycleNode { Culture = enGB2 };
+        var b = new CultureCycleNode { Culture = enGb2 };
         b.Next = b;
 
-        var c = new CultureCycleNode { Culture = itIT };
+        var c = new CultureCycleNode { Culture = itIt };
         c.Next = c;
 
         Assert.True(CultureCycleNodeDeepEqual.AreDeepEqual(a, b));

@@ -12,7 +12,7 @@ public class MegaBenchmarks
     [Params(300)] public int Customers;
     [Params(4)] public int OrdersPerCustomer;
     [Params(6)] public int LinesPerOrder;
-    [Params(384)] public int EB_Count;
+    [Params(384)] public int EbCount;
 
     [Params(128)] public int BagelsCount;
 

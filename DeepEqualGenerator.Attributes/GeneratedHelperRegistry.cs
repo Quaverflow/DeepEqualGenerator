@@ -6,14 +6,14 @@ namespace DeepEqual.Generator.Shared;
 
 public static class GeneratedHelperRegistry
 {
-    private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> comparerMap = new();
-    private static readonly ConcurrentDictionary<Type, bool> negativeCache = new();
+    private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> ComparerMap = new();
+    private static readonly ConcurrentDictionary<Type, bool> NegativeCache = new();
 
     public static void Register<T>(Func<T, T, ComparisonContext, bool> comparer)
     {
         var t = typeof(T);
-        comparerMap[t] = (l, r, c) => comparer((T)l, (T)r, c);
-        negativeCache.TryRemove(t, out _);     }
+        ComparerMap[t] = (l, r, c) => comparer((T)l, (T)r, c);
+        NegativeCache.TryRemove(t, out _);     }
 
     public static bool TryCompare(object left, object right, ComparisonContext context, out bool equal)
     {
@@ -26,19 +26,19 @@ public static class GeneratedHelperRegistry
 
     public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context, out bool equal)
     {
-        if (comparerMap.TryGetValue(runtimeType, out var comparer))
+        if (ComparerMap.TryGetValue(runtimeType, out var comparer))
         {
             equal = comparer(left, right, context);
             return true;
         }
 
-        if (negativeCache.TryGetValue(runtimeType, out var neg) && neg)
+        if (NegativeCache.TryGetValue(runtimeType, out var neg) && neg)
         {
             equal = false;
             return false;
         }
 
-        negativeCache[runtimeType] = true;
+        NegativeCache[runtimeType] = true;
         equal = false;
         return false;
     }
@@ -49,16 +49,19 @@ public static class GeneratedHelperRegistry
         var ns = runtimeType.Namespace;
         var name = runtimeType.Name; 
         var backtick = name.IndexOf('`');
-        if (backtick >= 0) name = name[..backtick];
+        if (backtick >= 0)
+        {
+            name = name[..backtick];
+        }
 
         var helperFullName = (string.IsNullOrEmpty(ns) ? "" : ns + ".") + name + "DeepEqual";
         var helper = asm.GetType(helperFullName, throwOnError: false);
         if (helper != null)
         {
             RuntimeHelpers.RunClassConstructor(helper.TypeHandle);
-            negativeCache.TryRemove(runtimeType, out _);
+            NegativeCache.TryRemove(runtimeType, out _);
         }
     }
 
-    public static bool HasComparer(Type runtimeType) => comparerMap.ContainsKey(runtimeType);
+    public static bool HasComparer(Type runtimeType) => ComparerMap.ContainsKey(runtimeType);
 }

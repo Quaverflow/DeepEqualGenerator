@@ -90,7 +90,11 @@ public static class BigGraphFactory
 
         static void BuildOrg(OrgNode parent, int breadth, int maxDepth, int depth, Random rng)
         {
-            if (depth >= maxDepth) return;
+            if (depth >= maxDepth)
+            {
+                return;
+            }
+
             for (var i = 0; i < breadth; i++)
             {
                 var n = new OrgNode { Name = $"{parent.Name}-{depth}-{i}", Role = (Role)(i % 3) };
@@ -128,7 +132,11 @@ public static class BigGraphFactory
                     ["u"] = new[] { "p", "q" }
                 }
             };
-            if (depth > 0) d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
+            if (depth > 0)
+            {
+                d["child"] = MakeExpando(rng, id + "-" + depth.ToString(), depth - 1);
+            }
+
             return d;
         }
 

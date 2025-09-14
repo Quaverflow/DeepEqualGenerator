@@ -22,7 +22,7 @@ public static class EverythingFactory
             M128 = (decimal)(seed * 0.987654321m),
             C = (char)('A' + (seed % 26)),
             S = $"S-{seed:000000}",
-            NI32 = (seed % 3 == 0) ? null : seed * 17,
+            Ni32 = (seed % 3 == 0) ? null : seed * 17,
             NEnum = (seed % 4 == 0) ? null : TinyEnum.B,
             NPoint = (seed % 5 == 0) ? null : new MiniPoint { X = seed, Y = seed * 2 },
             E = (TinyEnum)(seed % 4),
@@ -63,11 +63,15 @@ public static class EverythingFactory
             RefBlob = (seed % 2 == 0) ? new byte[] { 1, 2, 3 } : new byte[] { 1, 2, 3 }
         };
 
-        if (mutateShallow) e.S = $"DIFF-{seed}";
+        if (mutateShallow)
+        {
+            e.S = $"DIFF-{seed}";
+        }
+
         if (mutateDeep)
         {
             e.Right!.Score += 1;
-            e.ByName!["k7"] += 1;
+            e.ByName["k7"] += 1;
         }
         return e;
 

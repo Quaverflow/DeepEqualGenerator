@@ -5,72 +5,82 @@ namespace DeepEqual.Generator.Shared;
 
 public sealed class ComparisonContext
 {
-    private readonly bool tracking;
-    private readonly HashSet<RefPair> visited;
-    private readonly Stack<RefPair> stack;
+    private readonly bool _tracking;
+    private readonly HashSet<RefPair> _visited;
+    private readonly Stack<RefPair> _stack;
 
     public ComparisonOptions Options { get; }
 
-    public static ComparisonContext NoTracking { get; } = new ComparisonContext(false, new ComparisonOptions());
+    public static ComparisonContext NoTracking { get; } = new(false, new ComparisonOptions());
 
     public ComparisonContext() : this(true, new ComparisonOptions()) { }
 
-    public ComparisonContext(ComparisonOptions options) : this(true, options ?? new ComparisonOptions()) { }
+    public ComparisonContext(ComparisonOptions? options) : this(true, options ?? new ComparisonOptions()) { }
 
-    private ComparisonContext(bool enableTracking, ComparisonOptions options)
+    private ComparisonContext(bool enableTracking, ComparisonOptions? options)
     {
-        tracking = enableTracking;
+        _tracking = enableTracking;
         Options = options ?? new ComparisonOptions();
-        if (tracking)
+        if (_tracking)
         {
-            visited = new HashSet<RefPair>(RefPair.Comparer.Instance);
-            stack = new Stack<RefPair>();
+            _visited = new HashSet<RefPair>(RefPair.Comparer.Instance);
+            _stack = new Stack<RefPair>();
         }
         else
         {
-            visited = null!;
-            stack = null!;
+            _visited = null!;
+            _stack = null!;
         }
     }
 
     public bool Enter(object left, object right)
     {
-        if (!tracking) return true;
+        if (!_tracking)
+        {
+            return true;
+        }
+
         var pair = new RefPair(left, right);
-        if (!visited.Add(pair)) return false;
-        stack.Push(pair);
+        if (!_visited.Add(pair))
+        {
+            return false;
+        }
+
+        _stack.Push(pair);
         return true;
     }
 
     public void Exit(object left, object right)
     {
-        if (!tracking) return;
-        if (stack.Count == 0) return;
-        var last = stack.Pop();
-        visited.Remove(last);
+        if (!_tracking)
+        {
+            return;
+        }
+
+        if (_stack.Count == 0)
+        {
+            return;
+        }
+
+        var last = _stack.Pop();
+        _visited.Remove(last);
     }
 
-    private readonly struct RefPair
+    private readonly struct RefPair(object left, object right)
     {
-        public readonly object Left;
-        public readonly object Right;
-
-        public RefPair(object left, object right)
-        {
-            Left = left;
-            Right = right;
-        }
+        private readonly object _left = left;
+        private readonly object _right = right;
 
         public sealed class Comparer : IEqualityComparer<RefPair>
         {
-            public static readonly Comparer Instance = new Comparer();
-            public bool Equals(RefPair x, RefPair y) => ReferenceEquals(x.Left, y.Left) && ReferenceEquals(x.Right, y.Right);
+            public static readonly Comparer Instance = new();
+            public bool Equals(RefPair x, RefPair y) => ReferenceEquals(x._left, y._left) && ReferenceEquals(x._right, y._right);
             public int GetHashCode(RefPair obj)
             {
                 unchecked
                 {
-                    var a = RuntimeHelpers.GetHashCode(obj.Left);
-                    var b = RuntimeHelpers.GetHashCode(obj.Right);
+                    var a = RuntimeHelpers.GetHashCode(obj._left);
+                    var b = RuntimeHelpers.GetHashCode(obj._right);
                     return (a * 397) ^ b;
                 }
             }

@@ -20,7 +20,7 @@ public sealed class EverythingBagel
     public decimal M128 { get; set; }
     public char C { get; set; }
     public string? S { get; set; }
-    public int? NI32 { get; set; }
+    public int? Ni32 { get; set; }
     public TinyEnum? NEnum { get; set; }
     public MiniPoint? NPoint { get; set; }
     public TinyEnum E { get; set; }
