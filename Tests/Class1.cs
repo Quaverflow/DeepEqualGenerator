@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
 using Xunit;
 using DeepEqual.Generator.Shared;
 
@@ -229,6 +231,89 @@ namespace DeepEqual.Tests3
         public Dictionary<int, Person> Map { get; set; } = new();
     }
 
+    // -------- Additional types for new tests --------
+
+    public class BaseEntity
+    {
+        public string? BaseId { get; set; }
+    }
+
+    [DeepComparable(IncludeBaseMembers = true)]
+    public sealed class DerivedWithBaseIncluded : BaseEntity
+    {
+        public string? Name { get; set; }
+    }
+
+    [DeepComparable(IncludeBaseMembers = false)]
+    public sealed class DerivedWithBaseExcluded : BaseEntity
+    {
+        public string? Name { get; set; }
+    }
+
+    public sealed class CustomerK
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+    }
+
+    [DeepComparable]
+    public sealed class CustomersKeyed
+    {
+        [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { "Id" })]
+        public List<CustomerK> Customers { get; set; } = new();
+    }
+
+    [DeepComparable]
+    public sealed class CustomersUnkeyed
+    {
+        [DeepCompare(OrderInsensitive = true)]
+        public List<Person> People { get; set; } = new();
+    }
+
+    public sealed class CaseInsensitiveStringComparer : IEqualityComparer<string>
+    {
+        public bool Equals(string? x, string? y) => string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
+        public int GetHashCode(string obj) => StringComparer.OrdinalIgnoreCase.GetHashCode(obj);
+    }
+
+    [DeepComparable]
+    public sealed class CustomComparerHolder
+    {
+        [DeepCompare(ComparerType = typeof(CaseInsensitiveStringComparer))]
+        public string? Code { get; set; }
+    }
+
+    public sealed class DoubleEpsComparer : IEqualityComparer<double>
+    {
+        private readonly double _eps;
+        public DoubleEpsComparer() : this(1e-6) { }
+        public DoubleEpsComparer(double eps) { _eps = eps; }
+        public bool Equals(double x, double y) => Math.Abs(x - y) <= _eps || (double.IsNaN(x) && double.IsNaN(y));
+        public int GetHashCode(double obj) => 0;
+    }
+
+    [DeepComparable]
+    public sealed class NumericWithComparer
+    {
+        [DeepCompare(ComparerType = typeof(DoubleEpsComparer))]
+        public double Value { get; set; }
+    }
+
+    [DeepComparable]
+    public sealed class MemoryHolder
+    {
+        public Memory<byte> Buf { get; set; }
+        public ReadOnlyMemory<byte> RBuf { get; set; }
+    }
+
+    [DeepComparable]
+    public sealed class DynamicHolder
+    {
+        public IDictionary<string, object?> Data { get; set; } = new ExpandoObject();
+    }
+
+    // -------- Test classes --------
+
     public class StructTests
     {
         [Fact]
@@ -447,6 +532,81 @@ namespace DeepEqual.Tests3
             b2.Id = 99;
             Assert.False(CycleNodeDeepEqual.AreDeepEqual(a1, b1));
         }
+
+        [Fact]
+        public void Base_Members_Included_And_Excluded()
+        {
+            var a = new DerivedWithBaseIncluded { BaseId = "B1", Name = "X" };
+            var b = new DerivedWithBaseIncluded { BaseId = "B1", Name = "X" };
+            Assert.True(DerivedWithBaseIncludedDeepEqual.AreDeepEqual(a, b));
+
+            var bDiff = new DerivedWithBaseIncluded { BaseId = "DIFF", Name = "X" };
+            Assert.False(DerivedWithBaseIncludedDeepEqual.AreDeepEqual(a, bDiff));
+
+            var c = new DerivedWithBaseExcluded { BaseId = "B1", Name = "X" };
+            var d = new DerivedWithBaseExcluded { BaseId = "DIFF", Name = "X" };
+            Assert.True(DerivedWithBaseExcludedDeepEqual.AreDeepEqual(c, d));
+        }
+
+        [Fact]
+        public void Custom_Comparer_On_Member_Works()
+        {
+            var a = new CustomComparerHolder { Code = "ABc" };
+            var b = new CustomComparerHolder { Code = "abc" };
+            Assert.True(CustomComparerHolderDeepEqual.AreDeepEqual(a, b));
+        }
+
+        [Fact]
+        public void Numeric_Custom_Comparer_Works()
+        {
+            var a = new NumericWithComparer { Value = 1.0000001 };
+            var b = new NumericWithComparer { Value = 1.0000002 };
+            Assert.True(NumericWithComparerDeepEqual.AreDeepEqual(a, b));
+        }
+
+        [Fact]
+        public void Memory_And_ReadOnlyMemory_Are_Compared_By_Content()
+        {
+            var bytes1 = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+            var bytes2 = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+            var bytes3 = Enumerable.Range(0, 32).Select(i => (byte)(i + 1)).ToArray();
+
+            var a = new MemoryHolder { Buf = new Memory<byte>(bytes1), RBuf = new ReadOnlyMemory<byte>(bytes2) };
+            var b = new MemoryHolder { Buf = new Memory<byte>(bytes1.ToArray()), RBuf = new ReadOnlyMemory<byte>(bytes2.ToArray()) };
+            var c = new MemoryHolder { Buf = new Memory<byte>(bytes3), RBuf = new ReadOnlyMemory<byte>(bytes2) };
+
+            Assert.True(MemoryHolderDeepEqual.AreDeepEqual(a, b));
+            Assert.False(MemoryHolderDeepEqual.AreDeepEqual(a, c));
+        }
+
+        [Fact]
+        public void Dynamics_Expando_Missing_And_Nested_Diff()
+        {
+            dynamic e1 = new ExpandoObject();
+            e1.id = 1;
+            e1.name = "x";
+            e1.arr = new[] { 1, 2, 3 };
+            e1.map = new Dictionary<string, object?> { ["k"] = 1, ["z"] = new[] { "p", "q" } };
+
+            dynamic e2 = new ExpandoObject();
+            e2.id = 1;
+            e2.name = "x";
+            e2.arr = new[] { 1, 2, 3 };
+            e2.map = new Dictionary<string, object?> { ["k"] = 1, ["z"] = new[] { "p", "q" } };
+
+            var a = new DynamicHolder { Data = (IDictionary<string, object?>)e1 };
+            var b = new DynamicHolder { Data = (IDictionary<string, object?>)e2 };
+            Assert.True(DynamicHolderDeepEqual.AreDeepEqual(a, b));
+
+            // Missing key
+            ((IDictionary<string, object?>)e2).Remove("name");
+            Assert.False(DynamicHolderDeepEqual.AreDeepEqual(a, b));
+
+            // Put key back, but change nested shape
+            ((IDictionary<string, object?>)e2)["name"] = "x";
+            ((Dictionary<string, object?>)e2.map)["z"] = new[] { "p", "Q" };
+            Assert.False(DynamicHolderDeepEqual.AreDeepEqual(a, b));
+        }
     }
 
     public class CollectionsTests
@@ -554,6 +714,69 @@ namespace DeepEqual.Tests3
             };
             Assert.True(DictionaryHolderDeepEqual.AreDeepEqual(a, b));
             Assert.False(DictionaryHolderDeepEqual.AreDeepEqual(a, c));
+        }
+
+        [Fact]
+        public void Unordered_List_Of_Objects_Without_Keys_Still_Equal_When_Swapped()
+        {
+            var a = new CustomersUnkeyed
+            {
+                People = new List<Person>
+                {
+                    new Person { Name = "p1", Age = 1 },
+                    new Person { Name = "p2", Age = 2 }
+                }
+            };
+            var b = new CustomersUnkeyed
+            {
+                People = new List<Person>
+                {
+                    new Person { Name = "p2", Age = 2 },
+                    new Person { Name = "p1", Age = 1 }
+                }
+            };
+            Assert.True(CustomersUnkeyedDeepEqual.AreDeepEqual(a, b));
+        }
+
+        [Fact]
+        public void Unordered_List_With_KeyMembers_Matches_By_Key()
+        {
+            var a = new CustomersKeyed
+            {
+                Customers = new List<CustomerK>
+                {
+                    new CustomerK { Id = "a", Name = "alice" },
+                    new CustomerK { Id = "b", Name = "bob" }
+                }
+            };
+            var b = new CustomersKeyed
+            {
+                Customers = new List<CustomerK>
+                {
+                    new CustomerK { Id = "b", Name = "bob" },
+                    new CustomerK { Id = "a", Name = "alice" }
+                }
+            };
+            Assert.True(CustomersKeyedDeepEqual.AreDeepEqual(a, b));
+
+            var c = new CustomersKeyed
+            {
+                Customers = new List<CustomerK>
+                {
+                    new CustomerK { Id = "a", Name = "alice" },
+                    new CustomerK { Id = "b", Name = "BOB!" }
+                }
+            };
+            Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, c));
+
+            var d = new CustomersKeyed
+            {
+                Customers = new List<CustomerK>
+                {
+                    new CustomerK { Id = "a", Name = "alice" }
+                }
+            };
+            Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, d));
         }
     }
 }
