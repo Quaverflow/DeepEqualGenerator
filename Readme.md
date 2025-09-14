@@ -112,7 +112,6 @@ By default, **collections are compared in order**. That means element by element
 ```csharp
 var a = new[] { 1, 2, 3 };
 var b = new[] { 3, 2, 1 };
-// Equal? false (different order)
 ```
 
 If you want a collection to be compared ignoring order (treating it like a bag or set), you can:
@@ -161,12 +160,7 @@ Now two `List<Customer>` collections are equal if they contain the same customer
 ```csharp
 var opts = new ComparisonOptions
 {
-    FloatEpsilon = 0f,          // default
-    DoubleEpsilon = 0d,         // default
-    DecimalEpsilon = 0m,        // default
-    TreatNaNEqual = false,      // default
-    StringComparison = StringComparison.Ordinal // default
-};
+    FloatEpsilon = 0f,              DoubleEpsilon = 0d,             DecimalEpsilon = 0m,            TreatNaNEqual = false,          StringComparison = StringComparison.Ordinal };
 ```
 
 Defaults are strict equality for numbers and case-sensitive ordinal for strings.
@@ -190,8 +184,7 @@ var b = new Node { Id = "a" };
 a.Next = a;
 b.Next = b;
 
-NodeDeepEqual.AreDeepEqual(a, b); // true, no stack overflow
-```
+NodeDeepEqual.AreDeepEqual(a, b); ```
 
 ---
 

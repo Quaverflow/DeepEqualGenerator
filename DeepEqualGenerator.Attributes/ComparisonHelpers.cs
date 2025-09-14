@@ -241,7 +241,15 @@ public static class ComparisonHelpers
             object orr = right!;
             var tl = ol.GetType();
             var tr = orr.GetType();
-            if (tl == tr && GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv)) return eqv;
+            if (tl == tr)
+            {
+                if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv))
+                    return eqv;
+                GeneratedHelperRegistry.WarmUp(tl);
+                if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out eqv))
+                    return eqv;
+            }
+
             return EqualityComparer<T>.Default.Equals(left, right);
         }
         else
@@ -253,7 +261,12 @@ public static class ComparisonHelpers
             var tl = ol.GetType();
             var tr = orr.GetType();
             if (tl != tr) return false;
-            if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv)) return eqv;
+            if (tl != tr) return false;
+            if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv))
+                return eqv;
+            GeneratedHelperRegistry.WarmUp(tl);
+            if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out eqv))
+                return eqv;
             return object.Equals(left, right);
         }
     }

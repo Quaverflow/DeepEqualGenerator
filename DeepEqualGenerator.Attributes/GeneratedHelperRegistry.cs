@@ -1,72 +1,64 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 namespace DeepEqual.Generator.Shared;
 
 public static class GeneratedHelperRegistry
 {
     private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> comparerMap = new();
-    // Negative cache: remember types we looked up and found no comparer for
     private static readonly ConcurrentDictionary<Type, bool> negativeCache = new();
 
-    /// <summary>Register a generated comparer for T (called by module initializers in generated files).</summary>
     public static void Register<T>(Func<T, T, ComparisonContext, bool> comparer)
     {
-        comparerMap[typeof(T)] = (l, r, c) => comparer((T)l, (T)r, c);
-        negativeCache.TryRemove(typeof(T), out _);
-    }
+        var t = typeof(T);
+        comparerMap[t] = (l, r, c) => comparer((T)l, (T)r, c);
+        negativeCache.TryRemove(t, out _);     }
 
-    /// <summary>
-    /// If a comparer is registered for the runtime type of <paramref name="left"/> (which must equal right's),
-    /// invokes it and returns true with the result in <paramref name="equal"/>. Otherwise returns false.
-    /// Uses a negative cache to avoid repeated misses.
-    /// </summary>
-    public static bool TryCompare(object? left, object? right, ComparisonContext context, out bool equal)
+    public static bool TryCompare(object left, object right, ComparisonContext context, out bool equal)
     {
-        // Reference / null fast paths
         if (ReferenceEquals(left, right)) { equal = true; return true; }
         if (left is null || right is null) { equal = false; return true; }
+        var t = left.GetType();
+        if (t != right.GetType()) { equal = false; return true; }
+        return TryCompareSameType(t, left, right, context, out equal);
+    }
 
-        var runtimeType = left.GetType();
-        if (runtimeType != right.GetType())
+    public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context, out bool equal)
+    {
+        if (comparerMap.TryGetValue(runtimeType, out var comparer))
         {
-            equal = false;
-            return true; // types differ -> definitely not equal (treat as handled)
+            equal = comparer(left, right, context);
+            return true;
         }
 
-        // If we've already seen that nothing is registered for this type, skip lookup
         if (negativeCache.TryGetValue(runtimeType, out var neg) && neg)
         {
             equal = false;
             return false;
         }
 
-        if (comparerMap.TryGetValue(runtimeType, out var comparer))
-        {
-            equal = comparer(left, right, context);
-            return true;
-        }
+        negativeCache[runtimeType] = true;
+        equal = false;
+        return false;
+    }
 
-        // Miss: remember the absence
-        negativeCache[runtimeType] = true;
-        equal = false;
-        return false;
-    }
-    public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context, out bool equal)
+    public static void WarmUp(Type runtimeType)
     {
-        if (negativeCache.ContainsKey(runtimeType))
+        var asm = runtimeType.Assembly;
+        var ns = runtimeType.Namespace;
+        var name = runtimeType.Name; 
+        var backtick = name.IndexOf('`');
+        if (backtick >= 0) name = name[..backtick];
+
+        var helperFullName = (string.IsNullOrEmpty(ns) ? "" : ns + ".") + name + "DeepEqual";
+        var helper = asm.GetType(helperFullName, throwOnError: false);
+        if (helper != null)
         {
-            equal = false;
-            return false;
+            RuntimeHelpers.RunClassConstructor(helper.TypeHandle);
+            negativeCache.TryRemove(runtimeType, out _);
         }
-        if (comparerMap.TryGetValue(runtimeType, out var comparer))
-        {
-            equal = comparer(left, right, context);
-            return true;
-        }
-        negativeCache[runtimeType] = true;
-        equal = false;
-        return false;
     }
+
     public static bool HasComparer(Type runtimeType) => comparerMap.ContainsKey(runtimeType);
 }

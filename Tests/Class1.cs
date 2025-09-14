@@ -231,7 +231,6 @@ namespace DeepEqual.Tests3
         public Dictionary<int, Person> Map { get; set; } = new();
     }
 
-    // -------- Additional types for new tests --------
 
     public class BaseEntity
     {
@@ -312,7 +311,24 @@ namespace DeepEqual.Tests3
         public IDictionary<string, object?> Data { get; set; } = new ExpandoObject();
     }
 
-    // -------- Test classes --------
+
+    [DeepComparable] public sealed class ObjArr { public object? Any { get; init; } }
+
+    public interface IAnimal { int Age { get; } }
+
+    [DeepComparable] public sealed class Cat : IAnimal { public int Age { get; init; } public string Name { get; init; } = ""; }
+
+    [DeepComparable] public sealed class Zoo { public IAnimal? Animal { get; init; } }
+
+    [DeepComparable] public sealed class ArrayHolder { public object? Any { get; init; } }
+
+    [DeepComparable]
+    public sealed class KeyedBag
+    {
+        [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { nameof(Item.Name) })]
+        public List<Item> Items { get; init; } = new();
+    }
+
 
     public class StructTests
     {
@@ -598,11 +614,9 @@ namespace DeepEqual.Tests3
             var b = new DynamicHolder { Data = (IDictionary<string, object?>)e2 };
             Assert.True(DynamicHolderDeepEqual.AreDeepEqual(a, b));
 
-            // Missing key
             ((IDictionary<string, object?>)e2).Remove("name");
             Assert.False(DynamicHolderDeepEqual.AreDeepEqual(a, b));
 
-            // Put key back, but change nested shape
             ((IDictionary<string, object?>)e2)["name"] = "x";
             ((Dictionary<string, object?>)e2.map)["z"] = new[] { "p", "Q" };
             Assert.False(DynamicHolderDeepEqual.AreDeepEqual(a, b));
@@ -778,5 +792,71 @@ namespace DeepEqual.Tests3
             };
             Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, d));
         }
+
+
+        [Fact]
+        public void Object_Array_Uses_Structural_Equality()
+        {
+            var a = new ObjArr { Any = new[] { 1, 2, 3 } };
+            var b = new ObjArr { Any = new[] { 1, 2, 3 } };
+            var c = new ObjArr { Any = new[] { 1, 2, 4 } };
+            Assert.True(ObjArrDeepEqual.AreDeepEqual(a, b));
+            Assert.False(ObjArrDeepEqual.AreDeepEqual(a, c));
+        }
+
+        [Fact]
+        public void Interface_Property_Uses_Runtime_Type()
+        {
+            var a = new Zoo { Animal = new Cat { Age = 3, Name = "Paws" } };
+            var b = new Zoo { Animal = new Cat { Age = 3, Name = "Paws" } };
+            var c = new Zoo { Animal = new Cat { Age = 3, Name = "Claws" } };
+            Assert.True(ZooDeepEqual.AreDeepEqual(a, b));
+            Assert.False(ZooDeepEqual.AreDeepEqual(a, c));
+        }
+
+        [Fact]
+        public void Jagged_Vs_Multidimensional_Arrays_NotEqual()
+        {
+            var jagged = new int[][] { new[] { 1, 2 }, new[] { 3, 4 } };
+            var multi = new int[2, 2] { { 1, 2 }, { 3, 4 } };
+            var a = new ArrayHolder { Any = jagged };
+            var b = new ArrayHolder { Any = multi };
+            Assert.False(ArrayHolderDeepEqual.AreDeepEqual(a, b));
+        }
+
+        [Fact]
+        public void Unordered_Keyed_With_Duplicates_Must_Match_PerBucket_Count_And_Values()
+        {
+            var A = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 } } };
+            var B = new KeyedBag { Items = new() { new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }, new() { Name = "x", X = 1 } } };
+            var C = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "y", X = 9 } } };             Assert.True(KeyedBagDeepEqual.AreDeepEqual(A, B));
+            Assert.False(KeyedBagDeepEqual.AreDeepEqual(A, C));
+        }
+
+        [Fact]
+        public void String_And_Number_Options_Are_Respected()
+        {
+            var a = new OptsHolder { S = "Hello", D = 1.0000001, M = 1.00005m };
+            var b = new OptsHolder { S = "hello", D = 1.0000002, M = 1.00001m };
+
+            var loose = new ComparisonOptions
+            {
+                StringComparison = StringComparison.OrdinalIgnoreCase,
+                DoubleEpsilon = 1e-6,
+                DecimalEpsilon = 0.0001m
+            };
+            Assert.True(OptsHolderDeepEqual.AreDeepEqual(a, b, loose));
+
+            var strict = new ComparisonOptions
+            {
+                StringComparison = StringComparison.Ordinal,
+                DoubleEpsilon = 0.0,
+                DecimalEpsilon = 0m
+            };
+            Assert.False(OptsHolderDeepEqual.AreDeepEqual(a, b, strict));
+        }
+
+
+        [DeepComparable] public sealed class OptsHolder { public string? S { get; init; } public double D { get; init; } public decimal M { get; init; } }
     }
 }

@@ -11,7 +11,6 @@ public static class DynamicDeepComparer
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-        // Fast paths that respect options
         if (left is string sa && right is string sb)
             return ComparisonHelpers.AreEqualStrings(sa, sb, context);
 
@@ -24,23 +23,19 @@ public static class DynamicDeepComparer
         if (left is decimal m1 && right is decimal m2)
             return ComparisonHelpers.AreEqualDecimal(m1, m2, context);
 
-        // Runtime-type match required for structural compare
         var typeLeft = left.GetType();
         var typeRight = right.GetType();
         if (typeLeft != typeRight) return false;
 
-        // Registry-first: if there is a generated helper for this runtime type, use it.
         if (GeneratedHelperRegistry.TryCompare(left, right, context, out var eqFromRegistry))
             return eqFromRegistry;
 
-        // Dictionaries (string/object gets the common Expando/Json case)
         if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
             return EqualStringObjectDictionary(sdictA, sdictB, context);
 
         if (left is IDictionary dictA && right is IDictionary dictB)
             return EqualNonGenericDictionary(dictA, dictB, context);
 
-        // Arrays: structural, element-by-element
         if (left is Array arrA && right is Array arrB)
         {
             if (arrA.Length != arrB.Length) return false;
@@ -51,14 +46,11 @@ public static class DynamicDeepComparer
             return true;
         }
 
-        // Other enumerables (exclude string: already handled)
         if (left is IEnumerable seqA && right is IEnumerable seqB)
             return EqualNonGenericSequence(seqA, seqB, context);
 
-        // Primitive-like and everything else
         if (IsPrimitiveLike(left)) return left.Equals(right);
 
-        // Fallback to .Equals for unknown reference types
         return left.Equals(right);
     }
 
