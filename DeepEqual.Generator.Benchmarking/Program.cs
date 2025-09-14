@@ -21,14 +21,13 @@ public enum TinyEnum { None, A, B, C }
 
 public struct MiniPoint { public int X; public int Y; }
 
-[DeepComparable]
 public sealed class Leaf
 {
     public string Name { get; set; } = "";
     public int Score { get; set; }
 }
 
-[DeepComparable]
+[DeepComparable(CycleTracking = false)]
 public sealed class EverythingBagel
 {
     public bool B { get; set; }
@@ -208,7 +207,7 @@ public static class EverythingFactory
 
 public enum Role { None, Dev, Lead, Manager }
 
-[DeepComparable]
+[DeepComparable(CycleTracking = false)]
 public partial class BigGraph
 {
     public string Title { get; set; } = "";
