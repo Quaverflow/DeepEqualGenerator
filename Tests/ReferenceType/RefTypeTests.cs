@@ -9,8 +9,7 @@ namespace DeepEqual.Tests;
 
 public sealed class RefTests
 {
-    // ---------- BigAggregate & general deep semantics ----------
-
+    
     [Fact]
     public void External_Types_Fallback_To_Equals()
     {
@@ -60,8 +59,7 @@ public sealed class RefTests
     public void Reference_Uses_ReferenceEquality()
     {
         var (a, b) = EqualAggregates();
-        b.Blob = new byte[] { 1, 2, 3 }; // different instance
-        Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
+        b.Blob = new byte[] { 1, 2, 3 };         Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
     }
 
     [Fact]
@@ -69,8 +67,7 @@ public sealed class RefTests
     {
         var t1 = new ThirdPartyLike { Payload = "X" };
         var t2 = new ThirdPartyLike { Payload = "X" };
-        Assert.True(Equals(t1, t2)); // relies on overridden Equals
-
+        Assert.True(Equals(t1, t2)); 
         var h1 = new Holder { Third = t1 };
         var h2 = new Holder { Third = t2 };
         Assert.True(HolderDeepEqual.AreDeepEqual(h1, h2));
@@ -91,11 +88,9 @@ public sealed class RefTests
     public void Unordered_Member_Uses_Multiset_Semantics()
     {
         var (a, b) = EqualAggregates();
-        b.Tags = new List<string> { "blue", "red", "red" }; // same multiset
-        Assert.True(BigAggregateDeepEqual.AreDeepEqual(a, b));
+        b.Tags = new List<string> { "blue", "red", "red" };         Assert.True(BigAggregateDeepEqual.AreDeepEqual(a, b));
 
-        b.Tags = new List<string> { "red", "blue" }; // multiplicity differs
-        Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
+        b.Tags = new List<string> { "red", "blue" };         Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
     }
 
     [Fact]
@@ -158,8 +153,7 @@ public sealed class RefTests
     {
         var (a, b) = EqualAggregates();
 
-        // introduce a cycle inside People: p1 <-> p2
-        a.People[0].Friend = a.People[1];
+                a.People[0].Friend = a.People[1];
         a.People[1].Friend = a.People[0];
         b.People[0].Friend = b.People[1];
         b.People[1].Friend = b.People[0];
@@ -200,8 +194,7 @@ public sealed class RefTests
     {
         var (a, b) = EqualAggregates();
         a.Root.Manager = null;
-        b.Root.Manager = b.Root.Manager; // non-null
-        Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
+        b.Root.Manager = b.Root.Manager;         Assert.False(BigAggregateDeepEqual.AreDeepEqual(a, b));
     }
 
     [Fact]
@@ -216,8 +209,7 @@ public sealed class RefTests
         Assert.False(ForceOrderedTypeDeepEqual.AreDeepEqual(a, c));
     }
 
-    // ---------- Type-level schema (Members / IgnoreMembers) ----------
-
+    
     [Fact]
     public void TypeLevel_Members_Schema_Only_Compares_Listed_Members()
     {
@@ -259,8 +251,7 @@ public sealed class RefTests
         Assert.False(SchemaHolderDeepEqual.AreDeepEqual(a, b));
     }
 
-    // ---------- Dynamic & object graphs ----------
-
+    
     [Fact]
     public void Deep_nested_string_keyed_maps_compare_recursively()
     {
@@ -341,8 +332,7 @@ public sealed class RefTests
         Assert.False(ObjectArrayHolderDeepEqual.AreDeepEqual(a, b));
     }
 
-    // ---------- Internals access toggle ----------
-
+    
     [Fact]
     public void IncludeInternals_True_Enables_Deep_Compare_Of_Internal_Types()
     {
@@ -356,11 +346,9 @@ public sealed class RefTests
     {
         var a = new InternalsOffRoot { Data = new InternalData { X = 5 } };
         var b = new InternalsOffRoot { Data = new InternalData { X = 5 } };
-        Assert.False(InternalsOffRootDeepEqual.AreDeepEqual(a, b)); // different instances, Equals == reference equality
-    }
+        Assert.False(InternalsOffRootDeepEqual.AreDeepEqual(a, b));     }
 
-    // ---------- Sets with explicit unordered semantics ----------
-
+    
     [Fact]
     public void HashSet_Unordered_When_Requested()
     {
@@ -372,8 +360,7 @@ public sealed class RefTests
         Assert.False(SetHolderDeepEqual.AreDeepEqual(a, b));
     }
 
-    // ---------- DateOnly/TimeOnly (reference type holder) ----------
-
+    
     [Fact]
     public void DateOnly_TimeOnly_ReferenceHolder()
     {
@@ -385,8 +372,7 @@ public sealed class RefTests
         Assert.False(DateOnlyTimeOnlyRefHolderDeepEqual.AreDeepEqual(a, b));
     }
 
-    // ---------- Helpers (builders) ----------
-
+    
     private static (BigAggregate a, BigAggregate b) EqualAggregates(string diff = "Carol")
     {
         var p1a = new Person { Name = "Alice", Role = Role.Dev };
@@ -429,8 +415,7 @@ public sealed class RefTests
             ByName = new Dictionary<string, Person> { ["Alice"] = p1b, ["Bob"] = p2b, ["Carol"] = p3b },
             Endpoint = new Uri("https://api.example.com/x"),
             Tags = new List<string> { "red", "red", "blue" },
-            Blob = a.Blob, // same reference
-            Ignored = new object(),
+            Blob = a.Blob,             Ignored = new object(),
             Root = new RootNode
             {
                 Manager = new Person
@@ -562,15 +547,13 @@ public sealed class SampleA
 {
     public int X { get; set; }
     public int Y { get; set; }
-    public int Z { get; set; } // ignored by Members schema
-}
+    public int Z { get; set; } }
 
 [DeepCompare(IgnoreMembers = new[] { "Z" })]
 public sealed class SampleB
 {
     public int X { get; set; }
-    public int Z { get; set; } // ignored
-}
+    public int Z { get; set; } }
 
 [DeepComparable]
 public sealed class DynamicRoot
@@ -596,8 +579,7 @@ internal sealed class InternalsOnRoot
     public InternalData Data { get; set; } = new();
 }
 
-[DeepComparable] // no IncludeInternals
-internal sealed class InternalsOffRoot
+[DeepComparable] internal sealed class InternalsOffRoot
 {
     public InternalData Data { get; set; } = new();
 }

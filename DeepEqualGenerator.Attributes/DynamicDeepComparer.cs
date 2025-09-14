@@ -13,22 +13,19 @@ public static partial class DynamicDeepComparer
         if (ReferenceEquals(left, right)) { return true; }
         if (left is null || right is null) { return false; }
 
-        // strings / primitives fast-paths
-        if (left is string ls && right is string rs) { return ComparisonHelpers.AreEqualStrings(ls, rs); }
+                if (left is string ls && right is string rs) { return ComparisonHelpers.AreEqualStrings(ls, rs); }
         if (IsPrimitiveLike(left) && IsPrimitiveLike(right)) { return left.Equals(right); }
         if (left is DateTime ldt && right is DateTime rdt) { return ComparisonHelpers.AreEqualDateTime(ldt, rdt); }
         if (left is DateTimeOffset ldo && right is DateTimeOffset rdo) { return ComparisonHelpers.AreEqualDateTimeOffset(ldo, rdo); }
         if (left is TimeSpan lts && right is TimeSpan rts) { return lts.Ticks == rts.Ticks; }
         if (left is Guid lg && right is Guid rg) { return lg.Equals(rg); }
 
-        // Expando / any IDictionary<string, T> / non-generic IDictionary with string keys
-        if (TryAsStringKeyedMap(left, out var mapA) && TryAsStringKeyedMap(right, out var mapB))
+                if (TryAsStringKeyedMap(left, out var mapA) && TryAsStringKeyedMap(right, out var mapB))
         {
             return EqualStringKeyedMap(mapA, mapB, ctx);
         }
 
-        // generic IDictionary<TKey,TValue> with same K/V runtime types
-        if (TryAsGenericMap(left, out var gA) && TryAsGenericMap(right, out var gB) &&
+                if (TryAsGenericMap(left, out var gA) && TryAsGenericMap(right, out var gB) &&
             gA.KeyType == gB.KeyType && gA.ValueType == gB.ValueType)
         {
             if (gA.Count != gB.Count) return false;
@@ -49,20 +46,17 @@ public static partial class DynamicDeepComparer
                 ldict, rdict, new DynamicValueComparer(), ctx);
         }
 
-        // 3) Fallback: string-keyed map abstraction (non-generic IDictionary etc.)
-        if (TryAsStringKeyedMap(left, out var strA) && TryAsStringKeyedMap(right, out var strB))
+                if (TryAsStringKeyedMap(left, out var strA) && TryAsStringKeyedMap(right, out var strB))
         {
             return EqualStringKeyedMap(strA, strB, ctx);
         }
 
-        // IEnumerable (not string): ordered dynamic element comparison
-        if (left is IEnumerable ea && right is IEnumerable eb && left is not string && right is not string)
+                if (left is IEnumerable ea && right is IEnumerable eb && left is not string && right is not string)
         {
             return EqualDynamicSequence(ea, eb, ctx);
         }
 
-        // Try strongly-typed helper when runtime types match
-        if (left.GetType() == right.GetType() &&
+                if (left.GetType() == right.GetType() &&
             GeneratedHelperRegistry.TryCompareSameType(left.GetType(), left, right, ctx, out var eq))
         {
             return eq;
@@ -74,8 +68,7 @@ public static partial class DynamicDeepComparer
     private static bool IsPrimitiveLike(object o) =>
         o is bool or byte or sbyte or short or ushort or int or uint or long or ulong or char or float or double or decimal || o.GetType().IsEnum;
 
-    // ---- string-keyed map abstraction -------------------------------------
-    private readonly struct DynamicValueComparer : IElementComparer<object?>
+        private readonly struct DynamicValueComparer : IElementComparer<object?>
     {
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -86,8 +79,7 @@ public static partial class DynamicDeepComparer
     private readonly struct MapView
     {
         public readonly int Count;
-        public readonly Func<IEnumerable> Enumerate; // yields (key,value) objects
-        public readonly Func<object, string> GetKey;
+        public readonly Func<IEnumerable> Enumerate;         public readonly Func<object, string> GetKey;
         public readonly Func<object, object?> GetValue;
         public MapView(int count, Func<IEnumerable> enumerate, Func<object, string> getKey, Func<object, object?> getValue)
         { Count = count; Enumerate = enumerate; GetKey = getKey; GetValue = getValue; }
@@ -97,16 +89,14 @@ public static partial class DynamicDeepComparer
 
     private static bool TryAsStringKeyedMap(object obj, out MapView view)
     {
-        // ExpandoObject
-        if (obj is System.Dynamic.ExpandoObject exp)
+                if (obj is System.Dynamic.ExpandoObject exp)
         {
             var d = (IDictionary<string, object?>)exp;
             view = new MapView(d.Count, () => d, kv => ((KeyValuePair<string, object?>)kv).Key, kv => ((KeyValuePair<string, object?>)kv).Value);
             return true;
         }
 
-        // IDictionary<string, object?>
-        if (obj is IDictionary<string, object?> dictObj)
+                if (obj is IDictionary<string, object?> dictObj)
         {
             view = new MapView(dictObj.Count, () => dictObj, kv => ((KeyValuePair<string, object?>)kv).Key, kv => ((KeyValuePair<string, object?>)kv).Value);
             return true;
@@ -124,13 +114,9 @@ public static partial class DynamicDeepComparer
         return false;
     }
 
-    // Supports:
-    // - IDictionary<string, TValue> (any TValue) via compiled accessors
-    // - Non-generic IDictionary where entries are DictionaryEntry/string keys
-    private static (Func<object, MapView> open, bool ok) BuildMapViewFactory(Type t)
+                private static (Func<object, MapView> open, bool ok) BuildMapViewFactory(Type t)
     {
-        // 1) Prefer any IDictionary<string, TValue> (fast/strongly-typed)
-        foreach (var i in t.GetInterfaces())
+                foreach (var i in t.GetInterfaces())
         {
             if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))
             {
@@ -138,14 +124,12 @@ public static partial class DynamicDeepComparer
                 if (args[0] == typeof(string))
                 {
                     var kvType = typeof(KeyValuePair<,>).MakeGenericType(typeof(string), args[1]);
-                    // compile Key/Value extractors once
-                    var kvParam = Expression.Parameter(typeof(object), "kv");
+                                        var kvParam = Expression.Parameter(typeof(object), "kv");
                     var kvCast = Expression.Convert(kvParam, kvType);
                     var getKey = Expression.Lambda<Func<object, string>>(Expression.Property(kvCast, "Key"), kvParam).Compile();
                     var getVal = Expression.Lambda<Func<object, object?>>(Expression.Convert(Expression.Property(kvCast, "Value"), typeof(object)), kvParam).Compile();
 
-                    // compile TryGetValue(map, key, out value)
-                    var tryGet = i.GetMethod("TryGetValue")!;
+                                        var tryGet = i.GetMethod("TryGetValue")!;
                     var mapParam = Expression.Parameter(typeof(object), "map");
                     var keyParam = Expression.Parameter(typeof(object), "key");
                     var mapCast = Expression.Convert(mapParam, i);
@@ -160,8 +144,7 @@ public static partial class DynamicDeepComparer
 
                     Func<object, MapView> f = o =>
                     {
-                        var enumerable = (IEnumerable)o; // IEnumerable<KeyValuePair<string,T>>
-                        int count = TryGetGenericCount(o, kvType, out var c) ? c : CountEnumer(enumerable);
+                        var enumerable = (IEnumerable)o;                         int count = TryGetGenericCount(o, kvType, out var c) ? c : CountEnumer(enumerable);
                         return new MapView(
                             count,
                             () => enumerable,
@@ -174,16 +157,14 @@ public static partial class DynamicDeepComparer
             }
         }
 
-        // 2) Fallback: non-generic IDictionary (handle DictionaryEntry OR KeyValuePair at runtime)
-        if (typeof(IDictionary).IsAssignableFrom(t))
+                if (typeof(IDictionary).IsAssignableFrom(t))
         {
             Func<object, MapView> f = o =>
             {
                 var d = (IDictionary)o;
                 return new MapView(
                     d.Count,
-                    () => d, // IEnumerable
-                    kv =>
+                    () => d,                     kv =>
                     {
                         if (kv is DictionaryEntry de) return de.Key is string s ? s : de.Key?.ToString() ?? string.Empty;
                         if (TryGetKVPairKey(kv, out var sKey)) return sKey;
@@ -219,8 +200,7 @@ public static partial class DynamicDeepComparer
             int n = 0; var en = e.GetEnumerator(); while (en.MoveNext()) n++; return n;
         }
 
-        // handle KeyValuePair<string, T> objects in non-generic path
-        static bool TryGetKVPairKey(object kv, out string key)
+                static bool TryGetKVPairKey(object kv, out string key)
         {
             var t = kv.GetType();
             if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>) &&
@@ -249,8 +229,7 @@ public static partial class DynamicDeepComparer
     {
         if (a.Count != b.Count) { return false; }
 
-        // Build right dictionary for O(1) lookups
-        var right = new Dictionary<string, object?>(a.Count, StringComparer.Ordinal);
+                var right = new Dictionary<string, object?>(a.Count, StringComparer.Ordinal);
         foreach (var kv in b.Enumerate())
         {
             right[b.GetKey(kv)] = b.GetValue(kv);
@@ -265,16 +244,11 @@ public static partial class DynamicDeepComparer
         return true;
     }
 
-    // ---- generic IDictionary<TKey, TValue> abstraction --------------------
-
+    
     private readonly struct GenericMapView
     {
         public readonly int Count;
-        public readonly Func<IEnumerable> Enumerate; // yields KeyValuePair<K,V> objects
-        public readonly Func<object, object> GetKey; // object kv -> K (boxed)
-        public readonly Func<object, object?> GetValue; // object kv -> V (boxed)
-        public readonly Func<object, object, (bool found, object? value)> Lookup; // (map, key) -> found/value (boxed)
-        public readonly Type KeyType;
+        public readonly Func<IEnumerable> Enumerate;         public readonly Func<object, object> GetKey;         public readonly Func<object, object?> GetValue;         public readonly Func<object, object, (bool found, object? value)> Lookup;         public readonly Type KeyType;
         public readonly Type ValueType;
 
         public GenericMapView(int count,
@@ -315,12 +289,10 @@ public static partial class DynamicDeepComparer
         {
             if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))
             {
-                var args = i.GetGenericArguments(); // K, V
-                var keyType = args[0];
+                var args = i.GetGenericArguments();                 var keyType = args[0];
                 var valueType = args[1];
 
-                // KVP accessors (compiled)
-                var kvType = typeof(KeyValuePair<,>).MakeGenericType(keyType, valueType);
+                                var kvType = typeof(KeyValuePair<,>).MakeGenericType(keyType, valueType);
                 var kvParam = Expression.Parameter(typeof(object), "kv");
                 var kvCast = Expression.Convert(kvParam, kvType);
                 var getKey = Expression.Lambda<Func<object, object>>(
@@ -328,8 +300,7 @@ public static partial class DynamicDeepComparer
                 var getVal = Expression.Lambda<Func<object, object?>>(
                     Expression.Convert(Expression.Property(kvCast, "Value"), typeof(object)), kvParam).Compile();
 
-                // TryGetValue(map, K, out V) (compiled)
-                var tryGet = i.GetMethod("TryGetValue")!;
+                                var tryGet = i.GetMethod("TryGetValue")!;
                 var mapParam = Expression.Parameter(typeof(object), "map");
                 var keyParam = Expression.Parameter(typeof(object), "key");
                 var mapCast = Expression.Convert(mapParam, i);
@@ -346,8 +317,7 @@ public static partial class DynamicDeepComparer
 
                 Func<object, GenericMapView> f = o =>
                 {
-                    var enumerable = (IEnumerable)o; // IEnumerable<KeyValuePair<K,V>>
-                    int count = TryGetGenericCount(o, kvType, out var c) ? c : CountEnumer(enumerable);
+                    var enumerable = (IEnumerable)o;                     int count = TryGetGenericCount(o, kvType, out var c) ? c : CountEnumer(enumerable);
                     return new GenericMapView(
                         count,
                         () => enumerable,

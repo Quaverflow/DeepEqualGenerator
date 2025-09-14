@@ -412,8 +412,7 @@ static class ManualValueComparer
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
 
-        // Exact type match for boxed primitives/strings/guids, etc.
-        if (a.GetType() != b.GetType()) return false;
+                if (a.GetType() != b.GetType()) return false;
 
         switch (a)
         {
@@ -442,9 +441,7 @@ static class ManualValueComparer
             case TinyEnum ee: return ee == (TinyEnum)b!;
             case MiniPoint mp: return ((MiniPoint)b!).X == mp.X && ((MiniPoint)b!).Y == mp.Y;
 
-            case byte[] arrA:          // Only used for RefBlob which is reference-only; handled by caller, not here.
-                // Should not hit here for RefBlob equality; generator uses reference semantics due to attribute.
-                return ReferenceEquals(arrA, b);
+            case byte[] arrA:                                          return ReferenceEquals(arrA, b);
 
             case Array aa:
                 return ArrayEqual(aa, (Array)b!);
@@ -456,8 +453,7 @@ static class ManualValueComparer
                 return LeafEqual(la1, (Leaf)b!);
 
             default:
-                // Fallback for types we explicitly support elsewhere via strongly-typed paths.
-                return a.Equals(b);
+                                return a.Equals(b);
         }
     }
 
@@ -477,8 +473,7 @@ static class ManualValueComparer
             return true;
         }
 
-        // Generic rectangular compare
-        var idx = new int[a.Rank];
+                var idx = new int[a.Rank];
         return WalkRect(a, b, 0, idx);
 
         static bool WalkRect(Array a, Array b, int dim, int[] idx)
@@ -572,14 +567,11 @@ static class ManualEverythingComparer
         if (a.Pair != b.Pair) return false;
         if (a.Kvp.Key != b.Kvp.Key || a.Kvp.Value != b.Kvp.Value) return false;
 
-        // Boxed: generator uses deep semantics for primitives/strings; keep strict type+value.
-        if (!ManualValueComparer.AreEqual(a.Boxed, b.Boxed)) return false;
+                if (!ManualValueComparer.AreEqual(a.Boxed, b.Boxed)) return false;
 
-        // Dyn (Expando): deep compare as dictionary<string,object?>
-        if (!DictObjEqual(a.Dyn, b.Dyn)) return false;
+                if (!DictObjEqual(a.Dyn, b.Dyn)) return false;
 
-        // RefBlob: reference-only due to attribute
-        if (!ReferenceEquals(a.RefBlob, b.RefBlob)) return false;
+                if (!ReferenceEquals(a.RefBlob, b.RefBlob)) return false;
 
         return true;
 
@@ -670,11 +662,9 @@ static class ManualBigGraphComparer
 
         if (!ListEqual(a.Customers, b.Customers, CustomerEqual)) return false;
 
-        // OrgIndex: your generator would compare it if included in model; we include equality by key+reference to same OrgNode.
-        if (!DictOrgEqual(a.OrgIndex, b.OrgIndex)) return false;
+                if (!DictOrgEqual(a.OrgIndex, b.OrgIndex)) return false;
 
-        // Meta: Expando deep compare
-        if (!ManualValueComparer.AreEqual(a.Meta, b.Meta)) return false;
+                if (!ManualValueComparer.AreEqual(a.Meta, b.Meta)) return false;
 
         return true;
 
@@ -685,8 +675,7 @@ static class ManualBigGraphComparer
             if (!string.Equals(a.Name, b.Name, StringComparison.Ordinal)) return false;
             if (a.Role != b.Role) return false;
             if (!ListEqual(a.Reports, b.Reports, OrgEqual)) return false;
-            if (!ManualValueComparer.AreEqual(a.Extra, b.Extra)) return false; // Expando
-            return true;
+            if (!ManualValueComparer.AreEqual(a.Extra, b.Extra)) return false;             return true;
         }
 
         static bool ProductEqual(Product? a, Product? b)
@@ -695,8 +684,7 @@ static class ManualBigGraphComparer
             if (a is null || b is null) return false;
             if (a.Sku != b.Sku || a.Name != b.Name) return false;
             if (a.Price != b.Price || a.Introduced != b.Introduced) return false;
-            if (!ManualValueComparer.AreEqual(a.Attributes, b.Attributes)) return false; // Expando
-            return true;
+            if (!ManualValueComparer.AreEqual(a.Attributes, b.Attributes)) return false;             return true;
         }
 
         static bool OrderLineEqual(OrderLine? a, OrderLine? b)
@@ -713,8 +701,7 @@ static class ManualBigGraphComparer
             if (a.Id != b.Id || a.Created != b.Created) return false;
             if (!ListEqual(a.Lines, b.Lines, OrderLineEqual)) return false;
             if (!DictEqual(a.Meta, b.Meta)) return false;
-            if (!ManualValueComparer.AreEqual(a.Extra, b.Extra)) return false; // Expando
-            return true;
+            if (!ManualValueComparer.AreEqual(a.Extra, b.Extra)) return false;             return true;
         }
 
         static bool CustomerEqual(Customer? a, Customer? b)
@@ -723,8 +710,7 @@ static class ManualBigGraphComparer
             if (a is null || b is null) return false;
             if (a.Id != b.Id || a.FullName != b.FullName) return false;
             if (!ListEqual(a.Orders, b.Orders, OrderEqual)) return false;
-            if (!ManualValueComparer.AreEqual(a.Profile, b.Profile)) return false; // Expando
-            return true;
+            if (!ManualValueComparer.AreEqual(a.Profile, b.Profile)) return false;             return true;
         }
 
         static bool DictEqual(Dictionary<string, string>? a, Dictionary<string, string>? b)
@@ -806,8 +792,7 @@ public class DeepGraphBenchmarks
         var o = c.Orders[^1];
         o.Lines[^1].Qty += 1;
 
-        // Bagels
-        _ebEqA = EverythingFactory.Create(seed: 100);
+                _ebEqA = EverythingFactory.Create(seed: 100);
         _ebEqB = EverythingFactory.Create(seed: 100);
 
         _ebNeqShallowA = EverythingFactory.Create(seed: 200, mutateShallow: false);
@@ -817,8 +802,7 @@ public class DeepGraphBenchmarks
         _ebNeqDeepB = EverythingFactory.Create(seed: 300, mutateDeep: true);
     }
 
-    // ---- BigGraph
-    [Benchmark(Baseline = true)] public bool Generated_BigGraph_Equal() => BigGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+        [Benchmark(Baseline = true)] public bool Generated_BigGraph_Equal() => BigGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_BigGraph_Equal() => ManualBigGraphComparer.AreEqual(_eqA, _eqB);
 
     [Benchmark] public bool Generated_BigGraph_NotEqual_Shallow() => BigGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
@@ -827,8 +811,7 @@ public class DeepGraphBenchmarks
     [Benchmark] public bool Generated_BigGraph_NotEqual_Deep() => BigGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_BigGraph_NotEqual_Deep() => ManualBigGraphComparer.AreEqual(_neqDeepA, _neqDeepB);
 
-    // ---- EverythingBagel
-    [Benchmark] public bool Generated_Bagel_Equal() => EverythingBagelDeepEqual.AreDeepEqual(_ebEqA, _ebEqB);
+        [Benchmark] public bool Generated_Bagel_Equal() => EverythingBagelDeepEqual.AreDeepEqual(_ebEqA, _ebEqB);
     [Benchmark] public bool Manual_Bagel_Equal() => ManualEverythingComparer.AreEqual(_ebEqA, _ebEqB);
 
     [Benchmark] public bool Generated_Bagel_NotEqual_Shallow() => EverythingBagelDeepEqual.AreDeepEqual(_ebNeqShallowA, _ebNeqShallowB);

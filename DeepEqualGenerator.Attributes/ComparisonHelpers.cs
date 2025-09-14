@@ -17,8 +17,7 @@ public interface IElementComparer<T>
 
 public static class ComparisonHelpers
 {
-    // ---------------- simple values ----------------
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualStrings(string? left, string? right)
         => string.Equals(left, right, StringComparison.Ordinal);
@@ -43,8 +42,7 @@ public static class ComparisonHelpers
     public static bool AreEqualTimeOnly(TimeOnly left, TimeOnly right)
         => left.Ticks == right.Ticks;
 
-    // ---------------- sequence helpers ----------------
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool TryGetNonEnumeratingCount<T>(IEnumerable<T>? seq, out int count)
     {
@@ -72,8 +70,7 @@ public static class ComparisonHelpers
         return false;
     }
 
-    // ---- NEW: struct-functor overloads (hot paths) ----
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static bool AreEqualSequencesOrdered<T, TComparer>(
         IEnumerable<T>? left,
@@ -259,8 +256,7 @@ public static class ComparisonHelpers
         }
     }
 
-    // ---- arrays ----
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static bool AreEqualArrayRank1<T, TComparer>(
         T[]? left,
@@ -395,8 +391,7 @@ public static class ComparisonHelpers
         }
     }
 
-    // ---- dictionaries ----
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool DictCore<TKey, TValue, TComparer>(
         IReadOnlyDictionary<TKey, TValue> a,
@@ -491,8 +486,7 @@ public static class ComparisonHelpers
         IEnumerator IEnumerable.GetEnumerator() => _d.GetEnumerator();
     }
 
-    // ---- Back-compat: delegate-based overloads forward to struct-functor versions ----
-
+    
     private readonly struct FuncAdapter<T> : IElementComparer<T>
     {
         private readonly Func<T, T, ComparisonContext, bool> _f;
@@ -543,8 +537,7 @@ public static class ComparisonHelpers
         ComparisonContext context) where TKey : notnull
         => AreEqualDictionariesAny<TKey, TValue, FuncAdapter<TValue>>(left, right, new FuncAdapter<TValue>(valueComparer), context);
 
-    // ---- tiny wrappers (kept for inlining opportunities) ----
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool CompareByEquals<T>(T l, T r, ComparisonContext _) where T : struct
         => l.Equals(r);

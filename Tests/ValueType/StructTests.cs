@@ -31,8 +31,7 @@ public sealed class StructTests
     }
 
     [Fact]
-    public void SimpleStruct_ValueDifference_Fails() // primitives
-    {
+    public void SimpleStruct_ValueDifference_Fails()     {
         var a = new SimpleStruct { Count = 3, Ratio = 2.5, Price = 9.99m, WhenUtc = DateTime.SpecifyKind(new DateTime(2025, 1, 2, 3, 4, 5), DateTimeKind.Utc), Role = SRole.Alpha };
         var b = new SimpleStruct { Count = 4, Ratio = 2.5, Price = 9.99m, WhenUtc = DateTime.SpecifyKind(new DateTime(2025, 1, 2, 3, 4, 5), DateTimeKind.Utc), Role = SRole.Alpha };
         Assert.False(SimpleStructDeepEqual.AreDeepEqual(a, b));
@@ -222,8 +221,7 @@ public sealed class StructTests
     {
         var a = new MultiDimArrayHolder { Grid = new int[,] { { 1, 2 }, { 3, 4 } } };
         var b = new MultiDimArrayHolder { Grid = new int[,] { { 1, 2, 3 }, { 4, 0, 0 } } };
-        Assert.False(MultiDimArrayHolderDeepEqual.AreDeepEqual(a, b)); // different ranks/lengths by dimension
-    }
+        Assert.False(MultiDimArrayHolderDeepEqual.AreDeepEqual(a, b));     }
 
     [Fact]
     public void Unordered_Array_Member_Uses_Multiset_Semantics()

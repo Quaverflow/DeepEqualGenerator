@@ -5,8 +5,7 @@ namespace DeepEqual.Generator.Shared;
 
 public static class GeneratedHelperRegistry
 {
-    // Thread-safe registration/lookup
-    private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _map = new();
+        private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _map = new();
 
     public static void Register<T>(Func<T, T, ComparisonContext, bool> comparer)
     {

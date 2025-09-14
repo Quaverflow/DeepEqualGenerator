@@ -100,14 +100,11 @@ bool equal = CustomerDeepEqual.AreDeepEqual(a, b);
 public class Product
 {
     [DeepCompare(Kind = CompareKind.Skip)]
-    public string? DebugNotes { get; set; } // ignored
-
+    public string? DebugNotes { get; set; } 
     [DeepCompare(Kind = CompareKind.Reference)]
-    public byte[]? Blob { get; set; } // reference equality only
-
+    public byte[]? Blob { get; set; } 
     [DeepCompare(Kind = CompareKind.Shallow)]
-    public Uri? Url { get; set; } // use Uri.Equals
-}
+    public Uri? Url { get; set; } }
 ```
 
 ### Collection order
@@ -117,8 +114,7 @@ public class Product
 
 ```csharp
 [DeepCompare(OrderInsensitive = true)]
-public List<string> Tags { get; set; } = new(); // multiset semantics
-```
+public List<string> Tags { get; set; } = new(); ```
 
 - Or set globally at the root:
 
@@ -136,8 +132,7 @@ Define identity with `[DeepCompare]` on the type itself:
 public class Product
 {
     public string Sku { get; set; } = "";
-    public string Name { get; set; } = ""; // ignored
-    public decimal Price { get; set; }
+    public string Name { get; set; } = "";     public decimal Price { get; set; }
 }
 ```
 
@@ -149,8 +144,7 @@ public class Sample
 {
     public int X { get; set; }
     public int Y { get; set; }
-    public int Z { get; set; } // ignored
-}
+    public int Z { get; set; } }
 ```
 
 ---
@@ -161,13 +155,11 @@ Cycles in reference graphs are automatically tracked and skipped:
 
 ```csharp
 var a = new Node { Name = "root" };
-a.Child = a; // cycle
-
+a.Child = a; 
 var b = new Node { Name = "root" };
 b.Child = b;
 
-NodeDeepEqual.AreDeepEqual(a, b); // true, no stack overflow
-```
+NodeDeepEqual.AreDeepEqual(a, b); ```
 
 ---
 
