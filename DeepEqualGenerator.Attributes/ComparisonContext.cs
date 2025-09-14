@@ -9,13 +9,18 @@ public sealed class ComparisonContext
     private readonly HashSet<RefPair> visited;
     private readonly Stack<RefPair> stack;
 
-    public static ComparisonContext NoTracking { get; } = new ComparisonContext(false);
+    public ComparisonOptions Options { get; }
 
-    public ComparisonContext() : this(true) { }
+    public static ComparisonContext NoTracking { get; } = new ComparisonContext(false, new ComparisonOptions());
 
-    private ComparisonContext(bool enableTracking)
+    public ComparisonContext() : this(true, new ComparisonOptions()) { }
+
+    public ComparisonContext(ComparisonOptions options) : this(true, options ?? new ComparisonOptions()) { }
+
+    private ComparisonContext(bool enableTracking, ComparisonOptions options)
     {
         tracking = enableTracking;
+        Options = options ?? new ComparisonOptions();
         if (tracking)
         {
             visited = new HashSet<RefPair>(RefPair.Comparer.Instance);

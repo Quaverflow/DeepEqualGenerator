@@ -20,7 +20,7 @@ public static class DynamicDeepComparer
             return equalFromRegistry;
         }
 
-        if (left is string ls && right is string rs) return ComparisonHelpers.AreEqualStrings(ls, rs);
+        if (left is string ls && right is string rs) return ComparisonHelpers.AreEqualStrings(ls, rs, context);
 
         if (left is DateTime ldt && right is DateTime rdt) return ComparisonHelpers.AreEqualDateTime(ldt, rdt);
         if (left is DateTimeOffset ldo && right is DateTimeOffset rdo) return ComparisonHelpers.AreEqualDateTimeOffset(ldo, rdo);

@@ -23,9 +23,5 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="ReferenceType\Models\" />
-    <Folder Include="ValueType\Models\" />
-  </ItemGroup>
 
 </Project>
