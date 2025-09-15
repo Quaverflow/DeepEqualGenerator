@@ -31,7 +31,10 @@ public static class GeneratedHelperRegistry
             equal = comparer(left, right, context);
             return true;
         }
-
+        if (TryCompareAssignable(runtimeType, left, right, context, out equal))
+        {
+            return true;
+        }
         if (NegativeCache.TryGetValue(runtimeType, out var neg) && neg)
         {
             equal = false;
@@ -63,5 +66,27 @@ public static class GeneratedHelperRegistry
         }
     }
 
-    public static bool HasComparer(Type runtimeType) => ComparerMap.ContainsKey(runtimeType);
+    private static bool TryCompareAssignable(Type runtimeType, object left, object right, ComparisonContext context, out bool equal)
+    {
+        for (var t = runtimeType.BaseType; t != null; t = t.BaseType)
+        {
+            if (ComparerMap.TryGetValue(t, out var cmp))
+            {
+                equal = cmp(left, right, context);
+                return true;
+            }
+        }
+
+        foreach (var i in runtimeType.GetInterfaces())
+        {
+            if (ComparerMap.TryGetValue(i, out var cmp))
+            {
+                equal = cmp(left, right, context);
+                return true;
+            }
+        }
+
+        equal = false;
+        return false;
+    }
 }

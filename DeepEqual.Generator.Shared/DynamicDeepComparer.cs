@@ -38,6 +38,11 @@ public static class DynamicDeepComparer
             return ComparisonHelpers.AreEqualDecimal(m1, m2, context);
         }
 
+        if (IsNumeric(left) && IsNumeric(right))
+        {
+            return NumericEqual(left, right, context);
+        }
+
         var typeLeft = left.GetType();
         var typeRight = right.GetType();
         if (typeLeft != typeRight)
@@ -173,4 +178,22 @@ public static class DynamicDeepComparer
         || v is Guid
         || v is DateTime || v is DateTimeOffset || v is TimeSpan
         || v.GetType().IsEnum;
-}
+
+    private static bool IsNumeric(object o) =>
+        o is byte or sbyte or short or ushort or int or uint or long or ulong
+            or float or double or decimal;
+
+    private static bool NumericEqual(object a, object b, ComparisonContext context)
+    {
+        if (a is float or double or decimal || b is float or double or decimal)
+        {
+            var da = a is decimal mad ? (double)mad : Convert.ToDouble(a);
+            var db = b is decimal mbd ? (double)mbd : Convert.ToDouble(b);
+            return ComparisonHelpers.AreEqualDouble(da, db, context); 
+        }
+
+        var va = Convert.ToDecimal(a);
+        var vb = Convert.ToDecimal(b);
+        return va == vb;
+    }
+    }
