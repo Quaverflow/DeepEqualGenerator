@@ -1,4 +1,5 @@
-﻿using DeepEqual.Generator.Shared;
+﻿using System.Dynamic;
+using DeepEqual.Generator.Shared;
 using DeepEqual.Generator.Tests.Models;
 
 namespace DeepEqual.Generator.Tests.Tests;

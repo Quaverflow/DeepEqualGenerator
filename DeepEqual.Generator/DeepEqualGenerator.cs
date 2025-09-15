@@ -694,9 +694,9 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 
             var lro = "__roMapA_" + SanitizeIdentifier(owner.Name) + "_" + SanitizeIdentifier(member.Name);
             var rro = "__roMapB_" + SanitizeIdentifier(owner.Name) + "_" + SanitizeIdentifier(member.Name);
-            w.Line("var " + lro + " = " + leftExpr + " as global::System.Collections.Generic.IReadOnlyDictionary<" +
+            w.Line("var " + lro + " = " + leftExpr + " as global::System.Collections.Generic.IDictionary<" +
                    kFqn + ", " + vFqn + ">;");
-            w.Line("var " + rro + " = " + rightExpr + " as global::System.Collections.Generic.IReadOnlyDictionary<" +
+            w.Line("var " + rro + " = " + rightExpr + " as global::System.Collections.Generic.IDictionary<" +
                    kFqn + ", " + vFqn + ">;");
             w.Open("if (" + lro + " is not null && " + rro + " is not null)");
             w.Open("if (" + lro + ".Count != " + rro + ".Count)");
