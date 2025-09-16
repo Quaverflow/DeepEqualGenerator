@@ -144,13 +144,13 @@ public static class OrderDataset
 [HideColumns("Median", "Min", "Max")]
 public class DiffDeltaBenchmarks
 {
-    [Params(40)]
+    [Params(1500)]
     public int Customers { get; set; } = 40;
 
-    [Params(3)]
+    [Params(10)]
     public int OrdersPerCustomer { get; set; } = 3;
 
-    [Params(4)]
+    [Params(10)]
     public int LinesPerOrder { get; set; } = 4;
 
     private List<Order> _before = default!;
