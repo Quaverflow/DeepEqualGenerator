@@ -6,8 +6,8 @@ namespace DeepEqual.Generator.Shared;
 public sealed class ComparisonContext
 {
     private readonly bool _tracking;
-    private readonly HashSet<RefPair> _visited;
-    private readonly Stack<RefPair> _stack;
+    private readonly HashSet<RefPair> _visited = new(RefPair.Comparer.Instance);
+    private readonly Stack<RefPair> _stack = new();
 
     public ComparisonOptions Options { get; }
 
@@ -21,30 +21,14 @@ public sealed class ComparisonContext
     {
         _tracking = enableTracking;
         Options = options ?? new ComparisonOptions();
-        if (_tracking)
-        {
-            _visited = new HashSet<RefPair>(RefPair.Comparer.Instance);
-            _stack = new Stack<RefPair>();
-        }
-        else
-        {
-            _visited = null!;
-            _stack = null!;
-        }
     }
 
     public bool Enter(object left, object right)
     {
-        if (!_tracking)
-        {
-            return true;
-        }
+        if (!_tracking) return true;
 
         var pair = new RefPair(left, right);
-        if (!_visited.Add(pair))
-        {
-            return false;
-        }
+        if (!_visited.Add(pair)) return false;
 
         _stack.Push(pair);
         return true;
@@ -52,15 +36,9 @@ public sealed class ComparisonContext
 
     public void Exit(object left, object right)
     {
-        if (!_tracking)
-        {
-            return;
-        }
+        if (!_tracking) return;
 
-        if (_stack.Count == 0)
-        {
-            return;
-        }
+        if (_stack.Count == 0) return;
 
         var last = _stack.Pop();
         _visited.Remove(last);

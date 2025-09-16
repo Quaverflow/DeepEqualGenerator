@@ -13,6 +13,7 @@
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
 	<ItemGroup>

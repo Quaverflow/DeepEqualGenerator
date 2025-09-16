@@ -270,7 +270,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             {
                 var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var helper = GetHelperMethodName(t);
-                w.Line("GeneratedHelperRegistry.Register<" + fqn + ">((l, r, c) => " + helper + "(l, r, c));");
+                w.Line("GeneratedHelperRegistry.RegisterComparer<" + fqn + ">((l, r, c) => " + helper + "(l, r, c));");
             }
             w.Close();
             w.Line();
@@ -374,14 +374,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             }
 
             w.Close();
-            w.Open("static class __" + SanitizeIdentifier(helperClass) + "_ModuleInit");
-            w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
-            w.Open("internal static void Init()");
-            var generic = root.Type.Arity > 0 ? "<>" : "";
-            w.Line("_ = typeof(" + helperClass + generic + ");");
-            w.Close();
-            w.Close();
-
+          
             if (ns is not null)
             {
                 w.Close();
