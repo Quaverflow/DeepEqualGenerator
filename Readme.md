@@ -204,14 +204,14 @@ NodeDeepEqual.AreDeepEqual(a, b);
 
 The generated comparer outperforms handwritten, JSON, and popular libraries by a wide margin:
 
-| Method              |    Equal | Allocations |
-| ------------------- | -------: | ----------: |
-| **Generated**       |   0.3 µs |       120 B |
-| Handwritten (Linq)  |   2.1 µs |      3.5 KB |
-| JSON (STJ)          |  1.401 s |      1.4 MB |
-| Compare-Net-Objects |  2.099 s |      3.4 MB |
-| ObjectsComparer     | 13.527 s |       13 MB |
-| FluentAssertions    | 10.818 s |       21 MB |
+| Method              |    Equal  | Allocations |
+| ------------------- | --------: | ----------: |
+| **Generated**       |   0.3 µs  |       120 B |
+| Handwritten (Linq)  |   2.1 µs  |      3.5 KB |
+| JSON (STJ)          |  1.401 ms |      1.4 MB |
+| Compare-Net-Objects |  2.099 ms |      3.4 MB |
+| ObjectsComparer     | 13.527 ms |       13 MB |
+| FluentAssertions    | 10.818 ms |       21 MB |
 
 ---
 
