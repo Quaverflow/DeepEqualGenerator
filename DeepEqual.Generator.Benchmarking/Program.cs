@@ -364,113 +364,113 @@ namespace DeepEqual.Generator.Benchmarking
         [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
         [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
 
-        [Benchmark]
-        public bool Json_Newtonsoft_Equal()
-        {
-            var ja = JToken.FromObject(_eqA);
-            var jb = JToken.FromObject(_eqB);
-            return JToken.DeepEquals(ja, jb);
-        }
+        //[Benchmark]
+        //public bool Json_Newtonsoft_Equal()
+        //{
+        //    var ja = JToken.FromObject(_eqA);
+        //    var jb = JToken.FromObject(_eqB);
+        //    return JToken.DeepEquals(ja, jb);
+        //}
 
-        [Benchmark]
-        public bool Json_SystemText_Equal()
-        {
-            var sa = JsonSerializer.Serialize(_eqA);
-            var sb = JsonSerializer.Serialize(_eqB);
-            var na = JsonNode.Parse(sa)!;
-            var nb = JsonNode.Parse(sb)!;
-            return JsonNode.DeepEquals(na, nb);
-        }
+        //[Benchmark]
+        //public bool Json_SystemText_Equal()
+        //{
+        //    var sa = JsonSerializer.Serialize(_eqA);
+        //    var sb = JsonSerializer.Serialize(_eqB);
+        //    var na = JsonNode.Parse(sa)!;
+        //    var nb = JsonNode.Parse(sb)!;
+        //    return JsonNode.DeepEquals(na, nb);
+        //}
 
-        [Benchmark]
-        public bool CompareNetObjects_Equal()
-            => _cno.Compare(_eqA, _eqB).AreEqual;
+        //[Benchmark]
+        //public bool CompareNetObjects_Equal()
+        //    => _cno.Compare(_eqA, _eqB).AreEqual;
 
-        [Benchmark]
-        public bool ObjectsComparer_Equal()
-            => _objComp.Compare(_eqA, _eqB);
+        //[Benchmark]
+        //public bool ObjectsComparer_Equal()
+        //    => _objComp.Compare(_eqA, _eqB);
 
-        [Benchmark]
-        public bool FluentAssertions_Equal()
-        {
-            try { _eqA.Should().BeEquivalentTo(_eqB); return true; }
-            catch { return false; }
-        }
+        //[Benchmark]
+        //public bool FluentAssertions_Equal()
+        //{
+        //    try { _eqA.Should().BeEquivalentTo(_eqB); return true; }
+        //    catch { return false; }
+        //}
 
         
         [Benchmark] public bool Generated_NotEqual_Shallow() => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
         [Benchmark] public bool Manual_NonLinq_NotEqual_Shallow() => ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
         [Benchmark] public bool Manual_Linqy_NotEqual_Shallow() => ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
 
-        [Benchmark]
-        public bool Json_Newtonsoft_NotEqual_Shallow()
-        {
-            var ja = JToken.FromObject(_neqShallowA);
-            var jb = JToken.FromObject(_neqShallowB);
-            return JToken.DeepEquals(ja, jb);
-        }
+        //[Benchmark]
+        //public bool Json_Newtonsoft_NotEqual_Shallow()
+        //{
+        //    var ja = JToken.FromObject(_neqShallowA);
+        //    var jb = JToken.FromObject(_neqShallowB);
+        //    return JToken.DeepEquals(ja, jb);
+        //}
 
-        [Benchmark]
-        public bool Json_SystemText_NotEqual_Shallow()
-        {
-            var sa = JsonSerializer.Serialize(_neqShallowA);
-            var sb = JsonSerializer.Serialize(_neqShallowB);
-            var na = JsonNode.Parse(sa)!;
-            var nb = JsonNode.Parse(sb)!;
-            return JsonNode.DeepEquals(na, nb);
-        }
+        //[Benchmark]
+        //public bool Json_SystemText_NotEqual_Shallow()
+        //{
+        //    var sa = JsonSerializer.Serialize(_neqShallowA);
+        //    var sb = JsonSerializer.Serialize(_neqShallowB);
+        //    var na = JsonNode.Parse(sa)!;
+        //    var nb = JsonNode.Parse(sb)!;
+        //    return JsonNode.DeepEquals(na, nb);
+        //}
 
-        [Benchmark]
-        public bool CompareNetObjects_NotEqual_Shallow()
-            => _cno.Compare(_neqShallowA, _neqShallowB).AreEqual;
+        //[Benchmark]
+        //public bool CompareNetObjects_NotEqual_Shallow()
+        //    => _cno.Compare(_neqShallowA, _neqShallowB).AreEqual;
 
-        [Benchmark]
-        public bool ObjectsComparer_NotEqual_Shallow()
-            => _objComp.Compare(_neqShallowA, _neqShallowB);
+        //[Benchmark]
+        //public bool ObjectsComparer_NotEqual_Shallow()
+        //    => _objComp.Compare(_neqShallowA, _neqShallowB);
 
-        [Benchmark]
-        public bool FluentAssertions_NotEqual_Shallow()
-        {
-            try { _neqShallowA.Should().BeEquivalentTo(_neqShallowB); return true; }
-            catch { return false; }
-        }
+        //[Benchmark]
+        //public bool FluentAssertions_NotEqual_Shallow()
+        //{
+        //    try { _neqShallowA.Should().BeEquivalentTo(_neqShallowB); return true; }
+        //    catch { return false; }
+        //}
 
         
         [Benchmark] public bool Generated_NotEqual_Deep() => MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
         [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
         [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-        [Benchmark]
-        public bool Json_Newtonsoft_NotEqual_Deep()
-        {
-            var ja = JToken.FromObject(_neqDeepA);
-            var jb = JToken.FromObject(_neqDeepB);
-            return JToken.DeepEquals(ja, jb);
-        }
+        //[Benchmark]
+        //public bool Json_Newtonsoft_NotEqual_Deep()
+        //{
+        //    var ja = JToken.FromObject(_neqDeepA);
+        //    var jb = JToken.FromObject(_neqDeepB);
+        //    return JToken.DeepEquals(ja, jb);
+        //}
 
-        [Benchmark]
-        public bool Json_SystemText_NotEqual_Deep()
-        {
-            var sa = JsonSerializer.Serialize(_neqDeepA);
-            var sb = JsonSerializer.Serialize(_neqDeepB);
-            var na = JsonNode.Parse(sa)!;
-            var nb = JsonNode.Parse(sb)!;
-            return JsonNode.DeepEquals(na, nb);
-        }
+        //[Benchmark]
+        //public bool Json_SystemText_NotEqual_Deep()
+        //{
+        //    var sa = JsonSerializer.Serialize(_neqDeepA);
+        //    var sb = JsonSerializer.Serialize(_neqDeepB);
+        //    var na = JsonNode.Parse(sa)!;
+        //    var nb = JsonNode.Parse(sb)!;
+        //    return JsonNode.DeepEquals(na, nb);
+        //}
 
-        [Benchmark]
-        public bool CompareNetObjects_NotEqual_Deep()
-            => _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
+        //[Benchmark]
+        //public bool CompareNetObjects_NotEqual_Deep()
+        //    => _cno.Compare(_neqDeepA, _neqDeepB).AreEqual;
 
-        [Benchmark]
-        public bool ObjectsComparer_NotEqual_Deep()
-            => _objComp.Compare(_neqDeepA, _neqDeepB);
+        //[Benchmark]
+        //public bool ObjectsComparer_NotEqual_Deep()
+        //    => _objComp.Compare(_neqDeepA, _neqDeepB);
 
-        [Benchmark]
-        public bool FluentAssertions_NotEqual_Deep()
-        {
-            try { _neqDeepA.Should().BeEquivalentTo(_neqDeepB); return true; }
-            catch { return false; }
-        }
+        //[Benchmark]
+        //public bool FluentAssertions_NotEqual_Deep()
+        //{
+        //    try { _neqDeepA.Should().BeEquivalentTo(_neqDeepB); return true; }
+        //    catch { return false; }
+        //}
     }
 }

@@ -469,7 +469,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             var (effKind, orderInsensitive, keyMembers, deltaShallow, deltaSkip) = ResolveEffectiveSettings(member);
             if (effKind == CompareKind.Skip || deltaSkip) return;
 
-            // 1) Value-like → SetMember when different (never Nested)
+            // Value-like (incl. Nullable<T>, structs, string)
             if (IsValueLike(member.Type))
             {
                 var cmp = GetValueLikeEqualsInvocation(member.Type, left, right);
@@ -479,7 +479,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 return;
             }
 
-            // 2) Reference compare (ref types only)
+            // Reference compare (only for ref types)
             if (effKind == CompareKind.Reference && member.Type.IsReferenceType)
             {
                 w.Open($"if (!object.ReferenceEquals({left}, {right}))");
@@ -488,7 +488,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 return;
             }
 
-            // 3) Shallow compare for reference types
+            // Shallow compare for reference types
             if (effKind == CompareKind.Shallow)
             {
                 var tfqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -497,17 +497,35 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 w.Close();
                 return;
             }
-
-            // 4) Collections/dicts → v1: Set on any difference
-            if (IsEnumerable(member.Type) || IsDictionary(member.Type))
+            // Dictionaries
+            if (TryGetDictionaryTypes(member.Type, out var keyT, out var valT))
             {
-                w.Open($"if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({left}, {right}, context))");
-                w.Line($"writer.WriteSetMember({idx}, {right});");
-                w.Close();
+                var kFqn = keyT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var vFqn = valT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var nestedValues = !IsValueLike(valT);
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>({left}, {right}, {idx}, ref writer, {(nestedValues ? "true" : "false")}, context);");
+                return;
+            }
+            // Collections (ordered)
+            if (TryGetEnumerableElement(member.Type, out var elem) && !(member.Type is IArrayTypeSymbol))
+            {
+                // Only emit granular ops when we can treat it as IList<T>; else fallback to SetMember
+                if (TryGetListInterface(member.Type, out var listEl))
+                {
+                    var elFqn = elem.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}>({left}, {right}, {idx}, ref writer);");
+                }
+                else
+                {
+                    // e.g., arrays or read-only enumerables -> fallback (replace)
+                    w.Open($"if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({left}, {right}, context))");
+                    w.Line($"writer.WriteSetMember({idx}, {right});");
+                    w.Close();
+                }
                 return;
             }
 
-            // 5) Reference-type user objects (deep) → runtime dispatch unless DeltaShallow
+            // User object (deep, polymorphic-safe)
             if (deltaShallow)
             {
                 w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic({left}, {right}, context))");
@@ -522,7 +540,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             w.Line($"var {rtmp} = {right};");
 
             w.Open($"if (object.ReferenceEquals({ltmp}, {rtmp}))");
-            w.Line("// identical refs");
+            w.Line("// identical");
             w.Close();
 
             w.Open($"else if ({ltmp} is null || {rtmp} is null)");
@@ -536,14 +554,92 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             w.Line($"    writer.WriteSetMember({idx}, {right});");
             w.Close();
             w.Line("    else {");
-            w.Line("        var __subDoc = new DeepEqual.Generator.Shared.DeltaDocument();");
-            w.Line("        var __subW   = new DeepEqual.Generator.Shared.DeltaWriter(__subDoc);");
-            w.Line("        GeneratedHelperRegistry.ComputeDeltaSameType(__tL, " + ltmp + ", " + rtmp + ", ref __subW);");
-            w.Open("        if (!__subDoc.IsEmpty)");
-            w.Line($"        writer.WriteNestedMember({idx}, __subDoc);");
+            w.Line("        var __sub = new DeepEqual.Generator.Shared.DeltaDocument();");
+            w.Line("        var __w   = new DeepEqual.Generator.Shared.DeltaWriter(__sub);");
+            w.Line("        GeneratedHelperRegistry.ComputeDeltaSameType(__tL, " + ltmp + ", " + rtmp + ", ref __w);");
+            w.Open("        if (!__sub.IsEmpty)");
+            w.Line($"        writer.WriteNestedMember({idx}, __sub);");
             w.Close();
             w.Line("    }");
             w.Line("}");
+        }
+
+        private static bool TryGetEnumerableElement(ITypeSymbol t, out ITypeSymbol element)
+        {
+            element = null!;
+            if (t is IArrayTypeSymbol at) { element = at.ElementType; return true; }
+
+            foreach (var i in t.AllInterfaces)
+            {
+                if (i is INamedTypeSymbol ni &&
+                    ni.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                    "global::System.Collections.Generic.IEnumerable<T>")
+                {
+                    element = ni.TypeArguments[0];
+                    return true;
+                }
+            }
+            if (t is INamedTypeSymbol nt &&
+                nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                "global::System.Collections.Generic.IEnumerable<T>")
+            {
+                element = nt.TypeArguments[0];
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetListInterface(ITypeSymbol t, out ITypeSymbol element)
+        {
+            element = null!;
+            foreach (var i in t.AllInterfaces)
+            {
+                if (i is INamedTypeSymbol ni &&
+                    ni.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                    "global::System.Collections.Generic.IList<T>")
+                {
+                    element = ni.TypeArguments[0];
+                    return true;
+                }
+            }
+            // List<T> itself
+            if (t is INamedTypeSymbol nt &&
+                nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                "global::System.Collections.Generic.List<T>")
+            {
+                element = nt.TypeArguments[0];
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetDictionaryTypes(ITypeSymbol t, out ITypeSymbol key, out ITypeSymbol value)
+        {
+            key = value = null!;
+            static bool IsDict(INamedTypeSymbol x) =>
+                x.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                    "global::System.Collections.Generic.IDictionary<TKey, TValue>" ||
+                x.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                    "global::System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>";
+
+            foreach (var i in t.AllInterfaces)
+            {
+                if (i is INamedTypeSymbol ni && IsDict(ni))
+                {
+                    key = ni.TypeArguments[0];
+                    value = ni.TypeArguments[1];
+                    return true;
+                }
+            }
+
+            if (t is INamedTypeSymbol nt && IsDict(nt))
+            {
+                key = nt.TypeArguments[0];
+                value = nt.TypeArguments[1];
+                return true;
+            }
+
+            return false;
         }
 
         private void EmitMemberApplyDelta(CodeWriter w, INamedTypeSymbol owner, MemberSymbol member, int index, Target root)
@@ -553,45 +649,110 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var nullableQ = member.Type.IsReferenceType ? "?" : "";
 
-            // apply for member #<idx> <Name>
             w.Line("// apply for member #" + memberIdx + " " + member.Name);
-
-            // foreach (var op in reader.EnumerateMember(<idx>))
             w.Open($"foreach (var op in reader.EnumerateMember({memberIdx}))");
-
-            // switch (op.Kind)
             w.Open("switch (op.Kind)");
 
-            // --- SetMember: always present ---
+            // SetMember (always)
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.SetMember:");
             w.Line($"{propAccess} = ({typeFqn})op.Value;");
             w.Line("break;");
             w.Close();
 
-            // --- NestedMember: ONLY for user objects (not value-like, not collections/dicts) ---
-            if (!IsValueLike(member.Type) && !IsEnumerable(member.Type) && !IsDictionary(member.Type))
+            // NestedMember: only for user objects (not value-like / lists / dicts)
+            if (!IsValueLike(member.Type) && !TryGetEnumerableElement(member.Type, out _) && !TryGetDictionaryTypes(member.Type, out _, out _))
             {
+                var nestedId = SanitizeIdentifier(member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
                 w.Open("case DeepEqual.Generator.Shared.DeltaKind.NestedMember:");
-                // use a local temp so we can pass by ref, and runtime-dispatch via the registry
-                w.Line($"{typeFqn}{(member.Type.IsReferenceType ? "?" : "")} __tmp = {propAccess};");
+                w.Line($"{typeFqn}{nullableQ} __tmp = {propAccess};");
                 w.Line("var __obj = (object?)__tmp;");
                 w.Line("var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
                 w.Open("if (__obj != null)");
                 w.Line("var __t = __obj.GetType();");
                 w.Line("GeneratedHelperRegistry.TryApplyDeltaSameType(__t, ref __obj, ref __subReader);");
-                w.Close(); // if
+                w.Close();
                 w.Line($"{propAccess} = ({typeFqn})__obj;");
                 w.Line("break;");
-                w.Close(); // case
+                w.Close();
             }
 
-            // --- v1: no-ops for granular ops (present but empty) ---
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqReplaceAt:"); w.Line("break;"); w.Close();
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqAddAt:"); w.Line("break;"); w.Close();
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt:"); w.Line("break;"); w.Close();
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:"); w.Line("break;"); w.Close();
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:"); w.Line("break;"); w.Close();
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:"); w.Line("break;"); w.Close();
+            // -------- Sequence granular ops (only when the member is IList<T>) --------
+            if (TryGetListInterface(member.Type, out var elType))
+            {
+                var elFqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqReplaceAt:");
+                w.Open($"if ({propAccess} is System.Collections.Generic.IList<{elFqn}> __list_r)");
+                w.Line($"__list_r[op.Index] = ({elFqn})op.Value!;");
+                w.Close();
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqAddAt:");
+                w.Open($"if ({propAccess} is System.Collections.Generic.IList<{elFqn}> __list_a)");
+                w.Line($"__list_a.Insert(op.Index, ({elFqn})op.Value!);");
+                w.Close();
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt:");
+                w.Open($"if ({propAccess} is System.Collections.Generic.IList<{elFqn}> __list_d)");
+                w.Line($"__list_d.RemoveAt(op.Index);");
+                w.Close();
+                w.Line("break;");
+                w.Close();
+            }
+            else
+            {
+                // If not a mutable list, ignore (we only emit granular ops for lists; arrays fell back to SetMember)
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqReplaceAt:");
+                w.Line("break;");
+                w.Close();
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqAddAt:");
+                w.Line("break;");
+                w.Close();
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt:");
+                w.Line("break;");
+                w.Close();
+            }
+
+            // -------- Dictionary granular ops --------
+            if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
+            {
+                var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var vFqn = vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
+                w.Open($"if ({propAccess} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __dict_s)");
+                w.Line($"__dict_s[({kFqn})op.Key!] = ({vFqn})op.Value!;");
+                w.Close();
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:");
+                w.Open($"if ({propAccess} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __dict_r)");
+                w.Line($"__dict_r.Remove(({kFqn})op.Key!);");
+                w.Close();
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:");
+                w.Open($"if ({propAccess} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __dict_n)");
+                w.Open($"if (__dict_n.TryGetValue(({kFqn})op.Key!, out var __old))");
+                w.Line("object? __obj = __old;");
+                w.Line("var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
+                w.Line("GeneratedHelperRegistry.TryApplyDeltaSameType(__obj!.GetType(), ref __obj, ref __subReader);");
+                w.Line($"__dict_n[({kFqn})op.Key!] = ({vFqn})__obj!;");
+                w.Close();
+                w.Close();
+                w.Line("break;");
+                w.Close();
+            }
+            else
+            {
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:"); w.Line("break;"); w.Close();
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:"); w.Line("break;"); w.Close();
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:"); w.Line("break;"); w.Close();
+            }
 
             // default
             w.Open("default:");

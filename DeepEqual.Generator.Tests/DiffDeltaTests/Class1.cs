@@ -173,32 +173,38 @@ public class DeepOpsTests
         Assert.Equal("x", target.Ignored);   // unchanged
         Assert.Equal("t2", target.Tracked);  // updated
     }
-
+  
     [Fact]
-    public void Collections_V1_Produce_Shallow_SetMember()
+    public void Collections_Produce_Granular_Ops()
     {
         GeneratedHelperRegistry.WarmUp(typeof(Order));
 
         var a = NewOrder();
         var b = NewOrder();
-        b.Items![0].Qty = a.Items![0].Qty + 1;      // a difference
-        b.Meta!["who"] = "z";
+
+        // introduce minimal changes
+        b.Items![0].Qty = a.Items![0].Qty + 1; // list element change at index 0
+        b.Meta!["who"] = "z";                   // dict value change for key "who"
 
         var doc = new DeltaDocument();
         var w = new DeltaWriter(doc);
         OrderDeepOps.ComputeDelta(a, b, ref w);
 
-        // v1: no granular Seq/Dict ops yet
-        Assert.False(doc.Operations.Any(op =>
-            op.Kind == DeltaKind.SeqAddAt ||
-            op.Kind == DeltaKind.SeqRemoveAt ||
-            op.Kind == DeltaKind.SeqReplaceAt ||
-            op.Kind == DeltaKind.DictSet ||
-            op.Kind == DeltaKind.DictRemove ||
-            op.Kind == DeltaKind.DictNested));
+        // list: we expect a SeqReplaceAt at index 0
+        Assert.Contains(doc.Operations, op =>
+            op.Kind == DeltaKind.SeqReplaceAt &&
+            op.Index == 0);
 
-        Assert.True(doc.Operations.Any(op => op.Kind == DeltaKind.SetMember));
+        // dict: we expect a DictSet for the changed key
+        Assert.Contains(doc.Operations, op =>
+            op.Kind == DeltaKind.DictSet &&
+            (string)op.Key! == "who" &&
+            (string?)op.Value == "z");
+
+        // with granular support, there shouldn't be any SetMember for these changes
+        Assert.DoesNotContain(doc.Operations, op => op.Kind == DeltaKind.SetMember);
     }
+
 
     [Fact]
     public void Polymorphic_Delta_On_Interface_Resolves_Runtime_Helper()

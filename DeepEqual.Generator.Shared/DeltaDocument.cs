@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DeepEqual.Generator.Shared;
+using System;
 using System.Collections.Generic;
 
 namespace DeepEqual.Generator.Shared
@@ -20,25 +21,25 @@ namespace DeepEqual.Generator.Shared
     {
         ReplaceObject = 0,
 
-        SetMember = 1,  
-        NestedMember = 2,  
+        SetMember = 1,
+        NestedMember = 2,
 
-        SeqReplaceAt = 10,    
-        SeqAddAt = 11,        
-        SeqRemoveAt = 12,       
+        SeqReplaceAt = 10,
+        SeqAddAt = 11,
+        SeqRemoveAt = 12,
 
-        DictSet = 20,          
-        DictRemove = 21,       
-        DictNested = 22       
+        DictSet = 20,
+        DictRemove = 21,
+        DictNested = 22
     }
 
     public readonly record struct DeltaOp(
         int MemberIndex,
         DeltaKind Kind,
-        int Index,                
-        object? Key,              
-        object? Value,            
-        DeltaDocument? Nested);   
+        int Index,
+        object? Key,
+        object? Value,
+        DeltaDocument? Nested);
 
     /// <summary>
     /// Writer used by generated helpers to append operations.
@@ -118,5 +119,100 @@ namespace DeepEqual.Generator.Shared
         }
 
         public void Reset() => _pos = 0;
+    }
+    public static class DeltaHelpers
+    {
+        // -------- Ordered collections (IList<T>) --------
+        // Emits minimal ops using common prefix/suffix trim + middle replace/add/remove.
+        public static void ComputeListDelta<T>(
+            IList<T>? left, IList<T>? right, int memberIndex, ref DeltaWriter writer,
+            IEqualityComparer<T>? cmp = null)
+        {
+            cmp ??= EqualityComparer<T>.Default;
+
+            if (ReferenceEquals(left, right)) return;
+            if (left is null || right is null) { writer.WriteSetMember(memberIndex, right); return; }
+
+            int lCount = left.Count, rCount = right.Count;
+            int prefix = 0;
+            while (prefix < lCount && prefix < rCount && cmp.Equals(left[prefix], right[prefix])) prefix++;
+
+            int suffix = 0;
+            while (suffix + prefix < lCount && suffix + prefix < rCount &&
+                   cmp.Equals(left[lCount - 1 - suffix], right[rCount - 1 - suffix]))
+                suffix++;
+
+            int lRemain = lCount - prefix - suffix;
+            int rRemain = rCount - prefix - suffix;
+
+            int common = Math.Min(lRemain, rRemain);
+            for (int i = 0; i < common; i++)
+            {
+                var li = left[prefix + i];
+                var ri = right[prefix + i];
+                if (!cmp.Equals(li, ri))
+                    writer.WriteSeqReplaceAt(memberIndex, prefix + i, ri);
+            }
+
+            // Removes (from left’s remaining)
+            for (int i = common - 1; i >= 0; i--) { /* keep index monotonic for adds */ }
+            for (int i = lRemain - 1; i >= common; i--)
+                writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+
+            // Adds (from right’s remaining)
+            for (int i = common; i < rRemain; i++)
+                writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+        }
+
+        // -------- Dictionaries (IDictionary<TKey,TValue>) --------
+        // If nestedValues=true and values are reference types: compute nested deltas
+        public static void ComputeDictDelta<TKey, TValue>(
+            IDictionary<TKey, TValue>? left, IDictionary<TKey, TValue>? right, int memberIndex, ref DeltaWriter writer,
+            bool nestedValues, ComparisonContext context)
+            where TKey : notnull
+        {
+            if (ReferenceEquals(left, right)) return;
+            if (left is null || right is null) { writer.WriteSetMember(memberIndex, right); return; }
+
+            // Removals
+            foreach (var kv in left)
+            {
+                if (!right.ContainsKey(kv.Key))
+                    writer.WriteDictRemove(memberIndex, kv.Key!);
+            }
+
+            // Adds / changes
+            foreach (var kv in right)
+            {
+                if (!left.TryGetValue(kv.Key, out var lv))
+                {
+                    writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+                    continue;
+                }
+
+                if (EqualityComparer<TValue>.Default.Equals(lv, kv.Value))
+                    continue;
+
+                if (nestedValues && lv is object lo && kv.Value is object ro)
+                {
+                    var tL = lo.GetType();
+                    var tR = ro.GetType();
+                    if (ReferenceEquals(tL, tR))
+                    {
+                        var sub = new DeltaDocument();
+                        var w = new DeltaWriter(sub);
+                        GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, ref w);
+                        if (!sub.IsEmpty)
+                        {
+                            writer.WriteDictNested(memberIndex, kv.Key!, sub);
+                            continue;
+                        }
+                    }
+                }
+
+                // fallback: shallow set
+                writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+            }
+        }
     }
 }
