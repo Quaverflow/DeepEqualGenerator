@@ -11,6 +11,16 @@ public static class ComparisonHelpers
         return string.Equals(a, b, comp);
     }
 
+    public static bool ArraysEqual<T>(T[]? a, T[]? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.Length != b.Length) return false;
+
+        // For value-like types, SequenceEqual is optimal; falls back to EqualityComparer<T> otherwise
+        return System.Linq.Enumerable.SequenceEqual(a, b);
+    }
+
     public static bool AreEqualEnum<T>(T a, T b) where T : struct, Enum => EqualityComparer<T>.Default.Equals(a, b);
 
     public static bool AreEqualDateTime(DateTime a, DateTime b) => a.Kind == b.Kind && a.Ticks == b.Ticks;

@@ -506,14 +506,33 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>({left}, {right}, {idx}, ref writer, {(nestedValues ? "true" : "false")}, context);");
                 return;
             }
+
+            if (member.Type is IArrayTypeSymbol arrSym)
+            {
+                var elFqn = arrSym.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+                // Fast path for primitive/value-like elements
+                w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.ArraysEqual<{elFqn}>({left}, {right}))");
+                w.Line($"writer.WriteSetMember({idx}, {right});");
+                w.Close();
+
+                return;
+            }
+
             // Collections (ordered)
             if (TryGetEnumerableElement(member.Type, out var elem) && !(member.Type is IArrayTypeSymbol))
             {
                 // Only emit granular ops when we can treat it as IList<T>; else fallback to SetMember
                 if (TryGetListInterface(member.Type, out var listEl))
                 {
+                    // We already know it's a list (TryGetListInterface succeeded)
                     var elFqn = elem.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}>({left}, {right}, {idx}, ref writer);");
+                    var cmpExpr = IsValueLike(elem)
+                        ? $"new System.Func<{elFqn}, {elFqn}, bool>((a,b)=>System.Collections.Generic.EqualityComparer<{elFqn}>.Default.Equals(a,b))"
+                        : $"new System.Func<{elFqn}, {elFqn}, bool>((a,b)=>DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(a,b, context))";
+
+                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}>({left}, {right}, {idx}, ref writer, {cmpExpr});");
+
                 }
                 else
                 {

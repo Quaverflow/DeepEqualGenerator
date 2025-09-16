@@ -122,24 +122,21 @@ namespace DeepEqual.Generator.Shared
     }
     public static class DeltaHelpers
     {
-        // -------- Ordered collections (IList<T>) --------
-        // Emits minimal ops using common prefix/suffix trim + middle replace/add/remove.
         public static void ComputeListDelta<T>(
             IList<T>? left, IList<T>? right, int memberIndex, ref DeltaWriter writer,
-            IEqualityComparer<T>? cmp = null)
+            Func<T, T, bool> areEqual)
         {
-            cmp ??= EqualityComparer<T>.Default;
-
             if (ReferenceEquals(left, right)) return;
             if (left is null || right is null) { writer.WriteSetMember(memberIndex, right); return; }
 
             int lCount = left.Count, rCount = right.Count;
+
             int prefix = 0;
-            while (prefix < lCount && prefix < rCount && cmp.Equals(left[prefix], right[prefix])) prefix++;
+            while (prefix < lCount && prefix < rCount && areEqual(left[prefix], right[prefix])) prefix++;
 
             int suffix = 0;
             while (suffix + prefix < lCount && suffix + prefix < rCount &&
-                   cmp.Equals(left[lCount - 1 - suffix], right[rCount - 1 - suffix]))
+                   areEqual(left[lCount - 1 - suffix], right[rCount - 1 - suffix]))
                 suffix++;
 
             int lRemain = lCount - prefix - suffix;
@@ -148,18 +145,13 @@ namespace DeepEqual.Generator.Shared
             int common = Math.Min(lRemain, rRemain);
             for (int i = 0; i < common; i++)
             {
-                var li = left[prefix + i];
-                var ri = right[prefix + i];
-                if (!cmp.Equals(li, ri))
-                    writer.WriteSeqReplaceAt(memberIndex, prefix + i, ri);
+                if (!areEqual(left[prefix + i], right[prefix + i]))
+                    writer.WriteSeqReplaceAt(memberIndex, prefix + i, right[prefix + i]);
             }
 
-            // Removes (from left’s remaining)
-            for (int i = common - 1; i >= 0; i--) { /* keep index monotonic for adds */ }
             for (int i = lRemain - 1; i >= common; i--)
                 writer.WriteSeqRemoveAt(memberIndex, prefix + i);
 
-            // Adds (from right’s remaining)
             for (int i = common; i < rRemain; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
         }
