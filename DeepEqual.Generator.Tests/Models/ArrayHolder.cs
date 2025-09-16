@@ -2,4 +2,4 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepComparable] public sealed class ArrayHolder { public object? Any { get; init; } }
+[DeepComparable] public sealed class ArrayHolder { public object? Any { get; init; }    } 

@@ -8,7 +8,7 @@
 		<IncludeBuildOutput>false</IncludeBuildOutput>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
 		<PackageId>DeepEqual.Generator</PackageId>
-		<Version>1.0.3</Version>
+		<Version>1.0.4</Version>
 		<Authors>Mirko Sangrigoli</Authors>
 		<Company>Quaverflow</Company>
 		<Description>High-performance deep equality source generator for .NET.</Description>

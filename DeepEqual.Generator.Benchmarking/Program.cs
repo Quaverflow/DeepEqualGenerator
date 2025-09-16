@@ -24,6 +24,7 @@ namespace DeepEqual.Generator.Benchmarking
         public string City { get; set; } = "";
         public string Postcode { get; set; } = "";
         public string Country { get; set; } = "";
+        public ExpandoObject Countr3y { get; set; }
     }
 
     [DeepComparable(CycleTracking = false)]
@@ -214,6 +215,7 @@ namespace DeepEqual.Generator.Benchmarking
                 if (!b.TryGetValue(kv.Key, out var bv)) return false;
                 if (!Equals(kv.Value, bv)) return false;
             }
+
             return true;
         }
         private static bool ObjectEqual(object? a, object? b)
