@@ -474,7 +474,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             var (effKind, orderInsensitive, keyMembers, deltaShallow, deltaSkip) = ResolveEffectiveSettings(member);
             if (effKind == CompareKind.Skip || deltaSkip) return;
 
-            // Value-like (incl. Nullable<T>, structs, string)
+            // 1) Value-like (incl. Nullable<T>, structs, string) → SetMember if different
             if (IsValueLike(member.Type))
             {
                 var cmp = GetValueLikeEqualsInvocation(member.Type, left, right);
@@ -484,7 +484,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 return;
             }
 
-            // Reference compare (only for ref types)
+            // 2) Reference compare (only for reference types)
             if (effKind == CompareKind.Reference && member.Type.IsReferenceType)
             {
                 w.Open($"if (!object.ReferenceEquals({left}, {right}))");
@@ -493,15 +493,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 return;
             }
 
-            if (deltaShallow)
-            {
-                w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic({left}, {right}, context))");
-                w.Line($"writer.WriteSetMember({idx}, {right});");
-                w.Close();
-                return;
-            }
-
-            // Shallow compare for reference types
+            // 3) Shallow compare for reference types
             if (effKind == CompareKind.Shallow)
             {
                 var tfqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -510,20 +502,30 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 w.Close();
                 return;
             }
+
+            // 4) DeltaShallow override (MUST be before dict/array/list/user-object)
+            if (deltaShallow)
+            {
+                w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic({left}, {right}, context))");
+                w.Line($"writer.WriteSetMember({idx}, {right});");
+                w.Close();
+                return;
+            }
+
+            // 5) Dictionaries
             if (TryGetDictionaryTypes(member.Type, out var keyT, out var valT))
             {
-                // Case: declared type is IReadOnlyDictionary<,>
+                // IReadOnlyDictionary<,> → fallback to SetMember if changed
                 if (member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
                     .StartsWith("global::System.Collections.Generic.IReadOnlyDictionary<"))
                 {
-                    // Fallback: treat it as non-mutable → just SetMember if changed
                     w.Open($"if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({left}, {right}, context))");
                     w.Line($"writer.WriteSetMember({idx}, {right});");
                     w.Close();
                     return;
                 }
 
-                // Case: declared type is IDictionary<,> or Dictionary<,> → use granular ops
+                // Mutable dict → granular ops
                 var kFqn = keyT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var vFqn = valT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var nestedValues = !IsValueLike(valT);
@@ -531,36 +533,31 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 return;
             }
 
+            // 6) Arrays → fallback to SetMember when different
             if (member.Type is IArrayTypeSymbol arrSym)
             {
                 var elFqn = arrSym.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-                // Fast path for primitive/value-like elements
                 w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.ArraysEqual<{elFqn}>({left}, {right}))");
                 w.Line($"writer.WriteSetMember({idx}, {right});");
                 w.Close();
-
                 return;
             }
 
-            // Collections (ordered)
-            if (TryGetEnumerableElement(member.Type, out var elem) && !(member.Type is IArrayTypeSymbol))
+            // 7) Ordered collections (IList<T>) → granular list ops; otherwise fallback to SetMember
+            if (TryGetEnumerableElement(member.Type, out var elem))
             {
-                // Only emit granular ops when we can treat it as IList<T>; else fallback to SetMember
-                if (TryGetListInterface(member.Type, out var listEl))
+                if (TryGetListInterface(member.Type, out _))
                 {
-                    // We already know it's a list (TryGetListInterface succeeded)
                     var elFqn = elem.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     var cmpExpr = IsValueLike(elem)
                         ? $"new System.Func<{elFqn}, {elFqn}, bool>((a,b)=>System.Collections.Generic.EqualityComparer<{elFqn}>.Default.Equals(a,b))"
                         : $"new System.Func<{elFqn}, {elFqn}, bool>((a,b)=>DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(a,b, context))";
 
                     w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}>({left}, {right}, {idx}, ref writer, {cmpExpr});");
-
                 }
                 else
                 {
-                    // e.g., arrays or read-only enumerables -> fallback (replace)
+                    // Non-mutable enumerable → fallback to SetMember when different
                     w.Open($"if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({left}, {right}, context))");
                     w.Line($"writer.WriteSetMember({idx}, {right});");
                     w.Close();
@@ -568,6 +565,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 return;
             }
 
+            // 8) User object (deep, polymorphic-safe) with SetMember fallback if unregistered
             var ltmp = $"__l_{idx}";
             var rtmp = $"__r_{idx}";
             w.Line($"var {ltmp} = {left};");
@@ -603,7 +601,6 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             w.Line("        // else equal → no op");
             w.Line("    }");
             w.Line("}");
-
         }
 
         private static bool TryGetEnumerableElement(ITypeSymbol t, out ITypeSymbol element)
