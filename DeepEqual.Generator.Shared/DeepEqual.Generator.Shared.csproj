@@ -3,7 +3,7 @@
 		<TargetFramework>net8.0</TargetFramework>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>DeepEqual.Generator.Shared</PackageId>
-		<Version>1.0.1</Version>
+		<Version>1.0.2</Version>
 		<Description>Runtime comparers and attributes for DeepEqual generator.</Description>
 		<RepositoryUrl>https://github.com/Quaverflow/DeepEqualGenerator</RepositoryUrl>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -13,6 +13,7 @@
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
 	<ItemGroup>

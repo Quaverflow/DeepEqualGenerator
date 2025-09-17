@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeepEqual.Generator.Shared"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeepEqual.Generator.Tests", "DeepEqual.Generator.Tests\DeepEqual.Generator.Tests.csproj", "{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeepEqual.Generator.DiffDelta.Benchmarking", "DeepEqual.Generator.DiffDelta.Benchmarking\DeepEqual.Generator.DiffDelta.Benchmarking.csproj", "{DCD99EBA-0A70-41AA-8FED-139A8FDDE1A4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,10 @@ Global
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DCD99EBA-0A70-41AA-8FED-139A8FDDE1A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DCD99EBA-0A70-41AA-8FED-139A8FDDE1A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DCD99EBA-0A70-41AA-8FED-139A8FDDE1A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DCD99EBA-0A70-41AA-8FED-139A8FDDE1A4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -48,6 +54,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{5AAAB852-9AA1-4AD4-B9BB-6EAA5A65C612} = {5FB800ED-6954-4F9D-9DD5-15FDB9A54847}
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3} = {5FB800ED-6954-4F9D-9DD5-15FDB9A54847}
+		{DCD99EBA-0A70-41AA-8FED-139A8FDDE1A4} = {5FB800ED-6954-4F9D-9DD5-15FDB9A54847}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F7EFDDC0-018A-409C-9C08-12C99B8F2C79}
