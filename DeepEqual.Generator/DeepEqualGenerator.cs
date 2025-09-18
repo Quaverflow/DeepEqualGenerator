@@ -359,7 +359,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                          StringComparer.Ordinal))
             {
-                EmitHelperForType(w, t, root, trackCycles, emittedComparers, comparerDeclarations);
+                EmitHelperForType(w, t, root, trackCycles, emittedComparers, comparerDeclarations, spc);
             }
 
             if (comparerDeclarations.Count > 0)
@@ -374,7 +374,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             }
 
             w.Close();
-          
+
             if (ns is not null)
             {
                 w.Close();
@@ -384,7 +384,7 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         }
 
         private void EmitHelperForType(CodeWriter w, INamedTypeSymbol type, Target root, bool trackCycles,
-            HashSet<string> emittedComparers, List<string[]> comparerDeclarations)
+            HashSet<string> emittedComparers, List<string[]> comparerDeclarations, SourceProductionContext spc)
         {
             var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var helper = GetHelperMethodName(type);
@@ -410,9 +410,42 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
             }
 
             var schema = GetTypeSchema(type);
+            var __inc = schema.IncludeMembers;
+            var __ign = schema.IgnoreMembers;
+            if (__inc.Count > 0 && __ign.Count > 0)
+            {
+                for (int __i = 0; __i < __inc.Count; __i++)
+                {
+                    var __name = __inc[__i];
+                    if (__ign.Contains(__name, System.StringComparer.Ordinal))
+                    {
+                        var __attr = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
+                        var __loc = __attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken)?.GetLocation() ?? type.Locations.FirstOrDefault();
+                        if (__loc is not null)
+                            spc.ReportDiagnostic(Microsoft.CodeAnalysis.Diagnostic.Create(Diagnostics.EQ001, __loc, __name));
+                        break;
+                    }
+                }
+            }
+            if (__inc.Count > 0 && __ign.Count > 0)
+            {
+                for (int __i = 0; __i < __inc.Count; __i++)
+                {
+                    var __name = __inc[__i];
+                    if (__ign.Contains(__name, System.StringComparer.Ordinal))
+                    {
+                        var __attr = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
+                        var __loc = __attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken)?.GetLocation() ?? type.Locations.FirstOrDefault();
+                        if (__loc is not null)
+                            spc.ReportDiagnostic(Microsoft.CodeAnalysis.Diagnostic.Create(Diagnostics.EQ001, __loc, __name));
+                        break;
+                    }
+                }
+            }
+
             foreach (var member in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
             {
-                EmitMember(w, type, member, root, emittedComparers, comparerDeclarations);
+                EmitMember(w, type, member, root, emittedComparers, comparerDeclarations, spc);
             }
 
             w.Line("return true;");
@@ -429,12 +462,33 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         }
 
         private void EmitMember(CodeWriter w, INamedTypeSymbol owner, MemberSymbol member, Target root,
-            HashSet<string> emittedComparers, List<string[]> comparerDeclarations)
+            HashSet<string> emittedComparers, List<string[]> comparerDeclarations, SourceProductionContext spc)
         {
             var leftExpr = "left." + member.Name;
             var rightExpr = "right." + member.Name;
             var deepAttr = GetDeepCompareAttribute(member.Symbol);
             var kind = GetEffectiveKind(member.Type, deepAttr);
+            {
+                var __all = member.Symbol.GetAttributes().Where(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName).ToArray();
+                if (__all.Length > 1)
+                {
+                    var __loc = __all[0].ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken)?.GetLocation() ?? member.Symbol.Locations.FirstOrDefault();
+                    if (__loc is not null)
+                        spc.ReportDiagnostic(Microsoft.CodeAnalysis.Diagnostic.Create(Diagnostics.EQ001, __loc, member.Name));
+                }
+                if (kind == EffectiveKind.Deep)
+                {
+                    var __t = member.Type;
+                    if (__t is INamedTypeSymbol __n && IsUserObjectType(__n) && !IsTypeAccessibleFromRoot(__n, root))
+                    {
+                        var __attr = __all.FirstOrDefault();
+                        var __loc2 = __attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken)?.GetLocation() ?? member.Symbol.Locations.FirstOrDefault();
+                        if (__loc2 is not null)
+                            spc.ReportDiagnostic(Microsoft.CodeAnalysis.Diagnostic.Create(Diagnostics.EQ002, __loc2, __n.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                    }
+                }
+            }
+
             if (kind == EffectiveKind.Skip)
             {
                 w.Line();

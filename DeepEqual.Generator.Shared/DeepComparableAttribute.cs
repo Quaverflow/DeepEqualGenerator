@@ -3,6 +3,16 @@
 namespace DeepEqual.Generator.Shared
 {
     /// <summary>
+    /// Controls whether member indices used in deltas are stable across builds.
+    /// </summary>
+    public enum StableMemberIndexMode
+    {
+        Auto = 0,
+        On = 1,
+        Off = 2
+    }
+
+    /// <summary>
     /// Marks a class or struct as a root for generated deep comparison helpers and sets defaults for that type.
     /// </summary>
     /// <remarks>
@@ -45,5 +55,10 @@ namespace DeepEqual.Generator.Shared
         /// When enabled, <c>{TypeName}DeepOps</c> also exposes <c>ComputeDelta</c>/<c>ApplyDelta</c>.
         /// </remarks>
         public bool GenerateDelta { get; set; } = false;
+        /// <summary>
+        /// Controls whether generated deltas use stable per-member indices. Auto enables stability when delta is generated; Off uses ephemeral ordinals.
+        /// </summary>
+        public StableMemberIndexMode StableMemberIndex { get; set; } = StableMemberIndexMode.Auto;
+
     }
 }

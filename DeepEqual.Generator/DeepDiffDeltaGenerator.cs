@@ -25,8 +25,10 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
         bool CycleTrackingEnabled,
         bool IncludeBaseMembers,
         bool GenerateDiff,
-        bool GenerateDelta
-    );
+        bool GenerateDelta,
+        StableMemberIndexMode StableMemberIndexMode,
+        Location? AttributeLocation);
+
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -45,28 +47,29 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                     static bool HasNamedTrue(AttributeData a, string name) =>
                         a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
 
-                    static bool? GetNamedBool(AttributeData a, string name)
+                    static int GetEnumValue(AttributeData a, string name)
                     {
-                        foreach (var kv in a.NamedArguments)
-                        {
-                            if (kv.Key == name && kv.Value.Value is bool b) return b;
-                        }
-                        return null;
+                        var arg = a.NamedArguments.FirstOrDefault(kv => kv.Key == name).Value;
+                        return arg.Kind == TypedConstantKind.Enum && arg.Value is int i ? i : 0; // 0 = Auto
                     }
 
                     bool includeInternals = HasNamedTrue(attr, "IncludeInternals");
                     bool orderInsensitive = HasNamedTrue(attr, "OrderInsensitiveCollections");
-                    bool cycleTracking = GetNamedBool(attr, "CycleTracking") ?? true;
+                    bool cycleTracking = HasNamedTrue(attr, "CycleTracking");
                     bool includeBase = HasNamedTrue(attr, "IncludeBaseMembers");
                     bool genDiff = HasNamedTrue(attr, "GenerateDiff");
                     bool genDelta = HasNamedTrue(attr, "GenerateDelta");
+                    var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
+                    var attrLoc = attr.ApplicationSyntaxReference?.GetSyntax(ct)?.GetLocation();
 
                     var metadataName = BuildMetadataName(typeSymbol);
                     var fqn = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     var hint = SanitizeFileName(fqn + "_DeepOps.g.cs");
 
-                    return new RootRequest(metadataName, fqn, hint,
-                        includeInternals, orderInsensitive, cycleTracking, includeBase, genDiff, genDelta);
+                    return new RootRequest(
+                        metadataName, fqn, hint,
+                        includeInternals, orderInsensitive, cycleTracking, includeBase,
+                        genDiff, genDelta, stableMode, attrLoc);
                 })
             .Where(static r => r is not null)
             .Select(static (r, _) => r!.Value)
@@ -78,11 +81,18 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
         {
             var req = pair.Left;
             var compilation = pair.Right;
+
             var resolved = compilation.GetTypeByMetadataName(req.MetadataName);
             if (resolved is null) return;
 
+            // DL001: GenerateDelta=true but StableMemberIndex=Off (report at attribute site)
+            if (req.GenerateDelta && req.StableMemberIndexMode == StableMemberIndexMode.Off && req.AttributeLocation is not null)
+                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.DL001, req.AttributeLocation));
+
             var emitter = new Emitter(compilation);
-            emitter.EmitForRoot(spc, new Emitter.Target(resolved, req.IncludeInternals, req.OrderInsensitiveCollections, req.CycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta),
+            emitter.EmitForRoot(
+                spc,
+                new Emitter.Target(resolved, req.IncludeInternals, req.OrderInsensitiveCollections, req.CycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta),
                 hintOverride: SanitizeFileName(resolved.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepOps.g.cs"));
         });
     }
@@ -1081,3 +1091,4 @@ public enum CompareKind
     Reference,
     Skip
 }
+public enum StableMemberIndexMode { Auto = 0, On = 1, Off = 2 }
