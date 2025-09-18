@@ -157,6 +157,8 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
 
         public void EmitForRoot(SourceProductionContext spc, Target root, string? hintOverride = null)
         {
+            Diagnostics.DiagnosticPass(spc, root.Type);
+
             var ns = root.Type.ContainingNamespace.IsGlobalNamespace
                 ? null
                 : root.Type.ContainingNamespace.ToDisplayString();

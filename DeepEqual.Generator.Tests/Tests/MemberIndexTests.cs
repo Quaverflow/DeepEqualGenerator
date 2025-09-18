@@ -82,20 +82,4 @@ namespace DeepEqual.Generator.Tests.Tests
             Assert.Equal(idx1, idx2);
         }
     }
-    [DeepComparable(GenerateDelta = true, StableMemberIndex = StableMemberIndexMode.Off)]
-    public sealed class TriggerDL001 { public int X { get; set; } }
-
-    [DeepCompare(Members = new[] { nameof(ConflictMember.Y) }, IgnoreMembers = new[] { nameof(ConflictMember.Y) })]
-    public sealed class ConflictMember
-    {
-        public int Y { get; set; }
-    }
-
-    public sealed class NeedsExternal
-    {
-        [DeepCompare(Kind = CompareKind.Deep)]
-        public ExternalType External { get; set; } = new ExternalType();
-    }
-
-    public class ExternalType { }
 }

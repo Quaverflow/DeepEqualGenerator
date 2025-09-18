@@ -110,15 +110,19 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         {
             var req = pair.Left;
             var compilation = pair.Right;
-
             var resolved = compilation.GetTypeByMetadataName(req.MetadataName);
             if (resolved is null)
             {
                 return;
             }
 
+            var target = new Emitter.Target(resolved, req.IncludeInternals, req.OrderInsensitiveCollections,
+                req.CycleTrackingEnabled, req.IncludeBaseMembers);
+
+            Diagnostics.DiagnosticPass(spc, target.Type);
+
             var emitter = new Emitter(compilation);
-            emitter.EmitForRoot(spc, new Emitter.Target(resolved, req.IncludeInternals, req.OrderInsensitiveCollections, req.CycleTrackingEnabled, req.IncludeBaseMembers),
+            emitter.EmitForRoot(spc, target,
                 hintOverride: SanitizeFileName(resolved.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepEqual.g.cs"));
         });
     }

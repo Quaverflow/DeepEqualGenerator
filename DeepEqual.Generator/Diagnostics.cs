@@ -1,6 +1,7 @@
 
 #nullable enable
 using Microsoft.CodeAnalysis;
+using System;
 
 namespace DeepEqual.Generator
 {
@@ -97,5 +98,65 @@ namespace DeepEqual.Generator
                 category: Category,
                 defaultSeverity: DiagnosticSeverity.Error,
                 isEnabledByDefault: true);
+     
+        public static void DiagnosticPass(SourceProductionContext spc, INamedTypeSymbol type)
+        {
+            // external-path diagnostics pre-pass (does not affect generation)
+            foreach (var a in type.GetAttributes())
+            {
+                var an = a.AttributeClass?.ToDisplayString();
+                if (an == "DeepEqual.Generator.Shared.DeepComparableExternalAttribute" ||
+                    an == "DeepEqual.Generator.Shared.DeepCompareExternalAttribute")
+                {
+                    var loc = a.ApplicationSyntaxReference?.GetSyntax()?.GetLocation();
+
+                    string? path = null;
+                    // look for a named argument "path", or first ctor arg if you use that form later
+                    foreach (var kv in a.NamedArguments)
+                        if (kv.Key == "path" && kv.Value.Value is string s) { path = s; break; }
+                    if (path is null && a.ConstructorArguments.Length > 0 && a.ConstructorArguments[0].Value is string s0)
+                        path = s0;
+
+                    if (string.IsNullOrWhiteSpace(path))
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EX001, loc, "<empty>"));
+                        continue;
+                    }
+
+                    // EX002: dictionary side missing/invalid (<key>/<value>)
+                    var tokens = path.Split(['.'], StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i < tokens.Length; i++)
+                    {
+                        var t = tokens[i];
+                        var isDictSegment = t.EndsWith("Items", StringComparison.Ordinal) || t.EndsWith("Dictionary", StringComparison.Ordinal);
+                        if (isDictSegment)
+                        {
+                            var next = (i + 1) < tokens.Length ? tokens[i + 1] : "";
+                            var ok = next.Contains("<key>") || next.Contains("<value>");
+                            if (!ok)
+                            {
+                                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EX002, loc, path));
+                                break;
+                            }
+                        }
+                    }
+
+                    // EX003: ambiguous enumerable element type (very conservative placeholder)
+                    // Trigger if a segment obviously refers to a collection but no element selector follows.
+                    for (int i = 0; i < tokens.Length; i++)
+                    {
+                        var t = tokens[i];
+                        var looksEnumerable = t.EndsWith("[]", StringComparison.Ordinal) || t.EndsWith("List", StringComparison.Ordinal) || t.EndsWith("Enumerable", StringComparison.Ordinal);
+                        var hasNext = (i + 1) < tokens.Length;
+                        if (looksEnumerable && !hasNext)
+                        {
+                            spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EX003, loc, path));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
     }
 }
