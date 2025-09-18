@@ -260,15 +260,8 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 w.Open("if (t.hasDiff)");
                 w.Line("diff = t.diff; return true;");
                 w.Close();
-                w.Line("diff = DeepEqual.Generator.Shared.Diff<" + rootFqn + ">.Empty; return false;");
-                w.Close();
-                w.Line();
-
-                // GetDiff
-                w.Open("public static DeepEqual.Generator.Shared.Diff<" + rootFqn + "> GetDiff(" + rootFqn + valOrRefNull + " left, " + rootFqn + valOrRefNull + " right)");
-                w.Line("var context = " + (trackCycles ? "new DeepEqual.Generator.Shared.ComparisonContext()" : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking") + ";");
-                w.Line("var t = TryGetDiff__" + SanitizeIdentifier(rootFqn) + "(left, right, context);");
-                w.Line("return t.hasDiff ? t.diff : DeepEqual.Generator.Shared.Diff<" + rootFqn + ">.Empty;");
+                w.Line("diff = default!;"); // safe default; Diff.Empty<T> also fine if preferred
+                w.Line("return false;");
                 w.Close();
                 w.Line();
             }
@@ -280,7 +273,6 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
                 w.Line("var context = " + (trackCycles ? "new DeepEqual.Generator.Shared.ComparisonContext()" : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking") + ";");
                 w.Line("ComputeDelta__" + SanitizeIdentifier(rootFqn) + "(left, right, context, ref writer);");
                 w.Close();
-
                 w.Line();
 
                 // ApplyDelta
@@ -347,20 +339,53 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             }
 
             // ----- ComputeDelta__T -----
+            // ----- ComputeDelta__T -----
             if (root.GenerateDelta)
             {
-                w.Open($"private static void ComputeDelta__{id}(" + fqn + valOrRefNull + " left, " + fqn + valOrRefNull + " right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
+                // NOTE: signature now accepts 'ComparisonContext context' and we no longer create a local NoTracking context.
+                w.Open($"private static void ComputeDelta__{id}(" +
+                       fqn + valOrRefNull + " left, " +
+                       fqn + valOrRefNull + " right, " +
+                       "DeepEqual.Generator.Shared.ComparisonContext context, " +
+                       "ref DeepEqual.Generator.Shared.DeltaWriter writer)");
 
                 if (!type.IsValueType)
                 {
-                    w.Open("if (object.ReferenceEquals(left, right))"); w.Line("return;"); w.Close();
-                    w.Open("if (left is null && right is not null)"); w.Line("writer.WriteReplaceObject(right); return;"); w.Close();
-                    w.Open("if (left is not null && right is null)"); w.Line("writer.WriteReplaceObject(right); return;"); w.Close();
+                    // Reference fast paths
+                    w.Open("if (object.ReferenceEquals(left, right))");
+                    w.Line("return;");
+                    w.Close();
+
+                    w.Open("if (left is null && right is not null)");
+                    w.Line("writer.WriteReplaceObject(right); return;");
+                    w.Close();
+
+                    w.Open("if (left is not null && right is null)");
+                    w.Line("writer.WriteReplaceObject(right); return;");
+                    w.Close();
+
+                    // Cycle tracking: enter/exit like diff
+                    if (root.CycleTrackingEnabled)
+                    {
+                        w.Open("if (!context.Enter(left!, right!))");
+                        w.Line("return;"); // already visited pair → short-circuit
+                        w.Close();
+                        w.Open("try");
+                    }
                 }
 
+                // Per-member emission (uses the 'context' parameter now)
                 foreach (var m in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
                 {
                     EmitMemberDelta(w, type, m, root);
+                }
+
+                if (!type.IsValueType && root.CycleTrackingEnabled)
+                {
+                    w.Close(); // try
+                    w.Open("finally");
+                    w.Line("context.Exit(left!, right!);");
+                    w.Close();
                 }
 
                 w.Close(); // ComputeDelta__T
