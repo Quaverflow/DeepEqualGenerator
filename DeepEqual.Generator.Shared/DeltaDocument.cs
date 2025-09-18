@@ -373,5 +373,76 @@ public static class DeltaHelpers
         target = clone;
     }
 
+    /// <summary>
+    /// Computes a granular delta between two <see cref="IList{T}"/> instances using a struct comparer and writes sequence operations.
+    /// </summary>
+    /// <remarks>
+    /// This overload avoids per-call delegate allocations by taking a value-type comparer that implements <see cref="IElementComparer{T}"/>.
+    /// The algorithm emits prefix/suffix-preserving replace/add/remove operations. When either side is <c>null</c>, it emits a shallow <c>SetMember</c>.
+    /// </remarks>
+    public static void ComputeListDelta<T, TComparer>(
+        IList<T>? left,
+        IList<T>? right,
+        int memberIndex,
+        ref DeltaWriter writer,
+        TComparer comparer,
+        ComparisonContext context)
+        where TComparer : struct, IElementComparer<T>
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return;
+        }
 
+        if (left is null || right is null)
+        {
+            writer.WriteSetMember(memberIndex, right);
+            return;
+        }
+
+        var la = left.Count;
+        var lb = right.Count;
+
+        var prefix = 0;
+        var maxPrefix = Math.Min(la, lb);
+        while (prefix < maxPrefix && comparer.Invoke(left[prefix], right[prefix], context))
+        {
+            prefix++;
+        }
+
+        var suffix = 0;
+        var maxSuffix = Math.Min(la - prefix, lb - prefix);
+        while (suffix < maxSuffix && comparer.Invoke(left[la - 1 - suffix], right[lb - 1 - suffix], context))
+        {
+            suffix++;
+        }
+
+        var ra = la - prefix - suffix;
+        var rb = lb - prefix - suffix;
+
+        for (var i = 0; i < Math.Min(ra, rb); i++)
+        {
+            var ai = prefix + i;
+            if (!comparer.Invoke(left[ai], right[ai], context))
+            {
+                writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+            }
+        }
+
+        if (ra > rb)
+        {
+            for (var i = ra - 1; i >= rb; i--)
+            {
+                writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+            }
+        }
+        else if (rb > ra)
+        {
+            for (var i = ra; i < rb; i++)
+            {
+                var ai = prefix + i;
+                writer.WriteSeqAddAt(memberIndex, ai, right[ai]);
+            }
+        }
+    }
 }

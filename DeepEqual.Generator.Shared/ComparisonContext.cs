@@ -144,4 +144,40 @@ public interface IElementComparer<in T>
 {
     bool Invoke(T left, T right, ComparisonContext context);
 }
+// <summary>
+/// Default element comparer that defers to <see cref="System.Collections.Generic.EqualityComparer{T}.Default"/>.
+/// </summary>
+public readonly struct DefaultElementComparer<T> : IElementComparer<T>
+{
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining | System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    public bool Invoke(T left, T right, ComparisonContext context)
+        => System.Collections.Generic.EqualityComparer<T>.Default.Equals(left, right);
+}
+
+/// <summary>
+/// Element comparer that performs generated deep comparison when possible; falls back appropriately for polymorphic graphs.
+/// </summary>
+public readonly struct DeepPolymorphicElementComparer<T> : IElementComparer<T>
+{
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining | System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    public bool Invoke(T left, T right, ComparisonContext context)
+        => ComparisonHelpers.DeepComparePolymorphic(left, right, context);
+}
+
+/// <summary>
+/// Element comparer that delegates to a provided <see cref="System.Collections.Generic.IEqualityComparer{T}"/>.
+/// </summary>
+public readonly struct DelegatingElementComparer<T> : IElementComparer<T>
+{
+    private readonly System.Collections.Generic.IEqualityComparer<T> _inner;
+
+    public DelegatingElementComparer(System.Collections.Generic.IEqualityComparer<T> inner)
+    {
+        _inner = inner ?? System.Collections.Generic.EqualityComparer<T>.Default;
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining | System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    public bool Invoke(T left, T right, ComparisonContext context)
+        => _inner.Equals(left, right);
+}
 

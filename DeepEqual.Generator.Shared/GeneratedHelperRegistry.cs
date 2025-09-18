@@ -203,7 +203,28 @@ public static class GeneratedHelperRegistry
 
         return false;
     }
+    /// <summary>
+    /// Attempts to compute a delta for two objects of the same runtime type using a registered provider.
+    /// Returns <c>true</c> if a provider was found and invoked; otherwise <c>false</c>.
+    /// </summary>
+    public static bool TryComputeDeltaSameType(Type runtimeType, object? left, object? right, ComparisonContext context, ref DeltaWriter writer)
+    {
+        if (_deltaComputeMap.TryGetValue(runtimeType, out var fn))
+        {
+            fn(left, right, context, ref writer);
+            return true;
+        }
 
+        WarmUp(runtimeType);
+
+        if (_deltaComputeMap.TryGetValue(runtimeType, out var fn2))
+        {
+            fn2(left, right, context, ref writer);
+            return true;
+        }
+
+        return false;
+    }
     /// <summary>
     /// Ensures generated helper types for the given runtime type are initialized.
     /// </summary>
