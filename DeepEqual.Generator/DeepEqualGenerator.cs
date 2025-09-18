@@ -27,6 +27,8 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
 {
     private const string DeepComparableAttributeMetadataName = "DeepEqual.Generator.Shared.DeepComparableAttribute";
     private const string DeepCompareAttributeMetadataName = "DeepEqual.Generator.Shared.DeepCompareAttribute";
+    private const string ExternalDeepComparableMetadataName = "DeepEqual.Generator.Shared.ExternalDeepComparableAttribute";
+    private const string ExternalDeepCompareMetadataName = "DeepEqual.Generator.Shared.ExternalDeepCompareAttribute";
 
     private readonly record struct RootRequest(
         string MetadataName,
@@ -35,95 +37,169 @@ public sealed class DeepEqualGenerator : IIncrementalGenerator
         bool IncludeInternals,
         bool OrderInsensitiveCollections,
         bool CycleTrackingEnabled,
-        bool IncludeBaseMembers
+        bool IncludeBaseMembers,
+        Location? Location
     );
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var requests =
+        // 1) Owned requests (type-level [DeepComparable]) → RootRequest
+        var ownedRequests =
             context.SyntaxProvider.ForAttributeWithMetadataName(
                 fullyQualifiedMetadataName: DeepComparableAttributeMetadataName,
                 predicate: static (node, _) => node is TypeDeclarationSyntax,
                 transform: static (gasc, ct) =>
                 {
-                    if (gasc.TargetSymbol is not INamedTypeSymbol typeSymbol)
-                    {
-                        return default(RootRequest?);
-                    }
+                    if (gasc.TargetSymbol is not INamedTypeSymbol typeSymbol) return (RootRequest?)null;
 
                     var attr = gasc.Attributes.FirstOrDefault(a =>
                         a.AttributeClass?.ToDisplayString() == DeepComparableAttributeMetadataName);
-
-                    if (attr is null)
-                    {
-                        return default(RootRequest?);
-                    }
+                    if (attr is null) return (RootRequest?)null;
 
                     static bool HasNamedTrue(AttributeData a, string name) =>
                         a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
 
-                    static bool? GetNamedBool(AttributeData a, string name)
-                    {
-                        foreach (var kv in a.NamedArguments)
-                        {
-                            if (kv.Key == name && kv.Value.Value is bool b)
-                            {
-                                return b;
-                            }
-                        }
-
-                        return null;
-                    }
-
-                    var includeInternals = HasNamedTrue(attr, "IncludeInternals");
-                    var orderInsensitive = HasNamedTrue(attr, "OrderInsensitiveCollections");
-
+                    bool includeInternals = HasNamedTrue(attr, "IncludeInternals");
+                    bool orderInsensitive = HasNamedTrue(attr, "OrderInsensitiveCollections");
                     var cycleTracking = true;
-                    var cycleArg = GetNamedBool(attr, "CycleTracking");
-                    if (cycleArg is { } b)
-                    {
-                        cycleTracking = b;
-                    }
-
-                    var includeBase = HasNamedTrue(attr, "IncludeBaseMembers");
+                    var cycleArg = attr.NamedArguments.FirstOrDefault(kv => kv.Key == "CycleTracking").Value;
+                    if (cycleArg.Value is bool b) cycleTracking = b;
+                    bool includeBase = HasNamedTrue(attr, "IncludeBaseMembers");
+                    var attrLoc = attr.ApplicationSyntaxReference?.GetSyntax(ct)?.GetLocation();
 
                     var metadataName = BuildMetadataName(typeSymbol);
                     var fqn = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     var hint = SanitizeFileName(fqn + "_DeepEqual.g.cs");
 
-                    return new RootRequest(metadataName, fqn, hint,
-                        includeInternals, orderInsensitive, cycleTracking, includeBase);
+                    return new RootRequest(
+                        metadataName, fqn, hint,
+                        includeInternals, orderInsensitive, cycleTracking, includeBase, attrLoc);
                 })
             .Where(static r => r is not null)
             .Select(static (r, _) => r!.Value);
 
-        var numbered =
-            requests
-                .Collect()
-                .Select(static (list, _) =>
-                    list.OrderBy(r => r.HintName, StringComparer.Ordinal))
-                .SelectMany(static (e, _) => e);
+        // IMPORTANT: collect owned so the callback runs once regardless of N owned roots
+        var ownedCollected = ownedRequests.Collect().Combine(context.CompilationProvider);
 
-        var inputs = numbered.Combine(context.CompilationProvider);
-
-        context.RegisterSourceOutput(inputs, static (spc, pair) =>
+        // 2) External assembly-scoped attributes (roots + member overrides)
+        var external = context.CompilationProvider.Select((comp, _) =>
         {
-            var req = pair.Left;
-            var compilation = pair.Right;
-            var resolved = compilation.GetTypeByMetadataName(req.MetadataName);
-            if (resolved is null)
+            var asm = comp.Assembly;
+            var extRoots = new List<(INamedTypeSymbol Root, AttributeData Attr)>();
+            var extMember = new List<(INamedTypeSymbol Root, string Path, AttributeData Attr)>();
+
+            foreach (var a in asm.GetAttributes())
             {
-                return;
+                var name = a.AttributeClass?.ToDisplayString();
+                if (name == ExternalDeepComparableMetadataName && a.ConstructorArguments.Length == 1)
+                {
+                    if (a.ConstructorArguments[0].Value is INamedTypeSymbol rootTs)
+                        extRoots.Add((rootTs, a));
+                }
+                else if (name == ExternalDeepCompareMetadataName && a.ConstructorArguments.Length == 2)
+                {
+                    if (a.ConstructorArguments[0].Value is INamedTypeSymbol rootTs &&
+                        a.ConstructorArguments[1].Value is string path)
+                        extMember.Add((rootTs, path, a));
+                }
+            }
+            return (comp, extRoots, extMember);
+        });
+
+        var inputs = ownedCollected.Combine(external);
+
+        // 3) Single emission pass: union(owned, external) and emit once per unique root
+        context.RegisterSourceOutput(inputs, (spc, all) =>
+        {
+            var ((ownedList, compilation), (comp2, extRoots, extMembers)) = all;
+
+            // Build external per-member overrides once
+            var externalOverrides = new Dictionary<ISymbol, AttributeData>(SymbolEqualityComparer.Default);
+
+            foreach (var (rootType, path, attr) in extMembers)
+            {
+                try
+                {
+                    var (_, member, _) = ExternalPathResolver.ResolveMemberPath(
+                        compilation,
+                        rootType,
+                        path,
+                        includeInternals: false,
+                        includeBase: true,
+                        report: (loc, msg, kind) =>
+                        {
+                            var diag = kind switch
+                            {
+                                ExternalPathResolver.PathDiag.DictionarySideInvalid => Diagnostics.EX002,
+                                ExternalPathResolver.PathDiag.AmbiguousEnumerable => Diagnostics.EX003,
+                                _ => Diagnostics.EX001
+                            };
+                            spc.ReportDiagnostic(Diagnostic.Create(diag, loc, msg));
+                        },
+                        attrLocation: attr.ApplicationSyntaxReference?.GetSyntax().GetLocation());
+
+                    externalOverrides[member] = attr;
+                }
+                catch
+                {
+                    // error already reported; skip this override
+                }
             }
 
-            var target = new Emitter.Target(resolved, req.IncludeInternals, req.OrderInsensitiveCollections,
-                req.CycleTrackingEnabled, req.IncludeBaseMembers);
 
-            Diagnostics.DiagnosticPass(spc, target.Type);
+            // Union of owned + external → owned wins on conflicts
+            var roots = new Dictionary<INamedTypeSymbol, (bool incInt, bool ordIns, bool cycle, bool incBase, Location? loc)>(SymbolEqualityComparer.Default);
 
-            var emitter = new Emitter(compilation);
-            emitter.EmitForRoot(spc, target,
-                hintOverride: SanitizeFileName(resolved.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepEqual.g.cs"));
+            foreach (var req in ownedList)
+            {
+                var t = compilation.GetTypeByMetadataName(req.MetadataName);
+                if (t is null) continue;
+
+                if (!roots.ContainsKey(t))
+                    roots[t] = (req.IncludeInternals, req.OrderInsensitiveCollections, req.CycleTrackingEnabled, req.IncludeBaseMembers, req.Location);
+            }
+
+            foreach (var (extType, attr) in extRoots)
+            {
+                if (extType is null || roots.ContainsKey(extType)) continue;
+
+                static bool HasNamedTrue(AttributeData a, string name) =>
+                    a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
+
+                var incInt = HasNamedTrue(attr, "IncludeInternals");
+                var ordIns = HasNamedTrue(attr, "OrderInsensitiveCollections");
+                var cycle = HasNamedTrue(attr, "CycleTracking");
+                var incBase = HasNamedTrue(attr, "IncludeBaseMembers");
+                var loc = attr.ApplicationSyntaxReference?.GetSyntax()?.GetLocation();
+
+                roots[extType] = (incInt, ordIns, cycle, incBase, loc);
+            }
+
+            // Emit once per unique symbol, with a hint-name guard
+            var emitter = new Emitter(compilation /* optionally pass externalOverrides */);
+            var seenHints = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var kvp in roots)
+            {
+                var type = kvp.Key;
+                var (incInt, ordIns, cycle, incBase, loc) = kvp.Value;
+
+                Diagnostics.DiagnosticPass(spc, type);
+
+                var hint = SanitizeFileName(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepEqual.g.cs");
+                if (!seenHints.Add(hint))
+                    continue; // absolute safety: never add the same hint twice
+
+                emitter.EmitForRoot(
+                    spc,
+                    new Emitter.Target(
+                        type,
+                        incInt,
+                        ordIns,
+                        cycle,
+                        incBase),
+                    hintOverride: hint);
+            }
         });
     }
 

@@ -15,6 +15,8 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
 {
     private const string DeepComparableAttributeMetadataName = "DeepEqual.Generator.Shared.DeepComparableAttribute";
     private const string DeepCompareAttributeMetadataName = "DeepEqual.Generator.Shared.DeepCompareAttribute";
+    private const string ExternalDeepComparableMetadataName = "DeepEqual.Generator.Shared.ExternalDeepComparableAttribute";
+    private const string ExternalDeepCompareMetadataName = "DeepEqual.Generator.Shared.ExternalDeepCompareAttribute";
 
     private readonly record struct RootRequest(
         string MetadataName,
@@ -28,8 +30,6 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
         bool GenerateDelta,
         StableMemberIndexMode StableMemberIndexMode,
         Location? AttributeLocation);
-
-
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var requests =
@@ -64,7 +64,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
 
                     var metadataName = BuildMetadataName(typeSymbol);
                     var fqn = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var hint = SanitizeFileName(fqn + "_DeepOps.g.cs");
+                    var hint = SanitizeFileName(fqn + "_DeepOps.g.cs"); // this generator's suffix
 
                     return new RootRequest(
                         metadataName, fqn, hint,
@@ -75,25 +75,134 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             .Select(static (r, _) => r!.Value)
             .Where(static r => r.GenerateDiff || r.GenerateDelta);
 
-        var inputs = requests.Combine(context.CompilationProvider);
+        // IMPORTANT: collect so the callback runs once (not per request)
+        var ownedCollected = requests.Collect().Combine(context.CompilationProvider);
 
-        context.RegisterSourceOutput(inputs, (spc, pair) =>
+        // External assembly-scoped annotations
+        var external = context.CompilationProvider.Select((comp, _) =>
         {
-            var req = pair.Left;
-            var compilation = pair.Right;
+            var asm = comp.Assembly;
+            var extRoots = new List<(INamedTypeSymbol Root, AttributeData Attr)>();
+            var extMember = new List<(INamedTypeSymbol Root, string Path, AttributeData Attr)>();
 
-            var resolved = compilation.GetTypeByMetadataName(req.MetadataName);
-            if (resolved is null) return;
+            foreach (var a in asm.GetAttributes())
+            {
+                var name = a.AttributeClass?.ToDisplayString();
+                if (name == ExternalDeepComparableMetadataName && a.ConstructorArguments.Length == 1)
+                {
+                    if (a.ConstructorArguments[0].Value is INamedTypeSymbol rootTs)
+                        extRoots.Add((rootTs, a));
+                }
+                else if (name == ExternalDeepCompareMetadataName && a.ConstructorArguments.Length == 2)
+                {
+                    if (a.ConstructorArguments[0].Value is INamedTypeSymbol rootTs &&
+                        a.ConstructorArguments[1].Value is string path)
+                        extMember.Add((rootTs, path, a));
+                }
+            }
+            return (comp, extRoots, extMember);
+        });
 
-            // DL001: GenerateDelta=true but StableMemberIndex=Off (report at attribute site)
-            if (req.GenerateDelta && req.StableMemberIndexMode == StableMemberIndexMode.Off && req.AttributeLocation is not null)
-                spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.DL001, req.AttributeLocation));
+        var inputs = ownedCollected.Combine(external);
 
-            var emitter = new Emitter(compilation);
-            emitter.EmitForRoot(
-                spc,
-                new Emitter.Target(resolved, req.IncludeInternals, req.OrderInsensitiveCollections, req.CycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta),
-                hintOverride: SanitizeFileName(resolved.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepOps.g.cs"));
+        context.RegisterSourceOutput(inputs, (spc, all) =>
+        {
+            var ((ownedList, compilation), (comp2, extRoots, extMembers)) = all;
+
+            // Build external per-member overrides once (if your Emitter uses them)
+            var externalOverrides = new Dictionary<ISymbol, AttributeData>(SymbolEqualityComparer.Default);
+
+            foreach (var (rootType, path, attr) in extMembers)
+            {
+                try
+                {
+                    var (_, member, _) = ExternalPathResolver.ResolveMemberPath(
+                        compilation,
+                        rootType,
+                        path,
+                        includeInternals: false,
+                        includeBase: true,
+                        report: (loc, msg, kind) =>
+                        {
+                            var diag = kind switch
+                            {
+                                ExternalPathResolver.PathDiag.DictionarySideInvalid => Diagnostics.EX002,
+                                ExternalPathResolver.PathDiag.AmbiguousEnumerable => Diagnostics.EX003,
+                                _ => Diagnostics.EX001
+                            };
+                            spc.ReportDiagnostic(Diagnostic.Create(diag, loc, msg));
+                        },
+                        attrLocation: attr.ApplicationSyntaxReference?.GetSyntax().GetLocation());
+
+                    externalOverrides[member] = attr;
+                }
+                catch
+                {
+                    // error already reported; skip this override
+                }
+            }
+
+
+            // Union(owned, external) by symbol; owned settings win if duplicated
+            var roots = new Dictionary<INamedTypeSymbol, (bool incInt, bool ordIns, bool cycle, bool incBase, bool genDiff, bool genDelta, StableMemberIndexMode stable, Location? loc)>(SymbolEqualityComparer.Default);
+
+            foreach (var req in ownedList)
+            {
+                var t = compilation.GetTypeByMetadataName(req.MetadataName);
+                if (t is null) continue;
+
+                // Prefer the first (owned) entry
+                if (!roots.ContainsKey(t))
+                    roots[t] = (req.IncludeInternals, req.OrderInsensitiveCollections, req.CycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta, req.StableMemberIndexMode, req.AttributeLocation);
+            }
+
+            foreach (var (extType, attr) in extRoots)
+            {
+                if (extType is null || roots.ContainsKey(extType)) continue;
+
+                static bool HasNamedTrue(AttributeData a, string name) =>
+                    a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
+                static int GetEnum(AttributeData a, string name)
+                {
+                    var arg = a.NamedArguments.FirstOrDefault(kv => kv.Key == name).Value;
+                    return arg.Kind == TypedConstantKind.Enum && arg.Value is int i ? i : 0;
+                }
+
+                var incInt = HasNamedTrue(attr, "IncludeInternals");
+                var ordIns = HasNamedTrue(attr, "OrderInsensitiveCollections");
+                var cycle = HasNamedTrue(attr, "CycleTracking");
+                var incBase = HasNamedTrue(attr, "IncludeBaseMembers");
+                var genDiff = HasNamedTrue(attr, "GenerateDiff");
+                var genDelta = HasNamedTrue(attr, "GenerateDelta");
+                var stable = (StableMemberIndexMode)GetEnum(attr, "StableMemberIndex");
+                var loc = attr.ApplicationSyntaxReference?.GetSyntax()?.GetLocation();
+
+                roots[extType] = (incInt, ordIns, cycle, incBase, genDiff, genDelta, stable, loc);
+            }
+
+            // FINAL emission: once per unique root, and guard by seen hint names
+            var emitter = new Emitter(compilation /* optionally pass externalOverrides */);
+            var seenHints = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var kvp in roots)
+            {
+                var type = kvp.Key;
+                var (incInt, ordIns, cycle, incBase, genDiff, genDelta, stable, loc) = kvp.Value;
+
+                if (genDelta && stable == StableMemberIndexMode.Off && loc is not null)
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.DL001, loc));
+
+                Diagnostics.DiagnosticPass(spc, type);
+
+                var hint = SanitizeFileName(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepOps.g.cs");
+                if (!seenHints.Add(hint))
+                    continue; // safety net: never AddSource the same hint twice
+
+                emitter.EmitForRoot(
+                    spc,
+                    new Emitter.Target(type, incInt, ordIns, cycle, incBase, genDiff, genDelta),
+                    hintOverride: hint);
+            }
         });
     }
 
