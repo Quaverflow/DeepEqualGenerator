@@ -206,4 +206,172 @@ public static class DeltaHelpers
             writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
         }
     }
+
+    /// <summary>
+    /// Computes a granular delta between two <see cref="IReadOnlyDictionary{TKey,TValue}"/> instances,
+    /// emitting DictRemove/DictSet/DictNested operations as appropriate.
+    /// </summary>
+    /// <remarks>
+    /// This is the non-mutating counterpart to <c>ComputeDictDelta</c> used for <c>IReadOnlyDictionary&lt;TKey,TValue&gt;</c>.
+    /// It performs two linear passes (removals, then adds/changes), allocates zero intermediate collections,
+    /// and attempts nested value deltas only when requested via <paramref name="nestedValues"/>.
+    /// </remarks>
+    public static void ComputeReadOnlyDictDelta<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue>? left,
+        IReadOnlyDictionary<TKey, TValue>? right,
+        int memberIndex,
+        ref DeltaWriter writer,
+        bool nestedValues,
+        ComparisonContext context)
+        where TKey : notnull
+    {
+        if (ReferenceEquals(left, right)) return;
+        if (left is null || right is null)
+        {
+            writer.WriteSetMember(memberIndex, right);
+            return;
+        }
+
+        // Removals
+        foreach (var kv in left)
+        {
+            if (!right.ContainsKey(kv.Key))
+                writer.WriteDictRemove(memberIndex, kv.Key!);
+        }
+
+        // Adds & changes
+        foreach (var kv in right)
+        {
+            if (!left.TryGetValue(kv.Key, out var lval))
+            {
+                writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+                continue;
+            }
+
+            // Fast path for value-like or when nested deltas are disabled.
+            if (!nestedValues)
+            {
+                if (!EqualityComparer<TValue>.Default.Equals(lval, kv.Value))
+                    writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+                continue;
+            }
+
+            // Nested deltas for reference-like values.
+            // If equal by deep-compare, skip. If runtime types disagree or either side is null, Set.
+            var lo = (object?)lval;
+            var ro = (object?)kv.Value;
+
+            if (ReferenceEquals(lo, ro)) continue;
+
+            if (lo is null || ro is null)
+            {
+                if (!EqualityComparer<TValue>.Default.Equals(lval, kv.Value))
+                    writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+                continue;
+            }
+
+            var tL = lo.GetType();
+            var tR = ro.GetType();
+            if (!ReferenceEquals(tL, tR))
+            {
+                writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+                continue;
+            }
+
+            // If deep-equal, skip entirely to avoid spurious Set.
+            if (ComparisonHelpers.DeepComparePolymorphic(lo, ro, context))
+                continue;
+
+            var sub = new DeltaDocument();
+            var w = new DeltaWriter(sub);
+            GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w);
+
+            if (!sub.IsEmpty)
+            {
+                writer.WriteDictNested(memberIndex, kv.Key!, sub);
+            }
+            else
+            {
+                // Fallback: value not equal but no nested provider emitted ops → Set.
+                writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies a single dictionary operation (DictSet/DictRemove/DictNested) to a target that may be an
+    /// <see cref="IDictionary{TKey,TValue}"/> or an <see cref="IReadOnlyDictionary{TKey,TValue}"/> or null.
+    /// </summary>
+    /// <remarks>
+    /// If the target is mutable (<c>IDictionary&lt;TKey,TValue&gt;</c>), it is mutated in place.
+    /// Otherwise, a new <c>Dictionary&lt;TKey,TValue&gt;</c> is materialized, updated, and written back via <paramref name="target"/>.
+    /// This guarantees the op is never ignored for read-only map instances.
+    /// </remarks>
+    public static void ApplyDictOpCloneIfNeeded<TKey, TValue>(ref object? target, in DeltaOp op)
+     where TKey : notnull
+    {
+        // Mutate in place only if it is an IDictionary AND not read-only.
+        if (target is IDictionary<TKey, TValue> md && !md.IsReadOnly)
+        {
+            switch (op.Kind)
+            {
+                case DeltaKind.DictSet:
+                    md[(TKey)op.Key!] = (TValue)op.Value!;
+                    return;
+
+                case DeltaKind.DictRemove:
+                    md.Remove((TKey)op.Key!);
+                    return;
+
+                case DeltaKind.DictNested:
+                    {
+                        var k = (TKey)op.Key!;
+                        if (md.TryGetValue(k, out var oldVal))
+                        {
+                            object? obj = oldVal;
+                            var subReader = new DeltaReader(op.Nested!);
+                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj!.GetType(), ref obj, ref subReader);
+                            md[k] = (TValue)obj!;
+                        }
+                        // If key missing, Nested is a no-op.
+                        return;
+                    }
+            }
+
+            return;
+        }
+
+        // Otherwise, clone to a new mutable Dictionary<,> (or create if null) and assign back.
+        var ro = target as IReadOnlyDictionary<TKey, TValue>;
+        var clone = ro is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(ro);
+
+        switch (op.Kind)
+        {
+            case DeltaKind.DictSet:
+                clone[(TKey)op.Key!] = (TValue)op.Value!;
+                break;
+
+            case DeltaKind.DictRemove:
+                clone.Remove((TKey)op.Key!);
+                break;
+
+            case DeltaKind.DictNested:
+                {
+                    var k = (TKey)op.Key!;
+                    if (clone.TryGetValue(k, out var oldVal))
+                    {
+                        object? obj = oldVal;
+                        var subReader = new DeltaReader(op.Nested!);
+                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj!.GetType(), ref obj, ref subReader);
+                        clone[k] = (TValue)obj!;
+                    }
+                    // If key missing, Nested is a no-op.
+                    break;
+                }
+        }
+
+        target = clone;
+    }
+
+
 }

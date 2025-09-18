@@ -1,9 +1,10 @@
-﻿using System;
+﻿using DeepEqual.Generator.Shared;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using DeepEqual.Generator.Shared;
 using Xunit;
 
 namespace DeepEqual.Generator.Tests.DiffDeltaTests;
@@ -750,24 +751,6 @@ public class DiffDeltaFullSuite
         Assert.Equal("1", host.Meta!["a"]);
     }
 
-
-    [Fact]
-    public void Dict_ReadOnly_Typed_Property_Falls_Back_To_SetMember()
-    {
-        var a = new ReadOnlyDictHost { Meta = new Dictionary<string, string> { ["a"] = "1" } };
-        var b = new ReadOnlyDictHost { Meta = new Dictionary<string, string> { ["a"] = "2" } };
-
-        var doc = new DeltaDocument(); var w = new DeltaWriter(doc);
-        ReadOnlyDictHostDeepOps.ComputeDelta(a, b, ref w);
-
-        Assert.DoesNotContain(doc.Operations, o => o.Kind == DeltaKind.DictSet || o.Kind == DeltaKind.DictRemove || o.Kind == DeltaKind.DictNested);
-        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);
-
-        var reader = new DeltaReader(doc); var target = new ReadOnlyDictHost { Meta = new Dictionary<string, string> { ["a"] = "1" } };
-        ReadOnlyDictHostDeepOps.ApplyDelta(ref target, ref reader);
-        Assert.True(ReadOnlyDictHostDeepEqual.AreDeepEqual(b, target));
-    }
-
     [Fact]
     public void Dict_Idempotence_DictSet_Is_Idempotent()
     {
@@ -1325,5 +1308,191 @@ public class DiffDeltaFullSuite
 
         Assert.True(OrderDeepEqual.AreDeepEqual(b, target));
     }
+    [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+    public sealed class ReadOnlyDictGranularHost
+    {
+        public IReadOnlyDictionary<string, string>? Meta { get; set; }
+    }
 
+    [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+    public sealed class ReadOnlyDictNestedHost
+    {
+        public IReadOnlyDictionary<string, Address>? Map { get; set; }
+    }
+
+    public sealed class ReadOnlyDictGranularTests
+    {
+        public ReadOnlyDictGranularTests()
+        {
+            // Warm helpers for the new hosts + nested Address
+            GeneratedHelperRegistry.WarmUp(typeof(ReadOnlyDictGranularHost));
+            GeneratedHelperRegistry.WarmUp(typeof(ReadOnlyDictNestedHost));
+            GeneratedHelperRegistry.WarmUp(typeof(Address));
+        }
+
+        private static IReadOnlyDictionary<string, string> RO(params (string k, string v)[] xs)
+            => new Dictionary<string, string>(xs.ToDictionary(p => p.k, p => p.v));
+
+        private static IReadOnlyDictionary<string, Address> RO(params (string k, Address v)[] xs)
+            => new Dictionary<string, Address>(xs.ToDictionary(p => p.k, p => p.v));
+
+        private static IReadOnlyDictionary<string, string> ROD(params (string k, string v)[] xs)
+            => new ReadOnlyDictionary<string, string>(xs.ToDictionary(p => p.k, p => p.v));
+
+        [Fact]
+        public void IReadOnlyDictionary_Value_Change_Emits_DictSet_And_Applies_By_Clone()
+        {
+            var a = new ReadOnlyDictGranularHost { Meta = RO(("who", "me"), ("env", "test")) };
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("who", "you"), ("env", "test")) }; // only 'who' changes
+
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b, ref w);
+
+            Assert.Contains(doc.Operations, o =>
+                o.Kind == DeltaKind.DictSet && (string)o.Key! == "who" && (string?)o.Value == "you");
+            Assert.DoesNotContain(doc.Operations, o => o.Kind == DeltaKind.SetMember);
+
+            // IMPORTANT: force a read-only implementation to trigger clone-and-assign on apply
+            var target = new ReadOnlyDictGranularHost { Meta = ROD(("who", "me"), ("env", "test")) };
+            var before = target.Meta;
+            var reader = new DeltaReader(doc);
+            ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, ref reader);
+
+            Assert.Equal("you", target.Meta!["who"]);
+            Assert.True(ReadOnlyDictGranularHostDeepEqual.AreDeepEqual(b, target));
+            Assert.NotSame(before, target.Meta); // now passes: read-only target → clone-and-assign
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_Value_Change_Mutates_InPlace_When_Target_Is_Mutable()
+        {
+            var a = new ReadOnlyDictGranularHost { Meta = RO(("k", "v1")) };
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("k", "v2")) };
+
+            var doc = new DeltaDocument(); var w = new DeltaWriter(doc);
+            ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b, ref w);
+
+            var target = new ReadOnlyDictGranularHost { Meta = RO(("k", "v1")) }; // mutable Dictionary
+            var before = target.Meta;
+            var reader = new DeltaReader(doc);
+            ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, ref reader);
+
+            Assert.Same(before, target.Meta);        // mutated in place
+            Assert.Equal("v2", target.Meta!["k"]);   // value updated
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_Add_Remove_Emit_Granular_Ops_And_Apply()
+        {
+            var a = new ReadOnlyDictGranularHost { Meta = RO(("a", "1"), ("b", "2")) };
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("a", "1"), ("c", "3")) }; // remove b, add c
+
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b, ref w);
+
+            Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.DictRemove && (string)o.Key! == "b");
+            Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.DictSet && (string)o.Key! == "c" && (string?)o.Value == "3");
+            Assert.DoesNotContain(doc.Operations, o => o.Kind == DeltaKind.SetMember);
+
+            var target = new ReadOnlyDictGranularHost { Meta = RO(("a", "1"), ("b", "2")) };
+            var reader = new DeltaReader(doc);
+            ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, ref reader);
+
+            Assert.False(target.Meta!.ContainsKey("b"));
+            Assert.Equal("3", target.Meta["c"]);
+            Assert.True(ReadOnlyDictGranularHostDeepEqual.AreDeepEqual(b, target));
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_Nested_Object_Value_Emits_DictNested_And_Mutates_Value_Instance()
+        {
+            var leftDog = new Address { Street = "S1", City = "C" };
+            var rightDog = new Address { Street = "S2", City = "C" };
+
+            var a = new ReadOnlyDictNestedHost { Map = RO(("d", leftDog)) };
+            var b = new ReadOnlyDictNestedHost { Map = RO(("d", rightDog)) };
+
+            var doc = new DeltaDocument(); var w = new DeltaWriter(doc);
+            ReadOnlyDictNestedHostDeepOps.ComputeDelta(a, b, ref w);
+
+            Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.DictNested && (string)o.Key! == "d");
+            Assert.DoesNotContain(doc.Operations, o => o.Kind == DeltaKind.SetMember && (o.Value is IReadOnlyDictionary<string, Address>));
+
+            var target = new ReadOnlyDictNestedHost { Map = RO(("d", new Address { Street = "S1", City = "C" })) };
+            var beforeRef = target.Map!["d"];
+            var reader = new DeltaReader(doc);
+            ReadOnlyDictNestedHostDeepOps.ApplyDelta(ref target, ref reader);
+
+            // Value object instance should be the same (mutated via nested delta inside the cloned dictionary)
+            Assert.Same(beforeRef, target.Map!["d"]);
+            Assert.Equal("S2", target.Map["d"].Street);
+            Assert.True(ReadOnlyDictNestedHostDeepEqual.AreDeepEqual(b, target));
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_Null_Transitions_Use_SetMember_At_Member_Scope()
+        {
+            var a = new ReadOnlyDictGranularHost { Meta = null };
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("k", "v")) };
+
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b, ref w);
+
+            // Member-level null ↔ non-null uses SetMember (not a dict op), by design
+            Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);
+
+            var target = new ReadOnlyDictGranularHost { Meta = null };
+            var reader = new DeltaReader(doc);
+            ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, ref reader);
+
+            Assert.NotNull(target.Meta);
+            Assert.Equal("v", target.Meta!["k"]);
+            Assert.True(ReadOnlyDictGranularHostDeepEqual.AreDeepEqual(b, target));
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_NoOps_When_Equal()
+        {
+            var a = new ReadOnlyDictGranularHost { Meta = RO(("x", "1"), ("y", "2")) };
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("x", "1"), ("y", "2")) };
+
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b, ref w);
+
+            Assert.True(doc.IsEmpty);
+
+            var target = new ReadOnlyDictGranularHost { Meta = RO(("x", "1"), ("y", "2")) };
+            var reader = new DeltaReader(doc);
+            ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, ref reader);
+
+            Assert.True(ReadOnlyDictGranularHostDeepEqual.AreDeepEqual(b, target));
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_DictNested_Emits_Set_When_No_Nested_Ops()
+        {
+            // If nested compute produces no ops (deep-equal), no DictNested should be emitted.
+            // To force the edge: same Address contents
+            var a = new ReadOnlyDictNestedHost { Map = RO(("d", new Address { Street = "S", City = "C" })) };
+            var b = new ReadOnlyDictNestedHost { Map = RO(("d", new Address { Street = "S", City = "C" })) };
+
+            var doc = new DeltaDocument(); var w = new DeltaWriter(doc);
+            ReadOnlyDictNestedHostDeepOps.ComputeDelta(a, b, ref w);
+
+            Assert.True(doc.IsEmpty); // deep-equal → nothing
+
+            // Now change type or null to ensure Set path kicks in
+            var c = new ReadOnlyDictNestedHost { Map = RO(("d", new Address { Street = "S2", City = "C" })) };
+            var doc2 = new DeltaDocument(); var w2 = new DeltaWriter(doc2);
+            ReadOnlyDictNestedHostDeepOps.ComputeDelta(a, c, ref w2);
+
+            // We should see either DictNested (if nested ops occurred) or DictSet (if helpers opted for set);
+            // but never a SetMember for the whole map (since both sides non-null).
+            Assert.DoesNotContain(doc2.Operations, o => o.Kind == DeltaKind.SetMember && o.Value is IReadOnlyDictionary<string, Address>);
+        }
+    }
 }

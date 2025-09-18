@@ -2717,6 +2717,7 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
     }
+ 
     private void EmitMemberDiff(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member, DiffDeltaTarget root)
     {
         var idx = GetStableMemberIndex(owner, member);
@@ -2855,20 +2856,19 @@ internal sealed class DiffDeltaEmitter
         // 5) Dictionaries
         if (TryGetDictionaryTypes(member.Type, out var keyT, out var valT))
         {
-            // IReadOnlyDictionary<,> → fallback to SetMember if changed
-            if (member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-                .StartsWith("global::System.Collections.Generic.IReadOnlyDictionary<"))
-            {
-                w.Open($"if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({left}, {right}, context))");
-                w.Line($"writer.WriteSetMember({idx}, {right});");
-                w.Close();
-                return;
-            }
-
-            // Mutable dict → granular ops
             var kFqn = keyT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var vFqn = valT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var nestedValues = !IsValueLike(valT);
+
+            // IReadOnlyDictionary<,> → granular (no longer SetMember fallback)
+            if (member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                .StartsWith("global::System.Collections.Generic.IReadOnlyDictionary<"))
+            {
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeReadOnlyDictDelta<{kFqn}, {vFqn}>({left}, {right}, {idx}, ref writer, {(nestedValues ? "true" : "false")}, context);");
+                return;
+            }
+
+            // Mutable IDictionary<,> → granular
             w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>({left}, {right}, {idx}, ref writer, {(nestedValues ? "true" : "false")}, context);");
             return;
         }
@@ -3095,39 +3095,39 @@ internal sealed class DiffDeltaEmitter
         }
 
         // -------- Dictionary granular ops --------
+        // -------- Dictionary granular ops (mutable or read-only) --------
         if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
         {
             var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var vFqn = vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+            // DictSet
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
-            w.Open($"if ({propAccess} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __dict_s)");
-            w.Line($"__dict_s[({kFqn})op.Key!] = ({vFqn})op.Value!;");
-            w.Close();
+            w.Line("object? __obj_dict_set = " + propAccess + ";");
+            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_set, in op);");
+            w.Line($"{propAccess} = ({typeFqn})__obj_dict_set;");
             w.Line("break;");
             w.Close();
 
+            // DictRemove
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:");
-            w.Open($"if ({propAccess} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __dict_r)");
-            w.Line($"__dict_r.Remove(({kFqn})op.Key!);");
-            w.Close();
+            w.Line("object? __obj_dict_rm = " + propAccess + ";");
+            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_rm, in op);");
+            w.Line($"{propAccess} = ({typeFqn})__obj_dict_rm;");
             w.Line("break;");
             w.Close();
 
+            // DictNested
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:");
-            w.Open($"if ({propAccess} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __dict_n)");
-            w.Open($"if (__dict_n.TryGetValue(({kFqn})op.Key!, out var __old))");
-            w.Line("object? __obj = __old;");
-            w.Line("var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
-            w.Line("GeneratedHelperRegistry.TryApplyDeltaSameType(__obj!.GetType(), ref __obj, ref __subReader);");
-            w.Line($"__dict_n[({kFqn})op.Key!] = ({vFqn})__obj!;");
-            w.Close();
-            w.Close();
+            w.Line("object? __obj_dict_n = " + propAccess + ";");
+            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_n, in op);");
+            w.Line($"{propAccess} = ({typeFqn})__obj_dict_n;");
             w.Line("break;");
             w.Close();
         }
         else
         {
+            // Keep the existing 'break;' stubs for non-dictionary members
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:"); w.Line("break;"); w.Close();
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:"); w.Line("break;"); w.Close();
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:"); w.Line("break;"); w.Close();
