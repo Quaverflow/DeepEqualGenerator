@@ -1,94 +1,135 @@
 ﻿using DeepEqual.Generator.Shared;
+using System.Drawing;
 
-// Assembly-scoped external annotations — pretend these types are in a 3rd-party lib:
-[assembly: ExternalDeepComparable(typeof(ThirdParty.A2), GenerateDiff = true, GenerateDelta = true, CycleTracking = true)]
-[assembly: ExternalDeepComparable(typeof(ThirdParty.B2), GenerateDiff = true, GenerateDelta = true, CycleTracking = true)]
+// Generate deep ops for our external types
+[assembly: ExternalDeepComparable(typeof(ListHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
+[assembly: ExternalDeepComparable(typeof(ArrayHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
+[assembly: ExternalDeepComparable(typeof(DictHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
+[assembly: ExternalDeepComparable(typeof(MixedHolder), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
+[assembly: ExternalDeepCompare(typeof(ListHolder1), "Points.X")]
+[assembly: ExternalDeepCompare(typeof(ArrayHolder1), "Points.X")]
+[assembly: ExternalDeepCompare(typeof(DictHolder1), "PointsById<Value>.Y")]
+[assembly: ExternalDeepCompare(typeof(MixedHolder), "Routes<Value>.X")]
 
-// A small dict case to sanity-check <Key>/<Value> path hopping too:
-[assembly: ExternalDeepComparable(typeof(ThirdParty.Bag), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
-[assembly: ExternalDeepCompare(typeof(ThirdParty.Bag), "Items<Value>.Name")]
-
-namespace ThirdParty
+public sealed class ListHolder1
 {
-    // Simulated 3rd-party types (no in-source attributes here):
-    public sealed class A2
-    {
-        public int V { get; set; }
-        public B2? B { get; set; }
-    }
-
-    public sealed class B2
-    {
-        public int W { get; set; }
-        public A2? A { get; set; }
-    }
-
-    public sealed class Item
-    {
-        public int Id { get; set; }
-        public string? Name { get; set; }
-    }
-
-    public sealed class Bag
-    {
-        public Dictionary<int, Item> Items { get; set; } = new();
-    }
+    public List<Point> Points { get; set; } = new();
 }
 
-public class ExternalAttributes_SmokeTests
+public sealed class ArrayHolder1
+{
+    public Point[] Points { get; set; } = [];
+}
+
+public sealed class DictHolder1
+{
+    public Dictionary<int, Point> PointsById { get; set; } = new();
+}
+
+public sealed class MixedHolder
+{
+    public Dictionary<int, List<Point>> Routes { get; set; } = new();
+    public string Name { get; set; } = "";
+}
+
+public class ExternalAttributes_Collections_Tests
 {
     [Fact]
-    public void MutualCycle_Delta_RoundTrips_With_ExternalAttributes()
+    public void ListHolder1_Delta_RoundTrips()
     {
-        var a1 = new ThirdParty.A2 { V = 10 };
-        var b1 = new ThirdParty.B2 { W = 100 };
-        a1.B = b1; b1.A = a1;
-
-        var a2 = new ThirdParty.A2 { V = 11 };
-        var b2 = new ThirdParty.B2 { W = 100 };
-        a2.B = b2; b2.A = a2;
+        var before = new ListHolder1 { Points = new List<Point> { new(1, 1), new(2, 2), new(3, 3) } };
+        var after = new ListHolder1 { Points = new List<Point> { new(1, 1), new(9, 2), new(3, 3) } };
 
         var doc = new DeltaDocument();
         var w = new DeltaWriter(doc);
-        ThirdParty.A2DeepOps.ComputeDelta(a1, a2, ref w);
+        ListHolder1DeepOps.ComputeDelta(before, after, ref w);
 
         Assert.False(doc.IsEmpty);
 
         var r = new DeltaReader(doc);
-        ThirdParty.A2DeepOps.ApplyDelta(ref a1, ref r);
-
-        Assert.True(ThirdParty.A2DeepEqual.AreDeepEqual(a1, a2));
+        ListHolder1DeepOps.ApplyDelta(ref before, ref r);
+        Assert.True(ListHolder1DeepEqual.AreDeepEqual(before, after));
     }
 
     [Fact]
-    public void Dictionary_Value_Path_Smoke_Writes_And_Applies()
+    public void ArrayHolder1_Delta_RoundTrips()
     {
-        var before = new ThirdParty.Bag
+        var before = new ArrayHolder1 { Points = new[] { new Point(1, 1), new Point(2, 2) } };
+        var after = new ArrayHolder1 { Points = new[] { new Point(1, 1), new Point(7, 2) } };
+
+        var doc = new DeltaDocument();
+        var w = new DeltaWriter(doc);
+        ArrayHolder1DeepOps.ComputeDelta(before, after, ref w);
+
+        Assert.False(doc.IsEmpty);
+
+        var r = new DeltaReader(doc);
+        ArrayHolder1DeepOps.ApplyDelta(ref before, ref r);
+        Assert.True(ArrayHolder1DeepEqual.AreDeepEqual(before, after));
+    }
+
+    [Fact]
+    public void DictHolder1_Delta_RoundTrips_With_Value_Path()
+    {
+        var before = new DictHolder1
         {
-            Items = new Dictionary<int, ThirdParty.Item>
+            PointsById = new Dictionary<int, Point>
             {
-                { 1, new ThirdParty.Item { Id = 1, Name = "alpha" } },
-                { 2, new ThirdParty.Item { Id = 2, Name = "beta"  } },
+                [1] = new(10, 10),
+                [2] = new(20, 20),
             }
         };
-        var after = new ThirdParty.Bag
+        var after = new DictHolder1
         {
-            Items = new Dictionary<int, ThirdParty.Item>
+            PointsById = new Dictionary<int, Point>
             {
-                { 1, new ThirdParty.Item { Id = 1, Name = "ALPHA" } }, // changed
-                { 2, new ThirdParty.Item { Id = 2, Name = "beta"  } },
+                [1] = new(10, 10),
+                [2] = new(99, 20), // change Y via path on <Value>.Y
+                [3] = new(30, 30), // added
             }
         };
 
         var doc = new DeltaDocument();
         var w = new DeltaWriter(doc);
-        ThirdParty.BagDeepOps.ComputeDelta(before, after, ref w);
+        DictHolder1DeepOps.ComputeDelta(before, after, ref w);
 
         Assert.False(doc.IsEmpty);
 
         var r = new DeltaReader(doc);
-        ThirdParty.BagDeepOps.ApplyDelta(ref before, ref r);
+        DictHolder1DeepOps.ApplyDelta(ref before, ref r);
+        Assert.True(DictHolder1DeepEqual.AreDeepEqual(before, after));
+    }
 
-        Assert.True(ThirdParty.BagDeepEqual.AreDeepEqual(before, after));
+    [Fact]
+    public void MixedHolder_Nested_Dict_List_Element_Path_RoundTrips()
+    {
+        var before = new MixedHolder
+        {
+            Name = "alpha",
+            Routes = new Dictionary<int, List<Point>>
+            {
+                [1] = new() { new(1, 1), new(2, 2) },
+                [2] = new() { new(3, 3) }
+            }
+        };
+        var after = new MixedHolder
+        {
+            Name = "alpha",
+            Routes = new Dictionary<int, List<Point>>
+            {
+                [1] = new() { new(1, 1), new(9, 2) }, // change element X under key 1
+                [2] = new() { new(3, 3), new(4, 4) }  // add new element under key 2
+            }
+        };
+
+        var doc = new DeltaDocument();
+        var w = new DeltaWriter(doc);
+        MixedHolderDeepOps.ComputeDelta(before, after, ref w);
+
+        Assert.False(doc.IsEmpty);
+
+        var r = new DeltaReader(doc);
+        MixedHolderDeepOps.ApplyDelta(ref before, ref r);
+        Assert.True(MixedHolderDeepEqual.AreDeepEqual(before, after));
     }
 }

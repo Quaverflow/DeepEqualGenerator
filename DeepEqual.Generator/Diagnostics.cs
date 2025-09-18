@@ -204,14 +204,47 @@ internal static class ExternalPathResolver
         {
             var seg = segments[i];
 
-            // 1) Find the member on the current type
             if (cur is not INamedTypeSymbol named)
             {
                 report?.Invoke(attrLocation, $"Type '{Describe(cur)}' has no members.", PathDiag.Unresolvable);
                 throw new InvalidOperationException();
             }
 
+            // Try find member on the current type first
             var next = FindMember(named, seg.Name, includeInternals, includeBase);
+
+            // *** NEW: if not found, and we are on an IEnumerable<T> (but not a dictionary),
+            // try to resolve THIS SEGMENT against the ELEMENT TYPE (e.g., List<Point> -> Point.X)
+            if (next is null
+                && seg.Side == DictSide.None
+                && !TryGetDictionaryTypes(cur, out _, out _) // don't auto-hop for dictionaries
+                && TryGetEnumerableElementType(cur, out var elem)
+                && elem is INamedTypeSymbol elemNamed)
+            {
+                next = FindMember(elemNamed, seg.Name, includeInternals, includeBase);
+                if (next is not null)
+                {
+                    // Treat the owner as the element type because the attribute targets that member (e.g., Point.X)
+                    owner = next.Value.Owner;
+                    found = next.Value.Symbol;
+                    var memberType = next.Value.Type;
+
+                    // Step into the found member type
+                    cur = memberType;
+
+                    // Optional look-ahead: if the *next* segment goes deeper into an enumerable element, hop now
+                    if (i + 1 < segments.Count
+                        && !TryGetDictionaryTypes(cur, out _, out _)
+                        && TryGetEnumerableElementType(cur, out var elem2))
+                    {
+                        cur = elem2;
+                    }
+
+                    continue; // done handling this segment
+                }
+                // if still not found on element type, fall through to the normal error below
+            }
+
             if (next is null)
             {
                 report?.Invoke(attrLocation, $"Member '{seg.Name}' not found on '{Describe(named)}'.", PathDiag.Unresolvable);
@@ -220,15 +253,14 @@ internal static class ExternalPathResolver
 
             owner = next.Value.Owner;
             found = next.Value.Symbol;
-            var memberType = next.Value.Type;
+            var memberType2 = next.Value.Type;
 
-            // 2) If the segment has <Key>/<Value>, apply it to THE MEMBER TYPE we just reached
             if (seg.Side != DictSide.None)
             {
-                if (!TryGetDictionaryTypes(memberType, out var k, out var v))
+                if (!TryGetDictionaryTypes(memberType2, out var k, out var v))
                 {
                     report?.Invoke(attrLocation,
-                        $"Path step '{seg.Name}' uses '<{seg.Side}>' but '{Describe(memberType)}' is not a dictionary type.",
+                        $"Path step '{seg.Name}' uses '<{seg.Side}>' but '{Describe(memberType2)}' is not a dictionary type.",
                         PathDiag.DictionarySideInvalid);
                     throw new InvalidOperationException();
                 }
@@ -236,13 +268,47 @@ internal static class ExternalPathResolver
             }
             else
             {
-                cur = memberType;
+                cur = memberType2;
+
+                // your existing look-ahead hop for the *next* segment
+                if (i + 1 < segments.Count
+                    && !TryGetDictionaryTypes(cur, out _, out _)
+                    && TryGetEnumerableElementType(cur, out var elem3))
+                {
+                    cur = elem3;
+                }
             }
         }
 
+
         return (owner!, found!, cur);
     }
+    private static bool TryGetEnumerableElementType(ITypeSymbol t, out ITypeSymbol elem)
+    {
+        elem = null!;
+        // strings are IEnumerable<char> but should behave as scalar here
+        if (t.SpecialType == SpecialType.System_String) return false;
 
+        if (t is IArrayTypeSymbol ats)
+        {
+            elem = ats.ElementType;
+            return true;
+        }
+
+        if (t is INamedTypeSymbol nt)
+        {
+            foreach (var i in nt.AllInterfaces.Prepend(nt))
+            {
+                var def = i.OriginalDefinition.ToDisplayString(Fqn);
+                if (def == "global::System.Collections.Generic.IEnumerable<T>")
+                {
+                    elem = i.TypeArguments[0];
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     private static (INamedTypeSymbol Owner, ISymbol Symbol, ITypeSymbol Type)? FindMember(
         INamedTypeSymbol start,
         string name,
