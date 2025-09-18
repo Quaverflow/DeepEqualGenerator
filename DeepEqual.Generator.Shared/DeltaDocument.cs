@@ -193,7 +193,7 @@ namespace DeepEqual.Generator.Shared
                     {
                         var sub = new DeltaDocument();
                         var w = new DeltaWriter(sub);
-                        GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, ref w);
+                        GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w);
                         if (!sub.IsEmpty)
                         {
                             writer.WriteDictNested(memberIndex, kv.Key!, sub);

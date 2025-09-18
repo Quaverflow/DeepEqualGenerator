@@ -1085,7 +1085,7 @@ namespace DeepEqual.Generator.Tests.DiffDeltaTests
             IntListHostDeepOps.ApplyDelta(ref target, ref reader);
             Assert.True(IntListHostDeepEqual.AreDeepEqual(b, target));
         }
-     
+
         [Fact]
         public void Bounds_Safety_Invalid_Seq_Index_Throws()
         {

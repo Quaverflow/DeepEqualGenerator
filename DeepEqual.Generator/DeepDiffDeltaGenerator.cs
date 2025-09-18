@@ -277,8 +277,10 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             {
                 // ComputeDelta
                 w.Open("public static void ComputeDelta(" + rootFqn + valOrRefNull + " left, " + rootFqn + valOrRefNull + " right, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
-                w.Line("ComputeDelta__" + SanitizeIdentifier(rootFqn) + "(left, right, ref writer);");
+                w.Line("var context = " + (trackCycles ? "new DeepEqual.Generator.Shared.ComparisonContext()" : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking") + ";");
+                w.Line("ComputeDelta__" + SanitizeIdentifier(rootFqn) + "(left, right, context, ref writer);");
                 w.Close();
+
                 w.Line();
 
                 // ApplyDelta
@@ -347,16 +349,14 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             // ----- ComputeDelta__T -----
             if (root.GenerateDelta)
             {
-                w.Open($"private static void ComputeDelta__{id}({fqn}{valOrRefNull} left, {fqn}{valOrRefNull} right, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
+                w.Open($"private static void ComputeDelta__{id}(" + fqn + valOrRefNull + " left, " + fqn + valOrRefNull + " right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
+
                 if (!type.IsValueType)
                 {
                     w.Open("if (object.ReferenceEquals(left, right))"); w.Line("return;"); w.Close();
                     w.Open("if (left is null && right is not null)"); w.Line("writer.WriteReplaceObject(right); return;"); w.Close();
                     w.Open("if (left is not null && right is null)"); w.Line("writer.WriteReplaceObject(right); return;"); w.Close();
                 }
-
-                // local non-tracking context for ComparisonHelpers in delta
-                w.Line("var context = DeepEqual.Generator.Shared.ComparisonContext.NoTracking;");
 
                 foreach (var m in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
                 {
@@ -603,7 +603,7 @@ public sealed class DeepDiffDeltaGenerator : IIncrementalGenerator
             w.Line("        if (!__equal) {");
             w.Line("            var __sub = new DeepEqual.Generator.Shared.DeltaDocument();");
             w.Line("            var __w   = new DeepEqual.Generator.Shared.DeltaWriter(__sub);");
-            w.Line("            GeneratedHelperRegistry.ComputeDeltaSameType(__tL, " + ltmp + ", " + rtmp + ", ref __w);");
+            w.Line("            GeneratedHelperRegistry.ComputeDeltaSameType(__tL, " + ltmp + ", " + rtmp + ", context, ref __w);");
             w.Open("            if (!__sub.IsEmpty)");
             w.Line($"            writer.WriteNestedMember({idx}, __sub);");
             w.Close();
