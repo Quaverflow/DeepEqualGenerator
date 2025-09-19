@@ -1448,3 +1448,4 @@ public static class DeltaDocumentBinaryExtensions
     public static DeltaDocument FromBinary(ReadOnlySpan<byte> data, BinaryDeltaOptions? options = null)
         => BinaryDeltaCodec.Read(data, options);
 }
+public interface IOpReader { bool TryRead(out DeltaOp op); }
