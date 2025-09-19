@@ -3564,32 +3564,75 @@ internal sealed class DiffDeltaEmitter
             w.Close();
         }
 
+        // --- PATCH: dictionary apply for member ---
         if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
         {
             var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var vFqn = vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
-            w.Line("object? __obj_dict_set = " + propAccess + ";");
-            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_set, in op);");
-            w.Line($"{propAccess} = ({typeFqn})__obj_dict_set;");
-            w.Line("break;");
-            w.Close();
+            // Detect ExpandoObject or IDictionary<string, object?>
+            bool isExpando =
+                member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                == "global::System.Dynamic.ExpandoObject";
 
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:");
-            w.Line("object? __obj_dict_rm = " + propAccess + ";");
-            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_rm, in op);");
-            w.Line($"{propAccess} = ({typeFqn})__obj_dict_rm;");
-            w.Line("break;");
-            w.Close();
+            bool isStringObjectDict =
+                kType.SpecialType == SpecialType.System_String &&
+                (vType.SpecialType == SpecialType.System_Object ||
+                 vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Object");
 
-            w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:");
-            w.Line("object? __obj_dict_n = " + propAccess + ";");
-            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_n, in op);");
-            w.Line($"{propAccess} = ({typeFqn})__obj_dict_n;");
-            w.Line("break;");
-            w.Close();
+            if (isExpando || isStringObjectDict)
+            {
+                // In-place IDictionary<string, object?> mutation (no clone, no invalid cast back)
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
+                w.Line($"var __dict_set = (global::System.Collections.Generic.IDictionary<string, object?>)({propAccess} ??= new global::System.Dynamic.ExpandoObject());");
+                w.Line("__dict_set[(string)op.Key!] = op.Value;");
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:");
+                w.Line($"var __dict_rm = {propAccess} as global::System.Collections.Generic.IDictionary<string, object?>;");
+                w.Line("__dict_rm?.Remove((string)op.Key!);");
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:");
+                w.Line($"var __dict_n = (global::System.Collections.Generic.IDictionary<string, object?>)({propAccess} ??= new global::System.Dynamic.ExpandoObject());");
+                w.Line("var __k = (string)op.Key!;");
+                w.Open("if (__dict_n.TryGetValue(__k, out var __old) && __old is not null)");
+                w.Line("object? __obj = __old;");
+                w.Line("var __sub = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
+                w.Line("DeepEqual.Generator.Shared.GeneratedHelperRegistry.TryApplyDeltaSameType(__obj.GetType(), ref __obj, ref __sub);");
+                w.Line("__dict_n[__k] = __obj;");
+                w.Close();
+                w.Line("break;");
+                w.Close();
+            }
+            else
+            {
+                // Original clone+assign path (safe for non-expando dictionaries)
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
+                w.Line("object? __obj_dict_set = " + propAccess + ";");
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_set, in op);");
+                w.Line($"{propAccess} = ({typeFqn})__obj_dict_set;");
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:");
+                w.Line("object? __obj_dict_rm = " + propAccess + ";");
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_rm, in op);");
+                w.Line($"{propAccess} = ({typeFqn})__obj_dict_rm;");
+                w.Line("break;");
+                w.Close();
+
+                w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:");
+                w.Line("object? __obj_dict_n = " + propAccess + ";");
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_n, in op);");
+                w.Line($"{propAccess} = ({typeFqn})__obj_dict_n;");
+                w.Line("break;");
+                w.Close();
+            }
         }
+
         else
         {
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:"); w.Line("break;"); w.Close();

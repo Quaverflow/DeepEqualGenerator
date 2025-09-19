@@ -1,12 +1,13 @@
-﻿using System.Dynamic;
+﻿using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
-using Newtonsoft.Json.Linq;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using KellermanSoftware.CompareNetObjects;
-using FluentAssertions;
+// (optional) Kellerman CompareNetObjects — remove if you don't want it at all
+// using KellermanSoftware.CompareNetObjects;
 
 namespace DeepEqual.Generator.Benchmarking;
 
@@ -17,17 +18,17 @@ internal class Program
 
 public enum Region { NA, EU, APAC }
 
-[DeepComparable(CycleTracking = false)]
+[DeepComparable(CycleTracking = false, GenerateDelta = true)]
 public sealed class Address
 {
     public string Line1 { get; set; } = "";
     public string City { get; set; } = "";
     public string Postcode { get; set; } = "";
     public string Country { get; set; } = "";
-    public ExpandoObject Countr3y { get; set; }
+    public ExpandoObject? Countr3y { get; set; }
 }
 
-[DeepComparable(CycleTracking = false)]
+[DeepComparable(CycleTracking = false, GenerateDelta = true)]
 public sealed class OrderLine
 {
     public string Sku { get; set; } = "";
@@ -35,7 +36,7 @@ public sealed class OrderLine
     public decimal LineTotal { get; set; }
 }
 
-[DeepComparable(CycleTracking = false)]
+[DeepComparable(CycleTracking = false, GenerateDelta = true)]
 public sealed class Order
 {
     public Guid Id { get; set; }
@@ -44,7 +45,7 @@ public sealed class Order
     public Dictionary<string, string> Meta { get; set; } = new(StringComparer.Ordinal);
 }
 
-[DeepComparable(CycleTracking = false)]
+[DeepComparable(CycleTracking = false, GenerateDelta = true)]
 public sealed class Customer
 {
     public Guid Id { get; set; }
@@ -54,7 +55,7 @@ public sealed class Customer
     public List<Order> Orders { get; set; } = new();
 }
 
-[DeepComparable(CycleTracking = false)]
+[DeepComparable(CycleTracking = false, GenerateDelta = true)]
 public sealed class MidGraph
 {
     public string Title { get; set; } = "";
@@ -75,7 +76,7 @@ public static class MidGraphFactory
             Title = $"MidGraph-{seed}",
             Polymorph = (seed % 2 == 0)
                 ? (object)$"poly-{seed}"
-                : (object)new Address { Line1 = "1 High St", City = "London", Postcode = "E1 1AA", Country = "UK" }
+                : new Address { Line1 = "1 High St", City = "London", Postcode = "E1 1AA", Country = "UK" }
         };
 
         for (int i = 0; i < 50; i++)
@@ -146,6 +147,8 @@ public static class MidGraphFactory
     }
 }
 
+// ------------------ Manual comparers (unchanged logic) ------------------
+
 public static class ManualNonLinq
 {
     public static bool AreEqual(MidGraph? a, MidGraph? b)
@@ -215,7 +218,6 @@ public static class ManualNonLinq
             if (!b.TryGetValue(kv.Key, out var bv)) return false;
             if (!Equals(kv.Value, bv)) return false;
         }
-
         return true;
     }
     private static bool ObjectEqual(object? a, object? b)
@@ -313,6 +315,8 @@ public static class ManualLinqy
         => a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var bv) && ObjectEqual(kv.Value, bv));
 }
 
+// ------------------ Benchmarks ------------------
+
 [MemoryDiagnoser]
 [PlainExporter]
 public class MidGraphBenchmarks
@@ -328,8 +332,14 @@ public class MidGraphBenchmarks
     private MidGraph _neqDeepA = null!;
     private MidGraph _neqDeepB = null!;
 
-    private CompareLogic _cno = null!;
-    private ObjectsComparer.Comparer<MidGraph> _objComp = null!;
+    // If you keep CNO, uncomment; otherwise remove these lines and any CNO benchmarks.
+    // private CompareLogic _cno = null!;
+
+    private BinaryDeltaOptions _bin = null!;
+    private DeltaDocument _deltaShallow = null!;
+    private DeltaDocument _deltaDeep = null!;
+    private byte[] _deltaShallowBin = null!;
+    private byte[] _deltaDeepBin = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -347,45 +357,97 @@ public class MidGraphBenchmarks
         var lastO = lastC.Orders[^1];
         lastO.Lines[^1].Qty += 1;
 
-        _cno = new CompareLogic(new ComparisonConfig
-        {
-            MaxDifferences = 1,
-            Caching = true,
-            IgnoreObjectTypes = false
-        });
+        // if using CNO:
+        // _cno = new CompareLogic(new ComparisonConfig { MaxDifferences = 1, Caching = true, IgnoreObjectTypes = false });
 
-        _objComp = new ObjectsComparer.Comparer<MidGraph>();
+        _bin = new BinaryDeltaOptions { IncludeHeader = false };
+
+        // Build shallow delta + binary
+        {
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            var ctx = new ComparisonContext();
+            MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
+            _deltaShallow = doc;
+
+            var buf = new ArrayBufferWriter<byte>();
+            BinaryDeltaCodec.Write(_deltaShallow, buf, _bin);
+            _deltaShallowBin = buf.WrittenSpan.ToArray();
+        }
+
+        // Build deep delta + binary
+        {
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            var ctx = new ComparisonContext();
+            MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB,  ctx);
+            _deltaDeep = doc;
+
+            var buf = new ArrayBufferWriter<byte>();
+            BinaryDeltaCodec.Write(_deltaDeep, buf, _bin);
+            _deltaDeepBin = buf.WrittenSpan.ToArray();
+        }
     }
 
-
-    [Benchmark(Baseline = true)]
-    public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
-
+    // ---- Equality baselines ----
+    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
 
-
-
-
-
-
-        
     [Benchmark] public bool Generated_NotEqual_Shallow() => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
     [Benchmark] public bool Manual_NonLinq_NotEqual_Shallow() => ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Shallow() => ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
 
-
-
-
-
-
-        
     [Benchmark] public bool Generated_NotEqual_Deep() => MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
+    // ---- Binary codec measurements ----
+    [Benchmark]
+    public int Binary_Encode_Shallow_Delta_Size()
+    {
+        var buf = new ArrayBufferWriter<byte>();
+        BinaryDeltaCodec.Write(_deltaShallow, buf, _bin);
+        return buf.WrittenCount;
+    }
 
+    [Benchmark]
+    public int Binary_Decode_Shallow_Delta_OpCount()
+    {
+        var doc = BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
+        return doc.Operations.Count;
+    }
 
+    [Benchmark]
+    public bool Binary_Apply_Shallow_Delta()
+    {
+        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
+        var doc = BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
+        MidGraphDeepOps.ApplyDelta(ref target, doc);
+        return ManualNonLinq.AreEqual(target, _neqShallowB);
+    }
 
+    [Benchmark]
+    public int Binary_Encode_Deep_Delta_Size()
+    {
+        var buf = new ArrayBufferWriter<byte>();
+        BinaryDeltaCodec.Write(_deltaDeep, buf, _bin);
+        return buf.WrittenCount;
+    }
 
+    [Benchmark]
+    public int Binary_Decode_Deep_Delta_OpCount()
+    {
+        var doc = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
+        return doc.Operations.Count;
+    }
+
+    [Benchmark]
+    public bool Binary_Apply_Deep_Delta()
+    {
+        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
+        var doc = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
+        MidGraphDeepOps.ApplyDelta(ref target, doc);
+        return ManualNonLinq.AreEqual(target, _neqDeepB);
+    }
 }
