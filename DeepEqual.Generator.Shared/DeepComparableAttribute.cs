@@ -60,6 +60,8 @@ public class DeepComparableAttribute : Attribute
     /// </summary>
     public StableMemberIndexMode StableMemberIndex { get; set; } = StableMemberIndexMode.Auto;
 
+    public bool EmitSchemaSnapshot { get; set; } = false;
+
 }
 
 /// <summary>

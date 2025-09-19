@@ -103,11 +103,12 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                     bool genDelta = HasNamedTrue(attr, "GenerateDelta");
 
                     bool? cycleSpecified = GetNamedBool(attr, "CycleTracking");
-                    bool eqCycle = cycleSpecified ?? true; 
-                    bool ddCycle = cycleSpecified ?? false; 
+                    bool eqCycle = cycleSpecified ?? true;
+                    bool ddCycle = cycleSpecified ?? false;
 
                     var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
                     var attrLoc = attr.ApplicationSyntaxReference?.GetSyntax(ct)?.GetLocation();
+                    bool emitSnapshot = HasNamedTrue(attr, "EmitSchemaSnapshot");
 
                     var metadataName = GenCommon.BuildMetadataName(typeSymbol);
                     var fqn = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -116,7 +117,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                         metadataName, fqn,
                         includeInternals, orderInsensitive,
                         eqCycle, ddCycle, includeBase,
-                        genDiff, genDelta, stableMode, attrLoc);
+                        genDiff, genDelta, stableMode, emitSnapshot, attrLoc);
                 })
             .Where(static r => r is not null)
             .Select(static (r, _) => r!.Value);
@@ -177,14 +178,14 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                 }
             }
 
-            var roots = new Dictionary<INamedTypeSymbol, (bool incInt, bool ordIns, bool eqCycle, bool ddCycle, bool incBase, bool genDiff, bool genDelta, StableMemberIndexMode stableMode, Location? loc)>(SymbolEqualityComparer.Default);
+            var roots = new Dictionary<INamedTypeSymbol, (bool incInt, bool ordIns, bool eqCycle, bool ddCycle, bool incBase, bool genDiff, bool genDelta, StableMemberIndexMode stableMode, bool emitSnapshot, Location? loc)>(SymbolEqualityComparer.Default);
 
             foreach (var req in ownedList)
             {
                 var t = compilation.GetTypeByMetadataName(req.MetadataName);
                 if (t is null) continue;
                 if (!roots.ContainsKey(t))
-                    roots[t] = (req.IncludeInternals, req.OrderInsensitiveCollections, req.EqCycleTrackingEnabled, req.DdCycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta, req.StableMemberIndexMode, req.AttributeLocation);
+                    roots[t] = (req.IncludeInternals, req.OrderInsensitiveCollections, req.EqCycleTrackingEnabled, req.DdCycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta, req.StableMemberIndexMode, req.EmitSchemaSnapshot, req.AttributeLocation);
             }
 
             static bool HasNamedTrue(AttributeData a, string name) =>
@@ -213,9 +214,10 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                 bool eqCycle = present ? (cycleVal ?? true) : true;
                 bool ddCycle = present ? (cycleVal ?? false) : false;
                 var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
+                var emitSnapshot = HasNamedTrue(attr, "EmitSchemaSnapshot");
                 var loc = attr.ApplicationSyntaxReference?.GetSyntax()?.GetLocation();
 
-                roots[extType] = (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, loc);
+                roots[extType] = (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot, loc);
             }
 
             var eqEmitter = new EqualityEmitter(compilation);
@@ -225,7 +227,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
             foreach (var kvp in roots)
             {
                 var type = kvp.Key;
-                var (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, loc) = kvp.Value;
+                var (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot, loc) = kvp.Value;
 
                 Diagnostics.DiagnosticPass(spc, type);
 
@@ -250,7 +252,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                     {
                         ddEmitter.EmitForRoot(
                             spc,
-                            new DiffDeltaTarget(type, incInt, ordIns, ddCycle, incBase, genDiff, genDelta),
+                            new DiffDeltaTarget(type, incInt, ordIns, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot),
                             hintOverride: hint);
                     }
                 }
@@ -259,7 +261,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
     }
 }
 internal readonly record struct RootRequest(
-    string MetadataName,
+string MetadataName,
     string QualifiedDisplayName,
     bool IncludeInternals,
     bool OrderInsensitiveCollections,
@@ -269,6 +271,7 @@ internal readonly record struct RootRequest(
     bool GenerateDiff,
     bool GenerateDelta,
     StableMemberIndexMode StableMemberIndexMode,
+    bool EmitSchemaSnapshot,
     Location? AttributeLocation
 );
 internal sealed class EqualityEmitter
@@ -280,6 +283,10 @@ internal sealed class EqualityEmitter
 
     private const string DeepComparableAttributeName = GenCommon.DeepComparableAttributeMetadataName;
     private const string DeepCompareAttributeName = GenCommon.DeepCompareAttributeMetadataName;
+
+    // Stable indexing state for the current root emission
+    private bool _useStableIndices;
+    private readonly System.Collections.Generic.Dictionary<INamedTypeSymbol, System.Collections.Generic.Dictionary<string, int>> _stableIndexTables = new(SymbolEqualityComparer.Default);
     private const string DeltaTrackAttributeName = GenCommon.DeltaTrackAttributeMetadataName;
 
     /// <summary>
@@ -442,7 +449,7 @@ internal sealed class EqualityEmitter
 
         var tree = CSharpSyntaxTree.ParseText(text);               // string → SyntaxTree
         var rootStx = tree.GetRoot();                                 // SyntaxTree → SyntaxNode
-        var formatted = rootStx.NormalizeWhitespace(" " ,true).ToFullString(); // SyntaxNode → formatted string
+        var formatted = rootStx.NormalizeWhitespace(" ", true).ToFullString(); // SyntaxNode → formatted string
 
         spc.AddSource(hintName, SourceText.From(formatted, Encoding.UTF8));
     }
@@ -2449,7 +2456,10 @@ internal readonly record struct DiffDeltaTarget(
     bool CycleTrackingEnabled,
     bool IncludeBaseMembers,
     bool GenerateDiff,
-    bool GenerateDelta);
+    bool GenerateDelta,
+    StableMemberIndexMode StableMode,
+    bool EmitSchemaSnapshot);
+
 
 internal readonly record struct DiffDeltaMemberSymbol(string Name, ITypeSymbol Type, ISymbol Symbol);
 
@@ -2469,13 +2479,20 @@ internal sealed class DiffDeltaEmitter
 
     private const string DeepCompareAttributeName = GenCommon.DeepCompareAttributeMetadataName;
 
+
+    // Stable indexing state for the current root emission
+    private bool _useStableIndices;
+    private readonly System.Collections.Generic.Dictionary<INamedTypeSymbol, System.Collections.Generic.Dictionary<string, int>> _stableIndexTables = new(SymbolEqualityComparer.Default);
     public void EmitForRoot(SourceProductionContext spc, DiffDeltaTarget root, string? hintOverride = null)
     {
         Diagnostics.DiagnosticPass(spc, root.Type);
 
+
+        _useStableIndices = root.GenerateDelta && (root.StableMode == StableMemberIndexMode.On || root.StableMode == StableMemberIndexMode.Auto);
+        _stableIndexTables.Clear();
         var ns = root.Type.ContainingNamespace.IsGlobalNamespace
-            ? null
-            : root.Type.ContainingNamespace.ToDisplayString();
+                    ? null
+                    : root.Type.ContainingNamespace.ToDisplayString();
 
         var rootFqn = root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var helperClass = root.Type.Name + "DeepOps";
@@ -2534,6 +2551,26 @@ internal sealed class DiffDeltaEmitter
             if (arity <= 0) return "";
             if (arity == 1) return "<>";
             return "<" + new string(',', arity - 1) + ">";
+
+            // Optional schema snapshot emission (comment-only file for auditing)
+            if (_useStableIndices && root.EmitSchemaSnapshot)
+            {
+                foreach (var kv in _stableIndexTables)
+                {
+                    var t = kv.Key;
+                    var map = kv.Value;
+                    var names = map.OrderBy(p => p.Value).Select(p => p.Key).ToArray();
+                    var sb = new StringBuilder();
+                    sb.AppendLine("// <auto-generated/>");
+                    sb.AppendLine("// Stable Member Index Snapshot");
+                    sb.AppendLine("// Type: " + t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+                    sb.AppendLine("// Index -> MemberName");
+                    for (int i = 0; i < names.Length; i++)
+                        sb.AppendLine("// " + i + " -> " + names[i]);
+                    var snapName = GenCommon.SanitizeFileName(t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ".__StableSchema.g.cs");
+                    spc.AddSource(snapName, SourceText.From(sb.ToString(), Encoding.UTF8));
+                }
+            }
         }
 
         var openSuffix = OpenGenericSuffix(root.Type.Arity);
@@ -2820,6 +2857,14 @@ internal sealed class DiffDeltaEmitter
         var nullSuffix = type.IsValueType ? "" : "?";
         var schema = GetTypeSchema(type);
         var deltaTracked = HasDeltaTrack(type);
+
+        if (_useStableIndices && !_stableIndexTables.ContainsKey(type))
+        {
+            var __orderedStable = OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)).ToArray();
+            var __map = new System.Collections.Generic.Dictionary<string, int>(System.StringComparer.Ordinal);
+            for (int __i = 0; __i < __orderedStable.Length; __i++) __map[__orderedStable[__i].Name] = __i;
+            _stableIndexTables[type] = __map;
+        }
 
         if (root.GenerateDiff)
         {
@@ -3329,61 +3374,61 @@ internal sealed class DiffDeltaEmitter
     }
 
     private static AttributeData? GetDeepCompareAttribute(ISymbol symbol)
-{
-    return symbol.GetAttributes()
-        .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-}
-
-private static INamedTypeSymbol? GetEffectiveComparerType(ITypeSymbol comparedType, AttributeData? memberAttribute)
-{
-    INamedTypeSymbol? fromMember = null;
-
-    if (memberAttribute is not null)
     {
-        foreach (var kv in memberAttribute.NamedArguments)
+        return symbol.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
+    }
+
+    private static INamedTypeSymbol? GetEffectiveComparerType(ITypeSymbol comparedType, AttributeData? memberAttribute)
+    {
+        INamedTypeSymbol? fromMember = null;
+
+        if (memberAttribute is not null)
         {
-            if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts } &&
-                ImplementsIEqualityComparerFor(ts, comparedType))
+            foreach (var kv in memberAttribute.NamedArguments)
             {
-                fromMember = ts;
-                break;
+                if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts } &&
+                    ImplementsIEqualityComparerFor(ts, comparedType))
+                {
+                    fromMember = ts;
+                    break;
+                }
             }
         }
-    }
 
-    if (fromMember is not null)
-        return fromMember;
+        if (fromMember is not null)
+            return fromMember;
 
-    var typeAttr = comparedType.OriginalDefinition.GetAttributes()
-        .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-    if (typeAttr is not null)
-    {
-        foreach (var kv in typeAttr.NamedArguments)
+        var typeAttr = comparedType.OriginalDefinition.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
+        if (typeAttr is not null)
         {
-            if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts2 } &&
-                ImplementsIEqualityComparerFor(ts2, comparedType))
+            foreach (var kv in typeAttr.NamedArguments)
             {
-                return ts2;
+                if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts2 } &&
+                    ImplementsIEqualityComparerFor(ts2, comparedType))
+                {
+                    return ts2;
+                }
             }
         }
+
+        return null;
     }
 
-    return null;
-}
-
-private static bool ImplementsIEqualityComparerFor(INamedTypeSymbol comparerType, ITypeSymbol argument)
-{
-    foreach (var i in comparerType.AllInterfaces)
+    private static bool ImplementsIEqualityComparerFor(INamedTypeSymbol comparerType, ITypeSymbol argument)
     {
-        if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEqualityComparer<T>" &&
-            SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], argument))
+        foreach (var i in comparerType.AllInterfaces)
         {
-            return true;
+            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEqualityComparer<T>" &&
+                SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], argument))
+            {
+                return true;
+            }
         }
-    }
 
-    return false;
-}
+        return false;
+    }
     private static bool TryGetEnumerableElement(ITypeSymbol t, out ITypeSymbol element)
     {
         element = null!;
@@ -3737,8 +3782,12 @@ private static bool ImplementsIEqualityComparerFor(INamedTypeSymbol comparerType
         return $"System.Collections.Generic.EqualityComparer<{tfqn}>.Default.Equals({leftExpr}, {rightExpr})";
     }
 
-    private static int GetStableMemberIndex(INamedTypeSymbol owner, DiffDeltaMemberSymbol member)
+    private int GetStableMemberIndex(INamedTypeSymbol owner, DiffDeltaMemberSymbol member)
     {
+        if (_useStableIndices && _stableIndexTables.TryGetValue(owner, out var map) && map.TryGetValue(member.Name, out var idx))
+            return idx;
+
+        // Fallback: ephemeral hash (legacy behavior)
         unchecked
         {
             var h = 17;
