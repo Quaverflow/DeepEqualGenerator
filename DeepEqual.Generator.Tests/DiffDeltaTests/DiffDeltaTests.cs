@@ -56,8 +56,7 @@ public sealed class Cat : IAnimal { public string? Name { get; set; } public int
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class Zoo
 {
-    public IAnimal? Pet { get; set; } // polymorphic
-}
+    public IAnimal? Pet { get; set; }}
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class ShallowWrap
@@ -78,8 +77,7 @@ public sealed class SkipWrap
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class WithArray
 {
-    public int[]? Values { get; set; } // arrays fallback to SetMember (not granular)
-}
+    public int[]? Values { get; set; }}
 
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
@@ -112,8 +110,7 @@ public sealed class PolyDictHost
     public Dictionary<string, IAnimal>? Pets { get; set; }
 }
 
-public sealed class Parrot : IAnimal { public string? Name { get; set; } public int Seeds { get; set; } } // unregistered
-
+public sealed class Parrot : IAnimal { public string? Name { get; set; } public int Seeds { get; set; } }
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class ShallowCollectionWrap
 {
@@ -143,8 +140,7 @@ public sealed class ModuleInitFoo
 }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
-public sealed class SealedThing // sealed class correctness (we can’t assert optimization, but assert correctness)
-{
+public sealed class SealedThing{
     public int A { get; set; }
     public Address? Addr { get; set; }
 }
@@ -226,8 +222,7 @@ public class DiffDeltaFullSuite
     private static int ProbeItemsMemberIndex()
     {
         var a = new Order { Items = new List<OrderItem> { new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 2 } } };
-        var b = new Order { Items = new List<OrderItem> { new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 9 } } }; // change forces diff
-
+        var b = new Order { Items = new List<OrderItem> { new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 9 } } };
         var doc = OrderDeepOps.ComputeDelta(a, b);
         var seq = doc.Operations.FirstOrDefault(op =>
             (op.Kind == DeltaKind.SeqReplaceAt || op.Kind == DeltaKind.SeqAddAt || op.Kind == DeltaKind.SeqRemoveAt));
@@ -425,8 +420,7 @@ public class DiffDeltaFullSuite
         var a = NewOrder();
         a.Items = MakeItems(("X", 1), ("X", 1), ("X", 1));
         var b = Clone(a);
-        b.Items![1].Qty = 99; // change middle duplicate
-
+        b.Items![1].Qty = 99;
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
         var ops = doc.Operations.Where(o => o.Kind == DeltaKind.SeqReplaceAt).ToList();
@@ -472,8 +466,7 @@ public class DiffDeltaFullSuite
     public void List_Mixed_Ops_Add_Remove_Replace_Applies_In_Correct_Order()
     {
         var a = new Order { Items = MakeItems(("A", 1), ("B", 2), ("C", 3), ("D", 4)) };
-        var b = new Order { Items = MakeItems(("A", 1), ("BX", 2), ("C", 3), ("E", 5)) }; // replace B->BX, remove D, add E at tail
-
+        var b = new Order { Items = MakeItems(("A", 1), ("BX", 2), ("C", 3), ("E", 5)) };
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
         Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SeqReplaceAt && o.Index == 1);
@@ -493,16 +486,13 @@ public class DiffDeltaFullSuite
     public void List_Operation_Ordering_Stability()
     {
         var a = new Order { Items = MakeItems(("A", 1), ("B", 2), ("C", 3), ("D", 4), ("E", 5)) };
-        var b = new Order { Items = MakeItems(("A", 1), ("BX", 2), ("C", 3), ("E", 5), ("F", 6)) }; // replace B, remove D, add F at tail
-
+        var b = new Order { Items = MakeItems(("A", 1), ("BX", 2), ("C", 3), ("E", 5), ("F", 6)) };
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
         var removes = doc.Operations.Where(o => o.Kind == DeltaKind.SeqRemoveAt).Select(o => o.Index).ToList();
         var adds = doc.Operations.Where(o => o.Kind == DeltaKind.SeqAddAt).Select(o => o.Index).ToList();
 
-        Assert.True(removes.SequenceEqual(removes.OrderByDescending(x => x))); // removes descending
-        Assert.True(adds.SequenceEqual(adds.OrderBy(x => x)));                 // adds ascending
-
+        Assert.True(removes.SequenceEqual(removes.OrderByDescending(x => x)));        Assert.True(adds.SequenceEqual(adds.OrderBy(x => x)));                
         var target = a;
         OrderDeepOps.ApplyDelta(ref target, doc);
         Assert.True(OrderDeepEqual.AreDeepEqual(b, target));
@@ -814,8 +804,7 @@ public class DiffDeltaFullSuite
     [Fact]
     public void Polymorphic_Unregistered_Runtime_Type_Falls_Back_To_SetMember()
     {
-        var a = new Zoo { Pet = new Parrot { Name = "p", Seeds = 1 } }; // Parrot not decorated / not registered
-        var b = new Zoo { Pet = new Parrot { Name = "p", Seeds = 2 } };
+        var a = new Zoo { Pet = new Parrot { Name = "p", Seeds = 1 } };        var b = new Zoo { Pet = new Parrot { Name = "p", Seeds = 2 } };
 
         var doc = ZooDeepOps.ComputeDelta(a, b);
         Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);
@@ -841,8 +830,7 @@ public class DiffDeltaFullSuite
     {
         var a = NewOrder();
         var b = Clone(a);
-        b.Notes = "changed"; // only this member
-
+        b.Notes = "changed";
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
         var target = Clone(a);
@@ -950,8 +938,7 @@ public class DiffDeltaFullSuite
         var o = NewOrder();
 
         var a = NewOrder();
-        var b = Clone(a); b.Notes = "changed"; // guarantee at least one op
-        var probe = OrderDeepOps.ComputeDelta(a, b);
+        var b = Clone(a); b.Notes = "changed";        var probe = OrderDeepOps.ComputeDelta(a, b);
         var anyIdx = probe.Operations.First().MemberIndex;
 
         var doc = new DeltaDocument();
@@ -966,8 +953,7 @@ public class DiffDeltaFullSuite
             args: new object?[] { anyIdx, (DeltaKind)999, -1, null, "x", null }
         )!;
 
-        ops.Add(bogusOp); // append bogus op
-
+        ops.Add(bogusOp);
         var ex = Record.Exception(() => OrderDeepOps.ApplyDelta(ref o, doc));
 
         Assert.Null(ex);
@@ -980,9 +966,7 @@ public class DiffDeltaFullSuite
 
         var doc = new DeltaDocument();
         var w = new DeltaWriter(doc);
-        w.WriteReplaceObject(right);               // real replace op
-        w.WriteSetMember(123, "noise");            // bogus op (won't be reached)
-
+        w.WriteReplaceObject(right);                      w.WriteSetMember(123, "noise");           
         var target = (Address?)null;
         AddressDeepOps.ApplyDelta(ref target, doc);
 
@@ -1067,9 +1051,7 @@ public class DiffDeltaFullSuite
 
         var doc = SealedThingDeepOps.ComputeDelta(a, b);
 
-        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);           // for A
-        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.NestedMember);       // for Addr
-
+        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);                  Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.NestedMember);      
         var target = new SealedThing { A = 1, Addr = new Address { Street = "s", City = "c" } };
         SealedThingDeepOps.ApplyDelta(ref target, doc);
         Assert.True(SealedThingDeepEqual.AreDeepEqual(b, target));
@@ -1175,8 +1157,7 @@ public class DiffDeltaFullSuite
         public void IReadOnlyDictionary_Value_Change_Emits_DictSet_And_Applies_By_Clone()
         {
             var a = new ReadOnlyDictGranularHost { Meta = RO(("who", "me"), ("env", "test")) };
-            var b = new ReadOnlyDictGranularHost { Meta = RO(("who", "you"), ("env", "test")) }; // only 'who' changes
-
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("who", "you"), ("env", "test")) };
             var doc = ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b);
 
             Assert.Contains(doc.Operations, o =>
@@ -1189,8 +1170,7 @@ public class DiffDeltaFullSuite
 
             Assert.Equal("you", target.Meta!["who"]);
             Assert.True(ReadOnlyDictGranularHostDeepEqual.AreDeepEqual(b, target));
-            Assert.NotSame(before, target.Meta); // now passes: read-only target → clone-and-assign
-        }
+            Assert.NotSame(before, target.Meta);        }
 
         [Fact]
         public void IReadOnlyDictionary_Value_Change_Mutates_InPlace_When_Target_Is_Mutable()
@@ -1200,20 +1180,16 @@ public class DiffDeltaFullSuite
 
             var doc = ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b);
 
-            var target = new ReadOnlyDictGranularHost { Meta = RO(("k", "v1")) }; // mutable Dictionary
-            var before = target.Meta;
+            var target = new ReadOnlyDictGranularHost { Meta = RO(("k", "v1")) };            var before = target.Meta;
             ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, doc);
 
-            Assert.Same(before, target.Meta);        // mutated in place
-            Assert.Equal("v2", target.Meta!["k"]);   // value updated
-        }
+            Assert.Same(before, target.Meta);                   Assert.Equal("v2", target.Meta!["k"]);          }
 
         [Fact]
         public void IReadOnlyDictionary_Add_Remove_Emit_Granular_Ops_And_Apply()
         {
             var a = new ReadOnlyDictGranularHost { Meta = RO(("a", "1"), ("b", "2")) };
-            var b = new ReadOnlyDictGranularHost { Meta = RO(("a", "1"), ("c", "3")) }; // remove b, add c
-
+            var b = new ReadOnlyDictGranularHost { Meta = RO(("a", "1"), ("c", "3")) };
             var doc = ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b);
 
             Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.DictRemove && (string)o.Key! == "b");

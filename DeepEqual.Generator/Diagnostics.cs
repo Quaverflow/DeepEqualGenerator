@@ -160,10 +160,7 @@ internal static class ExternalPathResolver
 {
     public enum PathDiag
     {
-        Unresolvable,            // EX001
-        DictionarySideInvalid,   // EX002
-        AmbiguousEnumerable      // EX003 (reserved if you add IEnumerable ambiguity checks)
-    }
+        Unresolvable,                   DictionarySideInvalid,          AmbiguousEnumerable         }
 
     private enum DictSide { None, Key, Value }
 
@@ -209,8 +206,7 @@ internal static class ExternalPathResolver
 
             if (next is null
                 && seg.Side == DictSide.None
-                && !TryGetDictionaryTypes(cur, out _, out _) // don't auto-hop for dictionaries
-                && TryGetEnumerableElementType(cur, out var elem)
+                && !TryGetDictionaryTypes(cur, out _, out _)                && TryGetEnumerableElementType(cur, out var elem)
                 && elem is INamedTypeSymbol elemNamed)
             {
                 next = FindMember(elemNamed, seg.Name, includeInternals, includeBase);
@@ -229,8 +225,7 @@ internal static class ExternalPathResolver
                         cur = elem2;
                     }
 
-                    continue; // done handling this segment
-                }
+                    continue;                }
             }
 
             if (next is null)

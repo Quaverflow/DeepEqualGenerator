@@ -332,9 +332,7 @@ public class MidGraphBenchmarks
     private MidGraph _neqDeepA = null!;
     private MidGraph _neqDeepB = null!;
 
-    // If you keep CNO, uncomment; otherwise remove these lines and any CNO benchmarks.
-    // private CompareLogic _cno = null!;
-
+      
     private BinaryDeltaOptions _bin = null!;
     private DeltaDocument _deltaShallow = null!;
     private DeltaDocument _deltaDeep = null!;
@@ -357,13 +355,10 @@ public class MidGraphBenchmarks
         var lastO = lastC.Orders[^1];
         lastO.Lines[^1].Qty += 1;
 
-        // if using CNO:
-        // _cno = new CompareLogic(new ComparisonConfig { MaxDifferences = 1, Caching = true, IgnoreObjectTypes = false });
-
+              
         _bin = new BinaryDeltaOptions { IncludeHeader = false };
 
-        // Build shallow delta + binary
-        {
+               {
             var doc = new DeltaDocument();
             var w = new DeltaWriter(doc);
             var ctx = new ComparisonContext();
@@ -375,8 +370,7 @@ public class MidGraphBenchmarks
             _deltaShallowBin = buf.WrittenSpan.ToArray();
         }
 
-        // Build deep delta + binary
-        {
+               {
             var doc = new DeltaDocument();
             var w = new DeltaWriter(doc);
             var ctx = new ComparisonContext();
@@ -389,8 +383,7 @@ public class MidGraphBenchmarks
         }
     }
 
-    // ---- Equality baselines ----
-    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+       [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
 
@@ -402,8 +395,7 @@ public class MidGraphBenchmarks
     [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-    // ---- Binary codec measurements ----
-    [Benchmark]
+       [Benchmark]
     public int Binary_Encode_Shallow_Delta_Size()
     {
         var buf = new ArrayBufferWriter<byte>();

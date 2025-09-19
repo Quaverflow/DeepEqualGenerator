@@ -136,9 +136,7 @@ public static class BenchData
 
 public static class ManualDeepOps
 {
-    // ---- Address ----------------------------------------------------------------
-    // Indices: 0 = Street, 1 = City
-    public static void ComputeDelta(Address? a, Address? b, ComparisonContext ctx, ref DeltaWriter w)
+          public static void ComputeDelta(Address? a, Address? b, ComparisonContext ctx, ref DeltaWriter w)
     {
         if (ReferenceEquals(a, b)) return;
         if (a is null || b is null)
@@ -154,9 +152,7 @@ public static class ManualDeepOps
             w.WriteSetMember(1, b.City);
     }
 
-    // ---- Customer ---------------------------------------------------------------
-    // Indices: 0 = Id, 1 = Name, 2 = Home (nested)
-    public static void ComputeDelta(Customer? a, Customer? b, ComparisonContext ctx, ref DeltaWriter w)
+          public static void ComputeDelta(Customer? a, Customer? b, ComparisonContext ctx, ref DeltaWriter w)
     {
         if (ReferenceEquals(a, b)) return;
         if (a is null || b is null)
@@ -170,8 +166,7 @@ public static class ManualDeepOps
         if (!string.Equals(a.Name, b.Name, StringComparison.Ordinal))
             w.WriteSetMember(1, b.Name);
 
-        // Nested: Address
-        if (!ReferenceEquals(a.Home, b.Home))
+               if (!ReferenceEquals(a.Home, b.Home))
         {
             if (a.Home is null || b.Home is null)
             {
@@ -181,14 +176,11 @@ public static class ManualDeepOps
             {
                 var scope = w.BeginNestedMember(2, out var nw);
                 ComputeDelta(a.Home, b.Home, ctx, ref nw);
-                scope.Dispose(); // will emit only if nested doc non-empty
-            }
+                scope.Dispose();            }
         }
     }
 
-    // ---- OrderItem --------------------------------------------------------------
-    // Indices: 0 = Sku, 1 = Qty
-    public static void ComputeDelta(OrderItem? a, OrderItem? b, ComparisonContext ctx, ref DeltaWriter w)
+          public static void ComputeDelta(OrderItem? a, OrderItem? b, ComparisonContext ctx, ref DeltaWriter w)
     {
         if (ReferenceEquals(a, b)) return;
         if (a is null || b is null)
@@ -204,9 +196,7 @@ public static class ManualDeepOps
             w.WriteSetMember(1, b.Qty);
     }
 
-    // ---- Order (top level) ------------------------------------------------------
-    // Indices: 0 = Id, 1 = Customer (nested), 2 = Items (list), 3 = Notes
-    public static void ComputeDelta(Order? a, Order? b, ComparisonContext ctx, ref DeltaWriter w)
+          public static void ComputeDelta(Order? a, Order? b, ComparisonContext ctx, ref DeltaWriter w)
     {
         if (ReferenceEquals(a, b)) return;
         if (a is null || b is null)
@@ -217,8 +207,7 @@ public static class ManualDeepOps
 
         if (a.Id != b.Id) w.WriteSetMember(0, b.Id);
 
-        // Nested: Customer
-        if (!ReferenceEquals(a.Customer, b.Customer))
+               if (!ReferenceEquals(a.Customer, b.Customer))
         {
             if (a.Customer is null || b.Customer is null)
             {
@@ -232,8 +221,7 @@ public static class ManualDeepOps
             }
         }
 
-        // List: Items (IList<OrderItem>)
-        if (!ReferenceEquals(a.Items, b.Items))
+               if (!ReferenceEquals(a.Items, b.Items))
         {
             if (a.Items is null || b.Items is null)
             {
@@ -249,45 +237,37 @@ public static class ManualDeepOps
             w.WriteSetMember(3, b.Notes);
     }
 
-    // A tiny list delta similar to your generator’s windowed approach
-    private static void ComputeListDelta_OrderItems(
+       private static void ComputeListDelta_OrderItems(
         IList<OrderItem> left, IList<OrderItem> right, int memberIndex, ref DeltaWriter w, ComparisonContext ctx)
     {
         var la = left.Count;
         var lb = right.Count;
 
-        // Common prefix
-        var prefix = 0;
+               var prefix = 0;
         var maxP = Math.Min(la, lb);
         while (prefix < maxP && AreEqual_Item(left[prefix], right[prefix]))
             prefix++;
 
-        // Common suffix (avoid overlap)
-        var suffix = 0;
+               var suffix = 0;
         var maxS = Math.Min(la - prefix, lb - prefix);
         while (suffix < maxS && AreEqual_Item(left[la - 1 - suffix], right[lb - 1 - suffix]))
             suffix++;
 
-        var ra = la - prefix - suffix; // replace/remove range in left
-        var rb = lb - prefix - suffix; // replace/add range in right
-        var common = Math.Min(ra, rb);
+        var ra = la - prefix - suffix;        var rb = lb - prefix - suffix;        var common = Math.Min(ra, rb);
 
-        // Replaces within the window
-        for (int i = 0; i < common; i++)
+               for (int i = 0; i < common; i++)
         {
             var ai = prefix + i;
             if (!AreEqual_Item(left[ai], right[ai]))
                 w.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
         }
 
-        // Removes
-        if (ra > rb)
+               if (ra > rb)
         {
             for (int i = ra - 1; i >= rb; i--)
                 w.WriteSeqRemoveAt(memberIndex, prefix + i);
         }
-        // Adds
-        else if (rb > ra)
+               else if (rb > ra)
         {
             for (int i = ra; i < rb; i++)
                 w.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
@@ -297,16 +277,11 @@ public static class ManualDeepOps
             => a.Qty == b.Qty && string.Equals(a.Sku, b.Sku, StringComparison.Ordinal);
     }
 
-    // ---- DirtyOrder (bitfield) --------------------------------------------------
-    // Indices: 0 = Id, 1 = Notes
-    // This "manual" version assumes the same semantics you use in generated dirty mode:
-    // if a bit is dirty, emit SetMember for that member; otherwise skip.
-    public static void ComputeDelta_Dirty(DirtyOrder a, DirtyOrder b, ComparisonContext ctx, ref DeltaWriter w)
+                public static void ComputeDelta_Dirty(DirtyOrder a, DirtyOrder b, ComparisonContext ctx, ref DeltaWriter w)
     {
         if (!ReferenceEquals(a, b))
         {
-            // For this manual benchmark, just compare values (mimicking “dirty knows best”).
-            if (a.Id != b.Id) w.WriteSetMember(0, b.Id);
+                       if (a.Id != b.Id) w.WriteSetMember(0, b.Id);
             if (!string.Equals(a.Notes, b.Notes, StringComparison.Ordinal)) w.WriteSetMember(1, b.Notes);
         }
     }

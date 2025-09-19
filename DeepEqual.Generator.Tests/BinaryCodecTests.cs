@@ -76,8 +76,7 @@ public sealed class BinaryDeltaCodecTests
             return;
         }
 
-        // Enums: require same enum type + same value
-        if (a.GetType().IsEnum && b.GetType().IsEnum)
+               if (a.GetType().IsEnum && b.GetType().IsEnum)
         {
             Assert.Equal(a.GetType(), b.GetType());
             Assert.Equal(EnumBits(a), EnumBits(b));
@@ -104,12 +103,10 @@ public sealed class BinaryDeltaCodecTests
             }
         }
 
-        // Fallback: normal equality
-        Assert.Equal(a, b);
+               Assert.Equal(a, b);
     }
 
-    // Sample enum for enum round-trips
-    private enum E8 : byte { Zero = 0, One = 1, Big = 200 }
+       private enum E8 : byte { Zero = 0, One = 1, Big = 200 }
     private enum E32 : int { Minus = -3, Zero = 0, Plus = 42 }
 
     private static DeltaDocument Doc(params DeltaOp[] ops)
@@ -241,8 +238,7 @@ public sealed class BinaryDeltaCodecTests
             new DeltaOp(11, DeltaKind.SetMember, -1, null, 'ß', null),
             new DeltaOp(12, DeltaKind.SetMember, -1, null, 123.25f, null),
             new DeltaOp(13, DeltaKind.SetMember, -1, null, 123.25d, null),
-            new DeltaOp(14, DeltaKind.SetMember, -1, null, 79228162514264337593543950335m, null), // decimal.MaxValue
-            new DeltaOp(15, DeltaKind.SetMember, -1, null, "hello 🌍", null),
+            new DeltaOp(14, DeltaKind.SetMember, -1, null, 79228162514264337593543950335m, null),            new DeltaOp(15, DeltaKind.SetMember, -1, null, "hello 🌍", null),
             new DeltaOp(16, DeltaKind.SetMember, -1, null, Guid.NewGuid(), null),
             new DeltaOp(17, DeltaKind.SetMember, -1, null, new DateTime(2020, 2, 29, 12, 34, 56, DateTimeKind.Utc), null),
             new DeltaOp(18, DeltaKind.SetMember, -1, null, TimeSpan.FromMilliseconds(123456789), null),
@@ -260,8 +256,7 @@ public sealed class BinaryDeltaCodecTests
             new DeltaOp(1, DeltaKind.SetMember, -1, null, E8.Big, null),
             new DeltaOp(2, DeltaKind.SetMember, -1, null, E32.Minus, null),
             new DeltaOp(3, DeltaKind.DictSet, -1, Key: "who", Value: "me", Nested: null),
-            new DeltaOp(3, DeltaKind.DictSet, -1, Key: "who", Value: "you", Nested: null), // duplicate key to exercise string table
-            new DeltaOp(4, DeltaKind.ReplaceObject, -1, null, "replace-me", null)
+            new DeltaOp(3, DeltaKind.DictSet, -1, Key: "who", Value: "you", Nested: null),            new DeltaOp(4, DeltaKind.ReplaceObject, -1, null, "replace-me", null)
         );
 
         var opts = new BinaryDeltaOptions
@@ -339,8 +334,7 @@ public sealed class BinaryDeltaCodecTests
     [Fact]
     public void Safety_MaxOps_Triggers()
     {
-        // build a doc with 10,001 ops (exceeds cap of 10,000 by 1)
-        var big = new DeltaDocument();
+               var big = new DeltaDocument();
         var w = new DeltaWriter(big);
         for (int i = 0; i < 10_001; i++)
             w.WriteSetMember(1, i);
@@ -358,20 +352,17 @@ public sealed class BinaryDeltaCodecTests
     [Fact]
     public void Safety_MaxNesting_Triggers()
     {
-        // build a nested doc e.g. depth 64 (any > reader cap)
-        DeltaDocument current = new();
+               DeltaDocument current = new();
         for (int i = 0; i < 64; i++)
             current = Doc(new DeltaOp(i, DeltaKind.NestedMember, -1, null, null, current));
 
-        // write with permissive cap
-        var writeOpts = new BinaryDeltaOptions { IncludeHeader = false };
+               var writeOpts = new BinaryDeltaOptions { IncludeHeader = false };
         writeOpts.Safety.MaxNesting = 1_000_000;
 
         var buf = new ArrayBufferWriter<byte>();
         BinaryDeltaCodec.Write(current, buf, writeOpts);
 
-        // read with strict cap (should throw)
-        var readOpts = new BinaryDeltaOptions { IncludeHeader = false };
+               var readOpts = new BinaryDeltaOptions { IncludeHeader = false };
         readOpts.Safety.MaxNesting = 32;
 
         Assert.Throws<InvalidOperationException>(() =>
@@ -406,8 +397,7 @@ public sealed class BinaryDeltaCodecTests
     [Fact]
     public void Size_Usually_Smaller_Than_TrivialTextualRepresentation()
     {
-        // Not a hard guarantee, but for typical cases it should be smaller.
-        var doc = Doc(
+               var doc = Doc(
             new DeltaOp(1, DeltaKind.SetMember, -1, null, "who", null),
             new DeltaOp(1, DeltaKind.SetMember, -1, null, "you", null),
             new DeltaOp(2, DeltaKind.DictSet, -1, "message", "hello hello hello hello hello", null)
@@ -426,8 +416,7 @@ public sealed class BinaryDeltaCodecTests
                    .Append(op.Value?.ToString()).AppendLine();
         }
 
-        // Heuristic: binary should be < textual UTF8 bytes here.
-        var binarySize = buf.WrittenCount;
+               var binarySize = buf.WrittenCount;
         var textSize = Encoding.UTF8.GetByteCount(textual.ToString());
         Assert.True(binarySize < textSize, $"Binary {binarySize} vs textual {textSize}");
     }

@@ -216,8 +216,7 @@ public sealed class DirtyFeatureTests
         var a = NewOrder(); CleanDirty(a);
         var b = Clone(a); CleanDirty(b);
 
-        b.Notes = "x";                // flips exactly one dirty bit
-
+        b.Notes = "x";               
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.False(doc.IsEmpty);
 
@@ -238,9 +237,7 @@ public sealed class DirtyFeatureTests
         var a = NewOrder(); CleanDirty(a);
         var b = Clone(a); CleanDirty(b);
 
-        b.Id += 1;                    // dirty
-        b.Notes = "y";                // dirty
-
+        b.Id += 1;                           b.Notes = "y";               
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
 
         var idIdx = ProbeIndex_Id();
@@ -262,8 +259,7 @@ public sealed class DirtyFeatureTests
         var a = NewOrder(); CleanDirty(a);
         var b = Clone(a); CleanDirty(b);
 
-        b.Notes = a.Notes!;           // setter called → bit set, but value not changed
-
+        b.Notes = a.Notes!;          
         var docFast = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.Contains(docFast.Operations, o => o.Kind == DeltaKind.SetMember);
 
@@ -290,8 +286,7 @@ public sealed class DirtyFeatureTests
         var a = NewOrder(); CleanDirty(a);
         var b = Clone(a); CleanDirty(b);
 
-        b.Items![1].Qty += 1;  // does not flip DOrder bit (only element is dirty)
-
+        b.Items![1].Qty += 1; 
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.False(doc.IsEmpty);
 
@@ -313,8 +308,7 @@ public sealed class DirtyFeatureTests
         var a = NewOrder(); CleanDirty(a);
         var b = Clone(a); CleanDirty(b);
 
-        b.Notes = "x";     // one dirty change
-
+        b.Notes = "x";    
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         var t = Clone(a); CleanDirty(t);
         DOrderDeepOps.ApplyDelta(ref t, doc);
