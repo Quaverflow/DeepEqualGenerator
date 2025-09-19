@@ -3254,27 +3254,53 @@ internal sealed class DiffDeltaEmitter
             var lb = $"__dictB_{SanitizeIdentifier(owner.Name)}_{SanitizeIdentifier(member.Name)}";
             var nestedExpr = IsValueLike(vType) ? "false" : "true";
 
+            // detect ExpandoObject or IDictionary<string, object> shape
+            bool isExpando =
+                member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
+                "global::System.Dynamic.ExpandoObject";
+
+            bool isStringObjectDict =
+                kType.SpecialType == Microsoft.CodeAnalysis.SpecialType.System_String &&
+                (vType.SpecialType == Microsoft.CodeAnalysis.SpecialType.System_Object ||
+                 vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Object");
+
             w.Line($"var {la} = {left};");
             w.Line($"var {lb} = {right};");
+
             w.Open($"if (!object.ReferenceEquals({la}, {lb}))");
+
+            // null on either side -> SetMember
             w.Open($"if ({la} is null || {lb} is null)");
             w.Line($"writer.WriteSetMember({idx}, {right});");
             w.Close();
 
-            w.Open($"else if ({la} is System.Collections.Generic.IReadOnlyDictionary<{kFqn}, {vFqn}> __roa && {lb} is System.Collections.Generic.IReadOnlyDictionary<{kFqn}, {vFqn}> __rob)");
-            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeReadOnlyDictDelta<{kFqn}, {vFqn}>(__roa, __rob, {idx}, ref writer, {nestedExpr}, context);");
-            w.Close();
+            if (isExpando || isStringObjectDict)
+            {
+                // FORCE mutable IDictionary path for Expando / string->object
+                w.Line($"var __ida = (System.Collections.Generic.IDictionary<string, object?>){la};");
+                w.Line($"var __idb = (System.Collections.Generic.IDictionary<string, object?>){lb};");
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<string, object?>(__ida, __idb, {idx}, ref writer, {nestedExpr}, context);");
+            }
+            else
+            {
+                // keep original order for other dictionary types
+                w.Open($"else if ({la} is System.Collections.Generic.IReadOnlyDictionary<{kFqn}, {vFqn}> __roa && {lb} is System.Collections.Generic.IReadOnlyDictionary<{kFqn}, {vFqn}> __rob)");
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeReadOnlyDictDelta<{kFqn}, {vFqn}>(__roa, __rob, {idx}, ref writer, {nestedExpr}, context);");
+                w.Close();
 
-            w.Open($"else if ({la} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __rwa && {lb} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __rwb)");
-            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>(__rwa, __rwb, {idx}, ref writer, {nestedExpr}, context);");
-            w.Close();
+                w.Open($"else if ({la} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __rwa && {lb} is System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __rwb)");
+                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>(__rwa, __rwb, {idx}, ref writer, {nestedExpr}, context);");
+                w.Close();
 
-            w.Open("else");
-            w.Line($"writer.WriteSetMember({idx}, {right});");
-            w.Close();
-            w.Close();
+                w.Open("else");
+                w.Line($"writer.WriteSetMember({idx}, {right});");
+                w.Close();
+            }
+
+            w.Close(); // !ReferenceEquals
             return;
         }
+
 
         // Arrays: keep current policy (replace unless value-like and identical)
         if (member.Type is IArrayTypeSymbol arrT)
@@ -3585,7 +3611,7 @@ internal sealed class DiffDeltaEmitter
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt:"); w.Line("break;"); w.Close();
         }
 
-        // Dictionary ops (with Expando special-case)
+        // -------- Dictionary granular ops --------
         if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
         {
             var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -3596,40 +3622,40 @@ internal sealed class DiffDeltaEmitter
                 == "global::System.Dynamic.ExpandoObject";
 
             bool isStringObjectDict =
-                kType.SpecialType == SpecialType.System_String &&
-                (vType.SpecialType == SpecialType.System_Object ||
+                kType.SpecialType == Microsoft.CodeAnalysis.SpecialType.System_String &&
+                (vType.SpecialType == Microsoft.CodeAnalysis.SpecialType.System_Object ||
                  vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Object");
 
             if (isExpando || isStringObjectDict)
             {
-                // In-place IDictionary<string, object?> mutation (no clone, no invalid cast back)
+                // In-place IDictionary<string, object?> updates – no clone, no invalid cast
                 w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
-                w.Line($"var __dict_set = (global::System.Collections.Generic.IDictionary<string, object?>)({propAccess} ??= new global::System.Dynamic.ExpandoObject());");
-                w.Line("__dict_set[(string)op.Key!] = op.Value;");
+                w.Line($"var __d_set = (System.Collections.Generic.IDictionary<string, object?>)({propAccess} ??= new System.Dynamic.ExpandoObject());");
+                w.Line("__d_set[(string)op.Key!] = op.Value;");
                 w.Line("break;");
                 w.Close();
 
                 w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:");
-                w.Line($"var __dict_rm = {propAccess} as global::System.Collections.Generic.IDictionary<string, object?>;");
-                w.Line("__dict_rm?.Remove((string)op.Key!);");
+                w.Line($"var __d_rm = {propAccess} as System.Collections.Generic.IDictionary<string, object?>;");
+                w.Line("__d_rm?.Remove((string)op.Key!);");
                 w.Line("break;");
                 w.Close();
 
                 w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:");
-                w.Line($"var __dict_n = (global::System.Collections.Generic.IDictionary<string, object?>)({propAccess} ??= new global::System.Dynamic.ExpandoObject());");
+                w.Line($"var __d_n = (System.Collections.Generic.IDictionary<string, object?>)({propAccess} ??= new System.Dynamic.ExpandoObject());");
                 w.Line("var __k = (string)op.Key!;");
-                w.Open("if (__dict_n.TryGetValue(__k, out var __old) && __old is not null)");
+                w.Open("if (__d_n.TryGetValue(__k, out var __old) && __old is not null)");
                 w.Line("object? __obj = __old;");
                 w.Line("var __sub = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
                 w.Line("DeepEqual.Generator.Shared.GeneratedHelperRegistry.TryApplyDeltaSameType(__obj.GetType(), ref __obj, ref __sub);");
-                w.Line("__dict_n[__k] = __obj;");
+                w.Line("__d_n[__k] = __obj;");
                 w.Close();
                 w.Line("break;");
                 w.Close();
             }
             else
             {
-                // Original clone+assign path for non-expando dictionaries
+                // Existing path for other dictionaries (clone + assign)
                 w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:");
                 w.Line("object? __obj_dict_set = " + propAccess + ";");
                 w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref __obj_dict_set, in op);");
@@ -3658,6 +3684,8 @@ internal sealed class DiffDeltaEmitter
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:"); w.Line("break;"); w.Close();
             w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:"); w.Line("break;"); w.Close();
         }
+
+
 
         w.Open("default:");
         w.Line("break;");
