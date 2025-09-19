@@ -244,16 +244,14 @@ public sealed class BinaryDeltaOptions
 /// <summary>Lossless binary codec for <see cref="DeltaDocument"/>.</summary>
 public static class BinaryDeltaCodec
 {
-    // --------- Public writer/reader entry points ---------
-
+    
     public static void Write(DeltaDocument doc, IBufferWriter<byte> output, BinaryDeltaOptions? options = null)
         => new Writer(output, options ?? BinaryDeltaOptions.Default).WriteDocument(doc);
 
     public static DeltaDocument Read(ReadOnlySpan<byte> data, BinaryDeltaOptions? options = null)
         => new Reader(data, options ?? BinaryDeltaOptions.Default).ReadDocument();
 
-    // --------- Internal wire tags ---------
-
+    
     private enum VTag : byte
     {
         Null = 0,
@@ -297,8 +295,7 @@ public static class BinaryDeltaCodec
         Single, Double, Decimal, Bool, Char, String, Guid, DateTime, TimeSpan, DateTimeOffset,
     }
 
-    // --------- Writer ---------
-
+    
     private ref struct Writer
     {
         private readonly IBufferWriter<byte> _out;
@@ -330,15 +327,12 @@ public static class BinaryDeltaCodec
 
                 var sw = new SpanWriter(_out);
 
-                // Magic "BDC1"
-                sw.WriteByte((byte)'B');
+                                sw.WriteByte((byte)'B');
                 sw.WriteByte((byte)'D');
                 sw.WriteByte((byte)'C');
                 sw.WriteByte((byte)'1');
 
-                sw.WriteVarUInt(1u); // version
-                sw.WriteVarUInt(_opt.StableTypeFingerprint); // fingerprint (0 allowed)
-
+                sw.WriteVarUInt(1u);                 sw.WriteVarUInt(_opt.StableTypeFingerprint); 
                 byte flags =
                     (byte)((_strings is { Count: > 0 } && _opt.UseStringTable ? 0b01 : 0) |
                            ((_types is { Count: > 0 } && _opt.UseTypeTable) ? 0b10 : 0));
@@ -673,8 +667,7 @@ public static class BinaryDeltaCodec
             sw.WriteUtf8StringInline(enumType.FullName ?? enumType.Name);
             sw.WriteUtf8StringInline(asm);
 
-            // write Guid as two little-endian UInt64s
-            Span<byte> tmp = stackalloc byte[16];
+                        Span<byte> tmp = stackalloc byte[16];
             mvid.TryWriteBytes(tmp);
             sw.WriteUInt64(BinaryPrimitives.ReadUInt64LittleEndian(tmp));
             sw.WriteUInt64(BinaryPrimitives.ReadUInt64LittleEndian(tmp.Slice(8)));
@@ -787,8 +780,7 @@ public static class BinaryDeltaCodec
         }
     }
 
-    // --------- Reader ---------
-
+    
     private ref struct Reader
     {
         private ReadOnlySpan<byte> _data;
@@ -822,8 +814,7 @@ public static class BinaryDeltaCodec
                 var version = sr.ReadVarUInt();
                 if (version != 1) throw new NotSupportedException($"Unsupported BinaryDelta version {version}.");
 
-                _ = sr.ReadVarUInt(); // fingerprint
-
+                _ = sr.ReadVarUInt(); 
                 var flags = sr.ReadByte();
                 bool hasStrings = (flags & 0b01) != 0;
                 bool hasTypes = (flags & 0b10) != 0;
@@ -855,8 +846,7 @@ public static class BinaryDeltaCodec
         {
             var kind = (DeltaKind)sr.ReadVarUInt();
 
-            // memberIndex is encoded as zigzag-varint (long) -> must fit in int
-            long mi64 = sr.ReadVarInt();
+                        long mi64 = sr.ReadVarInt();
             if (mi64 < int.MinValue || mi64 > int.MaxValue)
                 throw new InvalidOperationException("memberIndex out of Int32 range.");
             int memberIndex = (int)mi64;
@@ -1221,8 +1211,7 @@ public static class BinaryDeltaCodec
         }
     }
 
-    // --------- Span writer/reader + varint helpers ---------
-
+    
     private ref struct SpanWriter
     {
         private IBufferWriter<byte> _bw;
@@ -1318,8 +1307,7 @@ public static class BinaryDeltaCodec
             _pos = 0;
         }
 
-        // NEW: commit remaining bytes at the end
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Commit()
         {
             _bw.Advance(_pos);

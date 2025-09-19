@@ -17,8 +17,7 @@ public sealed class DeltaDocument
 
     internal void Clear() => Ops.Clear();
 
-    // Tiny thread-local pool for nested scopes
-    [ThreadStatic] private static Stack<DeltaDocument>? _pool;
+        [ThreadStatic] private static Stack<DeltaDocument>? _pool;
 
     internal static DeltaDocument Rent()
     {
@@ -143,8 +142,7 @@ public ref struct DeltaWriter
             else
             {
                 _parent.WriteNestedMember(_memberIndex, doc);
-                // Ownership transferred; do not return to pool
-            }
+                            }
 
             _nested = null;
         }
@@ -227,10 +225,7 @@ public struct DeltaReader
 /// </summary>
 public static class DeltaHelpers
 {
-    // ----------------------------
-    // IList<T> granular (order-sensitive)
-    // ----------------------------
-
+            
     public static void ComputeListDelta<T, TComparer>(
         IList<T>? left,
         IList<T>? right,
@@ -321,10 +316,7 @@ public static class DeltaHelpers
         }
     }
 
-    // ----------------------------
-    // IDictionary<TKey,TValue> with optional nested value deltas
-    // ----------------------------
-
+            
     public static void ComputeDictDelta<TKey, TValue>(
         IDictionary<TKey, TValue>? left,
         IDictionary<TKey, TValue>? right,
@@ -361,8 +353,7 @@ public static class DeltaHelpers
                     var scope = writer.BeginDictNested(memberIndex, kv.Key!, out var w);
                     GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w);
                     var had = !w.Document.IsEmpty;
-                    scope.Dispose(); // emits if had==true
-                    if (!had)
+                    scope.Dispose();                     if (!had)
                         writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
                     continue;
                 }
@@ -396,16 +387,14 @@ public static class DeltaHelpers
                 continue;
             }
 
-            // If not nesting, we only need to check equality and emit DictSet on change.
-            if (!nestedValues)
+                        if (!nestedValues)
             {
                 if (!default(DefaultElementComparer<TValue>).Invoke(lval, kv.Value, context))
                     writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
                 continue;
             }
 
-            // Nested value path
-            var lo = (object?)lval;
+                        var lo = (object?)lval;
             var ro = (object?)kv.Value;
             if (ReferenceEquals(lo, ro)) continue;
 
@@ -430,16 +419,12 @@ public static class DeltaHelpers
             var scope = writer.BeginDictNested(memberIndex, kv.Key!, out var w);
             GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w);
             var had = !w.Document.IsEmpty;
-            scope.Dispose(); // emits if had==true
-            if (!had)
+            scope.Dispose();             if (!had)
                 writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
         }
     }
 
-    // ----------------------------
-    // Apply helpers for dicts
-    // ----------------------------
-
+            
     public static void ApplyDictOpCloneIfNeeded<TKey, TValue>(ref object? target, in DeltaOp op)
         where TKey : notnull
     {
@@ -465,8 +450,7 @@ public static class DeltaHelpers
             return;
         }
 
-        // Clone-readonly path — comparer is not preserved (IReadOnlyDictionary doesn’t expose it).
-        var ro = target as IReadOnlyDictionary<TKey, TValue>;
+                var ro = target as IReadOnlyDictionary<TKey, TValue>;
         var clone = ro is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(ro);
 
         switch (op.Kind)
