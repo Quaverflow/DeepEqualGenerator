@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using DeepEqual.Generator.Shared;
+using NBomber.Contracts;
 using NBomber.CSharp;
 
 namespace TrafficBench;
@@ -30,16 +31,15 @@ public static class Program
             rightById[i] = o;        // "current" that we mutate per tick
         }
 
-        // ---- comparison context (fast path; toggle ValidateDirtyOnEmit if you want) ----
+        // ---- comparison context (fast path) ----
         var ctxFast = new ComparisonContext(new ComparisonOptions { ValidateDirtyOnEmit = false });
 
         // ---- NBomber v4.1.2 scenario ----
         var scenario = Scenario.Create("traffic", async ctx =>
         {
-            // pick a random order id
             int id = Random.Shared.Next(ObjectCount);
 
-            // EXCLUSIVE access for this order: prevents concurrent list/dict mutation
+            // EXCLUSIVE access for this order: prevents any overlap on the same object's members
             lock (KeyLock.For(id))
             {
                 var left = leftById[id];
@@ -54,20 +54,23 @@ public static class Program
             }
 
             return Response.Ok();
-        })
-        .WithWarmUpDuration(TimeSpan.FromSeconds(10))
-        .WithLoadSimulations(
-            // steady 64 concurrent workers for 2 minutes
-            Simulation.KeepConstant(copies: 64, during: TimeSpan.FromMinutes(2))
+        }).WithWarmUpDuration(TimeSpan.FromSeconds(10)).WithLoadSimulations(
+            Simulation.KeepConstant(copies: 128, during: TimeSpan.FromMinutes(1))
         );
 
         NBomberRunner
             .RegisterScenarios(scenario)
-            .WithReportFileName("delta-live") // reports/delta-live-*.html
+            .WithReportFileName("delta-live")
+            .WithReportFolder("reports")
+            .WithTestSuite("delta")
+            .WithTestName("traffic")
+            .WithReportingInterval(TimeSpan.FromSeconds(5))
             .Run();
     }
 
     // ---------- POCOs (generator emits DeepOps for these) ----------
+    // IMPORTANT: DeltaShallow=true on collections => ApplyDelta REPLACES the collection,
+    // not mutates it in place. This removes concurrency hazards on List/Dictionary.
 
     [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
     public sealed class Address
@@ -96,7 +99,13 @@ public static class Program
     {
         public int Id { get; set; }
         public Customer? Customer { get; set; }
+
+        [DeepCompare(DeltaShallow = true)] // <-- replace entire list on apply (no in-place edits)
         public List<OrderItem>? Items { get; set; }
+
+        [DeepCompare(DeltaShallow = true)] // <-- replace entire dict on apply
+        public Dictionary<string, string>? Meta { get; set; }
+
         public string? Notes { get; set; }
     }
 
@@ -114,7 +123,8 @@ public static class Program
         },
         Items = Enumerable.Range(0, lines)
             .Select(i => new OrderItem { Sku = "SKU" + i, Qty = i % 5 })
-            .ToList()
+            .ToList(),
+        Meta = new Dictionary<string, string> { ["env"] = "prod", ["src"] = "bench" }
     };
 
     static Order Clone(Order s) => new()
@@ -131,14 +141,15 @@ public static class Program
                 City = s.Customer.Home.City
             }
         },
-        Items = s.Items?.Select(i => new OrderItem { Sku = i.Sku, Qty = i.Qty }).ToList()
+        Items = s.Items?.Select(i => new OrderItem { Sku = i.Sku, Qty = i.Qty }).ToList(),
+        Meta = s.Meta is null ? null : new Dictionary<string, string>(s.Meta)
     };
 
     static void Mutate(Order o)
     {
         var r = Random.Shared.NextDouble();
 
-        // 70%: scalar change (best-case for dirty fast path if you switch to [DeltaTrack] later)
+        // 70%: scalar change
         if (r < 0.70)
         {
             o.Notes = "n" + Random.Shared.Next(1000);
@@ -146,7 +157,7 @@ public static class Program
             return;
         }
 
-        // 20%: list element edit (granular diff path; container not marked dirty)
+        // 20%: list element change (we still edit the list; apply will replace the list atomically)
         if (r < 0.90 && o.Items is { Count: > 0 } items)
         {
             var i = Random.Shared.Next(items.Count);

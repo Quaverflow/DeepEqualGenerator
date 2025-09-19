@@ -2,7 +2,9 @@
 #nullable enable
 using DeepEqual.Generator;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -442,8 +444,13 @@ internal sealed class EqualityEmitter
         {
             w.Close();
         }
+        var text = w.ToString(); // CodeWriter → string
 
-        spc.AddSource(hintName, w.ToString());
+        var tree = CSharpSyntaxTree.ParseText(text);               // string → SyntaxTree
+        var rootStx = tree.GetRoot();                                 // SyntaxTree → SyntaxNode
+        var formatted = rootStx.NormalizeWhitespace(" " ,true).ToFullString(); // SyntaxNode → formatted string
+
+        spc.AddSource(hintName, SourceText.From(formatted, Encoding.UTF8));
     }
 
     private void EmitHelperForType(CodeWriter w, INamedTypeSymbol type, EqualityTarget root, bool trackCycles,
