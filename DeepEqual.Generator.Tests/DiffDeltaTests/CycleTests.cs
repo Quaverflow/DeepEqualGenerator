@@ -1,4 +1,6 @@
 ﻿using DeepEqual.Generator.Shared;
+using System.Collections.Generic;
+using Xunit;
 
 namespace DeepEqual.Generator.Tests.DiffDeltaTests;
 
@@ -36,18 +38,15 @@ public class NewTests
             var d2 = new Dog1 { Tag = "fido", Age = 4, Home = z2 };
             z2.Animals["fido"] = d2;
 
-            var doc = new DeltaDocument();
-            var w = new DeltaWriter(doc);
-            Zoo1DeepOps.ComputeDelta(z1, z2, ref w);
-
+            var doc = Zoo1DeepOps.ComputeDelta(z1, z2);
             Assert.False(doc.IsEmpty);
 
-            var r = new DeltaReader(doc);
-            Zoo1DeepOps.ApplyDelta(ref z1, ref r);
+            Zoo1DeepOps.ApplyDelta(ref z1, doc);
 
             Assert.True(Zoo1DeepEqual.AreDeepEqual(z1, z2));
         }
     }
+
     [DeepComparable(GenerateDiff = true, GenerateDelta = true, CycleTracking = true)]
     public class Container1
     {
@@ -80,18 +79,15 @@ public class NewTests
             var h2 = new Holder { Name = "x", Age = 2, Owner = c2 };
             c2.Payload = h2;
 
-            var doc = new DeltaDocument();
-            var w = new DeltaWriter(doc);
-            Container1DeepOps.ComputeDelta(c1, c2, ref w);
-
+            var doc = Container1DeepOps.ComputeDelta(c1, c2);
             Assert.False(doc.IsEmpty);
 
-            var r = new DeltaReader(doc);
-            Container1DeepOps.ApplyDelta(ref c1, ref r);
+            Container1DeepOps.ApplyDelta(ref c1, doc);
 
             Assert.True(Container1DeepEqual.AreDeepEqual(c1, c2));
         }
     }
+
     [DeepComparable(GenerateDiff = true, GenerateDelta = true, CycleTracking = true)]
     public sealed class Node1
     {
@@ -110,14 +106,10 @@ public class NewTests
             var b = new Node1 { Value = 2 };
             b.Next = b;
 
-            var doc = new DeltaDocument();
-            var w = new DeltaWriter(doc);
-            Node1DeepOps.ComputeDelta(a, b, ref w);
-
+            var doc = Node1DeepOps.ComputeDelta(a, b);
             Assert.False(doc.IsEmpty);
 
-            var r = new DeltaReader(doc);
-            Node1DeepOps.ApplyDelta(ref a, ref r);
+            Node1DeepOps.ApplyDelta(ref a, doc);
 
             Assert.True(Node1DeepEqual.AreDeepEqual(a, b));
         }
@@ -133,14 +125,10 @@ public class NewTests
             var b2 = new B1 { W = 100 };
             a2.B = b2; b2.A = a2;
 
-            var doc = new DeltaDocument();
-            var w = new DeltaWriter(doc);
-            A1DeepOps.ComputeDelta(a1, a2, ref w);
-
+            var doc = A1DeepOps.ComputeDelta(a1, a2);
             Assert.False(doc.IsEmpty);
 
-            var r = new DeltaReader(doc);
-            A1DeepOps.ApplyDelta(ref a1, ref r);
+            A1DeepOps.ApplyDelta(ref a1, doc);
 
             Assert.True(A1DeepEqual.AreDeepEqual(a1, a2));
         }

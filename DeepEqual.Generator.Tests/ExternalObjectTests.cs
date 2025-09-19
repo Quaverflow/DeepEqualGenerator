@@ -1,5 +1,7 @@
 ﻿using DeepEqual.Generator.Shared;
+using System.Collections.Generic;
 using System.Drawing;
+using Xunit;
 
 // Generate deep ops for our external types
 [assembly: ExternalDeepComparable(typeof(ListHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
@@ -40,14 +42,10 @@ public class ExternalAttributes_Collections_Tests
         var before = new ListHolder1 { Points = new List<Point> { new(1, 1), new(2, 2), new(3, 3) } };
         var after = new ListHolder1 { Points = new List<Point> { new(1, 1), new(9, 2), new(3, 3) } };
 
-        var doc = new DeltaDocument();
-        var w = new DeltaWriter(doc);
-        ListHolder1DeepOps.ComputeDelta(before, after, ref w);
-
+        var doc = ListHolder1DeepOps.ComputeDelta(before, after);
         Assert.False(doc.IsEmpty);
 
-        var r = new DeltaReader(doc);
-        ListHolder1DeepOps.ApplyDelta(ref before, ref r);
+        ListHolder1DeepOps.ApplyDelta(ref before, doc);
         Assert.True(ListHolder1DeepEqual.AreDeepEqual(before, after));
     }
 
@@ -57,14 +55,10 @@ public class ExternalAttributes_Collections_Tests
         var before = new ArrayHolder1 { Points = new[] { new Point(1, 1), new Point(2, 2) } };
         var after = new ArrayHolder1 { Points = new[] { new Point(1, 1), new Point(7, 2) } };
 
-        var doc = new DeltaDocument();
-        var w = new DeltaWriter(doc);
-        ArrayHolder1DeepOps.ComputeDelta(before, after, ref w);
-
+        var doc = ArrayHolder1DeepOps.ComputeDelta(before, after);
         Assert.False(doc.IsEmpty);
 
-        var r = new DeltaReader(doc);
-        ArrayHolder1DeepOps.ApplyDelta(ref before, ref r);
+        ArrayHolder1DeepOps.ApplyDelta(ref before, doc);
         Assert.True(ArrayHolder1DeepEqual.AreDeepEqual(before, after));
     }
 
@@ -84,19 +78,15 @@ public class ExternalAttributes_Collections_Tests
             PointsById = new Dictionary<int, Point>
             {
                 [1] = new(10, 10),
-                [2] = new(99, 20), // change Y via path on <Value>.Y
+                [2] = new(99, 20), // change X via path on <Value>.X
                 [3] = new(30, 30), // added
             }
         };
 
-        var doc = new DeltaDocument();
-        var w = new DeltaWriter(doc);
-        DictHolder1DeepOps.ComputeDelta(before, after, ref w);
-
+        var doc = DictHolder1DeepOps.ComputeDelta(before, after);
         Assert.False(doc.IsEmpty);
 
-        var r = new DeltaReader(doc);
-        DictHolder1DeepOps.ApplyDelta(ref before, ref r);
+        DictHolder1DeepOps.ApplyDelta(ref before, doc);
         Assert.True(DictHolder1DeepEqual.AreDeepEqual(before, after));
     }
 
@@ -122,14 +112,10 @@ public class ExternalAttributes_Collections_Tests
             }
         };
 
-        var doc = new DeltaDocument();
-        var w = new DeltaWriter(doc);
-        MixedHolderDeepOps.ComputeDelta(before, after, ref w);
-
+        var doc = MixedHolderDeepOps.ComputeDelta(before, after);
         Assert.False(doc.IsEmpty);
 
-        var r = new DeltaReader(doc);
-        MixedHolderDeepOps.ApplyDelta(ref before, ref r);
+        MixedHolderDeepOps.ApplyDelta(ref before, doc);
         Assert.True(MixedHolderDeepEqual.AreDeepEqual(before, after));
     }
 }

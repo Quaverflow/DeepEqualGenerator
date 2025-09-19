@@ -1,4 +1,3 @@
-
 using System.Linq;
 using DeepEqual.Generator.Shared;
 using Xunit;
@@ -28,19 +27,16 @@ public class MemberIndexTests
     {
         var baseObj = new OrdinalHost { A = 1, B = 2, C = 3 };
 
-        var docA = new DeltaDocument(); var wA = new DeltaWriter(docA);
         var modA = new OrdinalHost { A = 10, B = 2, C = 3 };
-        OrdinalHostDeepOps.ComputeDelta(baseObj, modA, ref wA);
+        var docA = OrdinalHostDeepOps.ComputeDelta(baseObj, modA);
         var idxA = docA.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
-        var docB = new DeltaDocument(); var wB = new DeltaWriter(docB);
         var modB = new OrdinalHost { A = 1, B = 20, C = 3 };
-        OrdinalHostDeepOps.ComputeDelta(baseObj, modB, ref wB);
+        var docB = OrdinalHostDeepOps.ComputeDelta(baseObj, modB);
         var idxB = docB.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
-        var docC = new DeltaDocument(); var wC = new DeltaWriter(docC);
         var modC = new OrdinalHost { A = 1, B = 2, C = 30 };
-        OrdinalHostDeepOps.ComputeDelta(baseObj, modC, ref wC);
+        var docC = OrdinalHostDeepOps.ComputeDelta(baseObj, modC);
         var idxC = docC.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
         Assert.True(idxA < idxB && idxB < idxC);
@@ -52,14 +48,12 @@ public class MemberIndexTests
         var baseStable = new StableHost { A = 1, B = 2, C = 3 };
         var baseOrd = new OrdinalHost { A = 1, B = 2, C = 3 };
 
-        var docStable = new DeltaDocument(); var wS = new DeltaWriter(docStable);
         var modStable = new StableHost { A = 1, B = 200, C = 3 };
-        StableHostDeepOps.ComputeDelta(baseStable, modStable, ref wS);
+        var docStable = StableHostDeepOps.ComputeDelta(baseStable, modStable);
         var idxStableB = docStable.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
-        var docOrd = new DeltaDocument(); var wO = new DeltaWriter(docOrd);
         var modOrd = new OrdinalHost { A = 1, B = 200, C = 3 };
-        OrdinalHostDeepOps.ComputeDelta(baseOrd, modOrd, ref wO);
+        var docOrd = OrdinalHostDeepOps.ComputeDelta(baseOrd, modOrd);
         var idxOrdB = docOrd.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
         Assert.NotEqual(idxOrdB, idxStableB);
@@ -69,14 +63,13 @@ public class MemberIndexTests
     public void Auto_Mode_Behaves_As_Stable_When_Delta_Enabled()
     {
         var baseStable = new StableHost { A = 1, B = 2, C = 3 };
-        var doc1 = new DeltaDocument(); var w1 = new DeltaWriter(doc1);
-        var modStable = new StableHost { A = 1, B = 200, C = 3 };
-        StableHostDeepOps.ComputeDelta(baseStable, modStable, ref w1);
+
+        var modStable1 = new StableHost { A = 1, B = 200, C = 3 };
+        var doc1 = StableHostDeepOps.ComputeDelta(baseStable, modStable1);
         var idx1 = doc1.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
-        var doc2 = new DeltaDocument(); var w2 = new DeltaWriter(doc2);
         var modStable2 = new StableHost { A = 1, B = 201, C = 3 };
-        StableHostDeepOps.ComputeDelta(baseStable, modStable2, ref w2);
+        var doc2 = StableHostDeepOps.ComputeDelta(baseStable, modStable2);
         var idx2 = doc2.Operations.Single(o => o.Kind == DeltaKind.SetMember).MemberIndex;
 
         Assert.Equal(idx1, idx2);
