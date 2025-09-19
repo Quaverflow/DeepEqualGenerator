@@ -182,7 +182,7 @@ public static class DeltaHelpers
                 continue;
             }
 
-            if (EqualityComparer<TValue>.Default.Equals(lv, kv.Value))
+            if (default(DefaultElementComparer<TValue>).Invoke(lv, kv.Value, context))
                 continue;
 
             if (nestedValues && lv is object lo && kv.Value is object ro)
@@ -251,9 +251,8 @@ public static class DeltaHelpers
             // Fast path for value-like or when nested deltas are disabled.
             if (!nestedValues)
             {
-                if (!EqualityComparer<TValue>.Default.Equals(lval, kv.Value))
-                    writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
-                continue;
+                if (default(DefaultElementComparer<TValue>).Invoke(lval, kv.Value, context))
+                    continue;
             }
 
             // Nested deltas for reference-like values.
