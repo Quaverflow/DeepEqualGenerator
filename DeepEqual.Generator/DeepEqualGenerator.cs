@@ -2601,6 +2601,15 @@ internal sealed class DiffDeltaEmitter
 
         if (generateDelta)
         {
+            w.Line("/// <summary>Computes a delta (patch) from <paramref name=\"left\"/> to <paramref name=\"right\"/>.</summary>");
+            w.Line("/// <remarks>");
+            w.Line("/// Collections policy:");
+            w.Line("/// <list type=\"bullet\">");
+            w.Line("/// <item><description><b>Arrays</b>: treated as replace-on-change. Any detected difference emits a single <c>SetMember</c> for that member.</description></item>");
+            w.Line("/// <item><description><b>IList&lt;T&gt;</b>: granular sequence ops (<c>SeqReplaceAt</c>/<c>SeqAddAt</c>/<c>SeqRemoveAt</c>) are emitted.</description></item>");
+            w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
+            w.Line("/// </list>");
+            w.Line("/// This mirrors <see cref=\"ApplyDelta(ref " + fqn + nullSuffix + ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
             w.Open($"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
             w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
             w.Line("var writer = new DeepEqual.Generator.Shared.DeltaWriter(doc);");
@@ -2609,6 +2618,15 @@ internal sealed class DiffDeltaEmitter
             w.Close();
             w.Line();
 
+            w.Line("/// <summary>Applies a previously computed delta to <paramref name=\"target\"/>.</summary>");
+            w.Line("/// <remarks>");
+            w.Line("/// Collections policy during application:");
+            w.Line("/// <list type=\"bullet\">");
+            w.Line("/// <item><description><b>Arrays</b>: always replaced as a whole when a <c>SetMember</c> op is present. Sequence ops are ignored for arrays.</description></item>");
+            w.Line("/// <item><description><b>IList&lt;T&gt;</b>: sequence ops are applied in-place (replace/add/remove).</description></item>");
+            w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: key ops are applied (set/remove) and nested deltas are applied when present.</description></item>");
+            w.Line("/// </list>");
+            w.Line("/// This matches the generator’s policy in delta computation.</remarks>");
             w.Open($"public static void ApplyDelta(ref {fqn}{nullSuffix} target, DeepEqual.Generator.Shared.DeltaDocument delta)");
             w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
             w.Line($"ApplyDelta__{id}(ref target, ref reader);");
