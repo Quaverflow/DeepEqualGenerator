@@ -52,7 +52,6 @@ public partial class DOrder
     private DCustomer? _Customer;
     public DCustomer? Customer { get => _Customer; set { _Customer = value; __MarkDirty(__Bit_Customer); } }
 
-    // Mutating contents of the list does NOT flip a container bit (by design).
     public List<DItem>? Items { get; set; }
 
     public Dictionary<string, string>? Meta { get; set; }
@@ -142,33 +141,27 @@ public sealed class DirtyFeatureTests
 
             var t = o.GetType();
 
-            // If this is a [DeltaTrack] type, pop all bits
             var hasAny = t.GetMethod("__HasAnyDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var tryPop = t.GetMethod("__TryPopNextDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             if (hasAny is not null && tryPop is not null)
             {
-                // Drain all bits
                 var args = new object?[] { null };
                 while ((bool)tryPop.Invoke(o, args)!)
                 {
-                    // drained; do nothing with 'bit'
                     args[0] = null;
                 }
             }
 
-            // Recurse into public properties (reference types only)
             foreach (var p in t.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
             {
                 if (p.GetIndexParameters().Length != 0) continue;
                 var pt = p.PropertyType;
 
-                // Skip value types and strings
                 if (pt.IsValueType || pt == typeof(string)) continue;
 
                 var v = p.GetValue(o);
                 if (v is null) continue;
 
-                // Collections: iterate elements
                 if (v is System.Collections.IEnumerable en && v is not string)
                 {
                     foreach (var e in en) Recurse(e);
@@ -200,7 +193,6 @@ public sealed class DirtyFeatureTests
         b.Notes = "__PROBE_NOTES__";
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
 
-        // Prefer SetMember whose value equals our probe token
         var op = doc.Operations.First(o => o.Kind == DeltaKind.SetMember && (string?)o.Value == "__PROBE_NOTES__");
         return op.MemberIndex;
     }
@@ -231,7 +223,6 @@ public sealed class DirtyFeatureTests
 
         var notesIdx = ProbeIndex_Notes();
 
-        // Only one SetMember with Notes' index should be present
         var setMembers = doc.Operations.Where(o => o.Kind == DeltaKind.SetMember).ToList();
         Assert.Single(setMembers);
         Assert.Equal(notesIdx, setMembers[0].MemberIndex);
@@ -273,11 +264,9 @@ public sealed class DirtyFeatureTests
 
         b.Notes = a.Notes!;           // setter called → bit set, but value not changed
 
-        // Fast path will still emit SetMember (no-op patch is allowed)
         var docFast = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.Contains(docFast.Operations, o => o.Kind == DeltaKind.SetMember);
 
-        // Validate path re-checks equality and suppresses no-op
         var docVal = DOrderDeepOps.ComputeDelta(a, b, CtxValidate());
         Assert.True(docVal.IsEmpty);
     }
@@ -306,10 +295,6 @@ public sealed class DirtyFeatureTests
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.False(doc.IsEmpty);
 
-        // We accept either:
-        //  - direct granular list ops (SeqReplaceAt), OR
-        //  - a nested doc under the Items member that contains such ops,
-        //  - or a SetMember replacing the entire list (policy fallback).
         bool looksGranular =
             doc.Operations.Any(o => o.Kind == DeltaKind.SeqReplaceAt && o.Index == 1) ||
             doc.Operations.Any(o => o.Kind == DeltaKind.NestedMember && o.Nested is DeltaDocument nd && nd.Operations.Any(p => p.Kind == DeltaKind.SeqReplaceAt)) ||
@@ -335,7 +320,6 @@ public sealed class DirtyFeatureTests
         DOrderDeepOps.ApplyDelta(ref t, doc);
         Assert.True(DOrderDeepEqual.AreDeepEqual(b, t));
 
-        // No additional changes; should produce no-ops now
         var doc2 = DOrderDeepOps.ComputeDelta(t, b, CtxFast());
         Assert.True(doc2.IsEmpty);
     }

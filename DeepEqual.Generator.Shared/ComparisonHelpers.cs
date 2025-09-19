@@ -17,7 +17,6 @@ public static class ComparisonHelpers
         if (a is null || b is null) return false;
         if (a.Length != b.Length) return false;
 
-        // For value-like types, SequenceEqual is optimal; falls back to EqualityComparer<T> otherwise
         return System.Linq.Enumerable.SequenceEqual(a, b);
     }
 

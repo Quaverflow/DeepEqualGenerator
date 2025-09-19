@@ -156,8 +156,6 @@ public static class DeltaHelpers
             writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
     }
 
-    // -------- Dictionaries (IDictionary<TKey,TValue>) --------
-    // If nestedValues=true and values are reference types: compute nested deltas
     public static void ComputeDictDelta<TKey, TValue>(
         IDictionary<TKey, TValue>? left, IDictionary<TKey, TValue>? right, int memberIndex, ref DeltaWriter writer,
         bool nestedValues, ComparisonContext context)
@@ -166,14 +164,12 @@ public static class DeltaHelpers
         if (ReferenceEquals(left, right)) return;
         if (left is null || right is null) { writer.WriteSetMember(memberIndex, right); return; }
 
-        // Removals
         foreach (var kv in left)
         {
             if (!right.ContainsKey(kv.Key))
                 writer.WriteDictRemove(memberIndex, kv.Key!);
         }
 
-        // Adds / changes
         foreach (var kv in right)
         {
             if (!left.TryGetValue(kv.Key, out var lv))
@@ -202,7 +198,6 @@ public static class DeltaHelpers
                 }
             }
 
-            // fallback: shallow set
             writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
         }
     }
@@ -232,14 +227,12 @@ public static class DeltaHelpers
             return;
         }
 
-        // Removals
         foreach (var kv in left)
         {
             if (!right.ContainsKey(kv.Key))
                 writer.WriteDictRemove(memberIndex, kv.Key!);
         }
 
-        // Adds & changes
         foreach (var kv in right)
         {
             if (!left.TryGetValue(kv.Key, out var lval))
@@ -248,15 +241,12 @@ public static class DeltaHelpers
                 continue;
             }
 
-            // Fast path for value-like or when nested deltas are disabled.
             if (!nestedValues)
             {
                 if (default(DefaultElementComparer<TValue>).Invoke(lval, kv.Value, context))
                     continue;
             }
 
-            // Nested deltas for reference-like values.
-            // If equal by deep-compare, skip. If runtime types disagree or either side is null, Set.
             var lo = (object?)lval;
             var ro = (object?)kv.Value;
 
@@ -277,7 +267,6 @@ public static class DeltaHelpers
                 continue;
             }
 
-            // If deep-equal, skip entirely to avoid spurious Set.
             if (ComparisonHelpers.DeepComparePolymorphic(lo, ro, context))
                 continue;
 
@@ -291,7 +280,6 @@ public static class DeltaHelpers
             }
             else
             {
-                // Fallback: value not equal but no nested provider emitted ops → Set.
                 writer.WriteDictSet(memberIndex, kv.Key!, kv.Value);
             }
         }
@@ -309,7 +297,6 @@ public static class DeltaHelpers
     public static void ApplyDictOpCloneIfNeeded<TKey, TValue>(ref object? target, in DeltaOp op)
      where TKey : notnull
     {
-        // Mutate in place only if it is an IDictionary AND not read-only.
         if (target is IDictionary<TKey, TValue> md && !md.IsReadOnly)
         {
             switch (op.Kind)
@@ -332,7 +319,6 @@ public static class DeltaHelpers
                             GeneratedHelperRegistry.TryApplyDeltaSameType(obj!.GetType(), ref obj, ref subReader);
                             md[k] = (TValue)obj!;
                         }
-                        // If key missing, Nested is a no-op.
                         return;
                     }
             }
@@ -340,7 +326,6 @@ public static class DeltaHelpers
             return;
         }
 
-        // Otherwise, clone to a new mutable Dictionary<,> (or create if null) and assign back.
         var ro = target as IReadOnlyDictionary<TKey, TValue>;
         var clone = ro is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(ro);
 
@@ -364,7 +349,6 @@ public static class DeltaHelpers
                         GeneratedHelperRegistry.TryApplyDeltaSameType(obj!.GetType(), ref obj, ref subReader);
                         clone[k] = (TValue)obj!;
                     }
-                    // If key missing, Nested is a no-op.
                     break;
                 }
         }

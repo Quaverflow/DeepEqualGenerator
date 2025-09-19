@@ -103,7 +103,6 @@ internal static class Diagnostics
      
     public static void DiagnosticPass(SourceProductionContext spc, INamedTypeSymbol type)
     {
-        // external-path diagnostics pre-pass (does not affect generation)
         foreach (var a in type.GetAttributes())
         {
             var an = a.AttributeClass?.ToDisplayString();
@@ -113,7 +112,6 @@ internal static class Diagnostics
                 var loc = a.ApplicationSyntaxReference?.GetSyntax()?.GetLocation();
 
                 string? path = null;
-                // look for a named argument "path", or first ctor arg if you use that form later
                 foreach (var kv in a.NamedArguments)
                     if (kv.Key == "path" && kv.Value.Value is string s) { path = s; break; }
                 if (path is null && a.ConstructorArguments.Length > 0 && a.ConstructorArguments[0].Value is string s0)
@@ -125,7 +123,6 @@ internal static class Diagnostics
                     continue;
                 }
 
-                // EX002: dictionary side missing/invalid (<key>/<value>)
                 var tokens = path.Split(['.'], StringSplitOptions.RemoveEmptyEntries);
                 for (int i = 0; i < tokens.Length; i++)
                 {
@@ -143,8 +140,6 @@ internal static class Diagnostics
                     }
                 }
 
-                // EX003: ambiguous enumerable element type (very conservative placeholder)
-                // Trigger if a segment obviously refers to a collection but no element selector follows.
                 for (int i = 0; i < tokens.Length; i++)
                 {
                     var t = tokens[i];
@@ -210,11 +205,8 @@ internal static class ExternalPathResolver
                 throw new InvalidOperationException();
             }
 
-            // Try find member on the current type first
             var next = FindMember(named, seg.Name, includeInternals, includeBase);
 
-            // *** NEW: if not found, and we are on an IEnumerable<T> (but not a dictionary),
-            // try to resolve THIS SEGMENT against the ELEMENT TYPE (e.g., List<Point> -> Point.X)
             if (next is null
                 && seg.Side == DictSide.None
                 && !TryGetDictionaryTypes(cur, out _, out _) // don't auto-hop for dictionaries
@@ -224,15 +216,12 @@ internal static class ExternalPathResolver
                 next = FindMember(elemNamed, seg.Name, includeInternals, includeBase);
                 if (next is not null)
                 {
-                    // Treat the owner as the element type because the attribute targets that member (e.g., Point.X)
                     owner = next.Value.Owner;
                     found = next.Value.Symbol;
                     var memberType = next.Value.Type;
 
-                    // Step into the found member type
                     cur = memberType;
 
-                    // Optional look-ahead: if the *next* segment goes deeper into an enumerable element, hop now
                     if (i + 1 < segments.Count
                         && !TryGetDictionaryTypes(cur, out _, out _)
                         && TryGetEnumerableElementType(cur, out var elem2))
@@ -242,7 +231,6 @@ internal static class ExternalPathResolver
 
                     continue; // done handling this segment
                 }
-                // if still not found on element type, fall through to the normal error below
             }
 
             if (next is null)
@@ -270,7 +258,6 @@ internal static class ExternalPathResolver
             {
                 cur = memberType2;
 
-                // your existing look-ahead hop for the *next* segment
                 if (i + 1 < segments.Count
                     && !TryGetDictionaryTypes(cur, out _, out _)
                     && TryGetEnumerableElementType(cur, out var elem3))
@@ -286,7 +273,6 @@ internal static class ExternalPathResolver
     private static bool TryGetEnumerableElementType(ITypeSymbol t, out ITypeSymbol elem)
     {
         elem = null!;
-        // strings are IEnumerable<char> but should behave as scalar here
         if (t.SpecialType == SpecialType.System_String) return false;
 
         if (t is IArrayTypeSymbol ats)

@@ -17,7 +17,6 @@ public static class Program_RerunOnly
     }
 }
 
-// ======================= Dirty-tracked models (minimal) =======================
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 [DeltaTrack(ThreadSafe = false)]
@@ -53,7 +52,6 @@ public static class DirtyOrderDataset
     }
 }
 
-// ======================= Minimal Order models for Apply benchmark =======================
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class Address { public string? Street { get; set; } public string? City { get; set; } }
@@ -126,7 +124,6 @@ public static class OrderDataset
     };
 }
 
-// ======================= Benchmarks: only the ones to rerun =======================
 [MemoryDiagnoser]
 [HideColumns("Median", "Min", "Max")]
 public class RerunOnlyBenchmarks
@@ -148,7 +145,6 @@ public class RerunOnlyBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        // Warm up generated helpers
         GeneratedHelperRegistry.WarmUp(typeof(DirtyOrder));
         GeneratedHelperRegistry.WarmUp(typeof(Order));
         GeneratedHelperRegistry.WarmUp(typeof(Customer));
@@ -158,7 +154,6 @@ public class RerunOnlyBenchmarks
         _ctxFast = new ComparisonContext(new ComparisonOptions { ValidateDirtyOnEmit = false });
         _ctxValidate = new ComparisonContext(new ComparisonOptions { ValidateDirtyOnEmit = true });
 
-        // Dirty datasets
         _dirtyBefore = DirtyOrderDataset.BuildBase(N);
         _dirtyAfter_1bit = DirtyOrderDataset.Clone(_dirtyBefore);
         DirtyOrderDataset.Mutate_OneScalar(_dirtyAfter_1bit);
@@ -166,13 +161,11 @@ public class RerunOnlyBenchmarks
         _dirtyAfter_2bits = DirtyOrderDataset.Clone(_dirtyBefore);
         DirtyOrderDataset.Mutate_TwoScalars(_dirtyAfter_2bits);
 
-        // Apply datasets
         _before = OrderDataset.BuildBase(N, LinesPerOrder);
         _after = OrderDataset.Mutate_ScalarChange(_before);
         _patches = new List<DeltaDocument>(_before.Count);
     }
 
-    // Re-dirty before each iteration so fast path stays O(#dirty)
     [IterationSetup(Targets = new[] { nameof(Dirty_ComputeDelta_1bit_fast), nameof(Dirty_ComputeDelta_1bit_validate) })]
     public void IterSetup_Dirty_1bit()
     {
@@ -189,17 +182,7 @@ public class RerunOnlyBenchmarks
         }
     }
 
-    // Ensure patches exist for Apply in each iteration
-    //[IterationSetup(Targets = new[] { nameof(Generated_Delta_Apply) })]
-    //public void IterSetup_Apply()
-    //{
-    //    _patches.Clear();
-    //    _patches.Capacity = Math.Max(_patches.Capacity, _before.Count);
-    //    for (int i = 0; i < _before.Count; i++)
-    //        _patches.Add(OrderDeepOps.ComputeDelta(_before[i], _after[i]));
-    //}
 
-    // ---- RERUN: Dirty fast/validate ----
 
     [Benchmark(Description = "Dirty_ComputeDelta_1bit_fast")]
     [InvocationCount(2048)]
@@ -253,19 +236,5 @@ public class RerunOnlyBenchmarks
         return produced;
     }
 
-    // ---- RERUN: Generated_Delta_Apply (with patches rebuilt per iteration) ----
 
-    //[Benchmark(Description = "Generated_Delta_Apply")]
-    //[InvocationCount(2048)]
-    //public int Generated_Delta_Apply()
-    //{
-    //    int applied = 0;
-    //    for (int i = 0; i < _before.Count; i++)
-    //    {
-    //        var target = OrderDataset.CloneOrder(_before[i]); // fresh clone avoids compounding
-    //        OrderDeepOps.ApplyDelta(ref target, _patches[i]);
-    //        if (target is not null) applied++;
-    //    }
-    //    return applied;
-    //}
 }

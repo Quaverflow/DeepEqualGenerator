@@ -144,7 +144,6 @@ public interface IElementComparer<in T>
 {
     bool Invoke(T left, T right, ComparisonContext context);
 }
-// <summary>
 /// Default element comparer that defers to <see cref="System.Collections.Generic.EqualityComparer{T}.Default"/>.
 /// </summary>
 public readonly struct DefaultElementComparer<T> : IElementComparer<T>

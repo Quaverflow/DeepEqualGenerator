@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using Xunit;
 
-// Generate deep ops for our external types
 [assembly: ExternalDeepComparable(typeof(ListHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
 [assembly: ExternalDeepComparable(typeof(ArrayHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
 [assembly: ExternalDeepComparable(typeof(DictHolder1), GenerateDiff = true, GenerateDelta = true, CycleTracking = false)]
