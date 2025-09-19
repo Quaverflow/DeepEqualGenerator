@@ -6,5 +6,5 @@ namespace DeepEqual.Generator.Tests.Models;
 public sealed class IntSetHolder
 {
     [DeepCompare(OrderInsensitive = true)]
-    public HashSet<int> Set { get; init; } = new();
+    public HashSet<int> Set { get; init; } = [];
 }

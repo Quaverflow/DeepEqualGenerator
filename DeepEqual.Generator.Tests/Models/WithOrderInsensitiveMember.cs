@@ -6,5 +6,5 @@ namespace DeepEqual.Generator.Tests.Models;
 public sealed class WithOrderInsensitiveMember
 {
     [DeepCompare(OrderInsensitive = true)]
-    public List<int> Values { get; set; } = new();
+    public List<int> Values { get; set; } = [];
 }

@@ -2,7 +2,7 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepCompare(Members = new[] { "A", "B" })]
+[DeepCompare(Members = ["A", "B"])]
 [DeepComparable]
 public sealed class OnlySomeMembers
 {

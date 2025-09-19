@@ -6,5 +6,5 @@ namespace DeepEqual.Generator.Tests.Models;
 public sealed class CustomersUnkeyed
 {
     [DeepCompare(OrderInsensitive = true)]
-    public List<Person> People { get; set; } = new();
+    public List<Person> People { get; set; } = [];
 }

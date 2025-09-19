@@ -5,6 +5,6 @@ namespace DeepEqual.Generator.Tests.Models;
 [DeepComparable]
 public sealed class CustomersKeyed
 {
-    [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { "Id" })]
-    public List<CustomerK> Customers { get; set; } = new();
+    [DeepCompare(OrderInsensitive = true, KeyMembers = ["Id"])]
+    public List<CustomerK> Customers { get; set; } = [];
 }

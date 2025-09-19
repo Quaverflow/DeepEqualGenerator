@@ -1,4 +1,4 @@
-﻿using System.Dynamic;
+﻿using System.Collections.ObjectModel;
 using DeepEqual.Generator.Shared;
 using DeepEqual.Generator.Tests.Models;
 
@@ -9,18 +9,18 @@ public class CollectionsTests
     [Fact]
     public void Array_Ordered_By_Default()
     {
-        var a = new RootOrderSensitiveCollections { Names = new List<string> { "a", "b" } };
-        var b = new RootOrderSensitiveCollections { Names = new List<string> { "b", "a" } };
+        var a = new RootOrderSensitiveCollections { Names = ["a", "b"] };
+        var b = new RootOrderSensitiveCollections { Names = ["b", "a"] };
         Assert.False(RootOrderSensitiveCollectionsDeepEqual.AreDeepEqual(a, b));
     }
 
     [Fact]
     public void Member_Level_OrderInsensitive_For_Array_Or_List()
     {
-        var a = new WithOrderInsensitiveMember { Values = new List<int> { 1, 2, 2, 3 } };
-        var b = new WithOrderInsensitiveMember { Values = new List<int> { 2, 3, 2, 1 } };
+        var a = new WithOrderInsensitiveMember { Values = [1, 2, 2, 3] };
+        var b = new WithOrderInsensitiveMember { Values = [2, 3, 2, 1] };
         Assert.True(WithOrderInsensitiveMemberDeepEqual.AreDeepEqual(a, b));
-        var c = new WithOrderInsensitiveMember { Values = new List<int> { 1, 2, 3 } };
+        var c = new WithOrderInsensitiveMember { Values = [1, 2, 3] };
         Assert.False(WithOrderInsensitiveMemberDeepEqual.AreDeepEqual(a, c));
     }
 
@@ -29,21 +29,21 @@ public class CollectionsTests
     {
         var a = new RootOrderInsensitiveCollections
         {
-            Names = new List<string> { "x", "y", "y" },
-            People = new List<Person> { new() { Name = "p1", Age = 1 }, new() { Name = "p2", Age = 2 } },
-            ForcedOrdered = new List<int> { 1, 2, 3 }
+            Names = ["x", "y", "y"],
+            People = [new() { Name = "p1", Age = 1 }, new() { Name = "p2", Age = 2 }],
+            ForcedOrdered = [1, 2, 3]
         };
         var b = new RootOrderInsensitiveCollections
         {
-            Names = new List<string> { "y", "x", "y" },
-            People = new List<Person> { new() { Name = "p2", Age = 2 }, new() { Name = "p1", Age = 1 } },
-            ForcedOrdered = new List<int> { 1, 2, 3 }
+            Names = ["y", "x", "y"],
+            People = [new() { Name = "p2", Age = 2 }, new() { Name = "p1", Age = 1 }],
+            ForcedOrdered = [1, 2, 3]
         };
         Assert.True(RootOrderInsensitiveCollectionsDeepEqual.AreDeepEqual(a, b));
 
         Assert.False(RootOrderInsensitiveCollectionsDeepEqual.AreDeepEqual(
-            new RootOrderInsensitiveCollections { ForcedOrdered = new List<int> { 1, 2, 3 } },
-            new RootOrderInsensitiveCollections { ForcedOrdered = new List<int> { 3, 2, 1 } }));
+            new RootOrderInsensitiveCollections { ForcedOrdered = [1, 2, 3] },
+            new RootOrderInsensitiveCollections { ForcedOrdered = [3, 2, 1] }));
     }
 
     [Fact]
@@ -51,19 +51,19 @@ public class CollectionsTests
     {
         var a = new RootWithElementTypeDefaultUnordered
         {
-            Tags = new List<TagAsElementDefaultUnordered>
-            {
+            Tags =
+            [
                 new() { Label = "A" },
                 new() { Label = "B" }
-            }
+            ]
         };
         var b = new RootWithElementTypeDefaultUnordered
         {
-            Tags = new List<TagAsElementDefaultUnordered>
-            {
+            Tags =
+            [
                 new() { Label = "B" },
                 new() { Label = "A" }
-            }
+            ]
         };
         Assert.True(RootWithElementTypeDefaultUnorderedDeepEqual.AreDeepEqual(a, b));
     }
@@ -116,19 +116,19 @@ public class CollectionsTests
     {
         var a = new CustomersUnkeyed
         {
-            People = new List<Person>
-            {
+            People =
+            [
                 new() { Name = "p1", Age = 1 },
                 new() { Name = "p2", Age = 2 }
-            }
+            ]
         };
         var b = new CustomersUnkeyed
         {
-            People = new List<Person>
-            {
+            People =
+            [
                 new() { Name = "p2", Age = 2 },
                 new() { Name = "p1", Age = 1 }
-            }
+            ]
         };
         Assert.True(CustomersUnkeyedDeepEqual.AreDeepEqual(a, b));
     }
@@ -138,38 +138,35 @@ public class CollectionsTests
     {
         var a = new CustomersKeyed
         {
-            Customers = new List<CustomerK>
-            {
+            Customers =
+            [
                 new() { Id = "a", Name = "alice" },
                 new() { Id = "b", Name = "bob" }
-            }
+            ]
         };
         var b = new CustomersKeyed
         {
-            Customers = new List<CustomerK>
-            {
+            Customers =
+            [
                 new() { Id = "b", Name = "bob" },
                 new() { Id = "a", Name = "alice" }
-            }
+            ]
         };
         Assert.True(CustomersKeyedDeepEqual.AreDeepEqual(a, b));
 
         var c = new CustomersKeyed
         {
-            Customers = new List<CustomerK>
-            {
+            Customers =
+            [
                 new() { Id = "a", Name = "alice" },
                 new() { Id = "b", Name = "BOB!" }
-            }
+            ]
         };
         Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, c));
 
         var d = new CustomersKeyed
         {
-            Customers = new List<CustomerK>
-            {
-                new() { Id = "a", Name = "alice" }
-            }
+            Customers = [new() { Id = "a", Name = "alice" }]
         };
         Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, d));
     }
@@ -198,7 +195,7 @@ public class CollectionsTests
     [Fact]
     public void Jagged_Vs_Multidimensional_Arrays_NotEqual()
     {
-        var jagged = new int[][] { new[] { 1, 2 }, new[] { 3, 4 } };
+        var jagged = new[] { new[] { 1, 2 }, new[] { 3, 4 } };
         var multi = new int[2, 2] { { 1, 2 }, { 3, 4 } };
         var a = new ArrayHolder { Any = jagged };
         var b = new ArrayHolder { Any = multi };
@@ -208,9 +205,13 @@ public class CollectionsTests
     [Fact]
     public void Unordered_Keyed_With_Duplicates_Must_Match_PerBucket_Count_And_Values()
     {
-        var a = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 } } };
-        var b = new KeyedBag { Items = new() { new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }, new() { Name = "x", X = 1 } } };
-        var c = new KeyedBag { Items = new() { new() { Name = "x", X = 1 }, new() { Name = "y", X = 9 } } }; Assert.True(KeyedBagDeepEqual.AreDeepEqual(a, b));
+        var a = new KeyedBag { Items =
+            [new() { Name = "x", X = 1 }, new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }]
+        };
+        var b = new KeyedBag { Items =
+            [new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }, new() { Name = "x", X = 1 }]
+        };
+        var c = new KeyedBag { Items = [new() { Name = "x", X = 1 }, new() { Name = "y", X = 9 }] }; Assert.True(KeyedBagDeepEqual.AreDeepEqual(a, b));
         Assert.False(KeyedBagDeepEqual.AreDeepEqual(a, c));
     }
 
@@ -242,9 +243,9 @@ public class CollectionsTests
     [Fact]
     public void Polymorphism_In_Array_And_ReadOnlyList()
     {
-        var arrA = new ZooArray { Animals = new IAnimal[] { new Cat { Age = 4, Name = "Rex" } } };
-        var arrB = new ZooArray { Animals = new IAnimal[] { new Cat { Age = 4, Name = "Rex" } } };
-        var arrC = new ZooArray { Animals = new IAnimal[] { new Cat { Age = 5, Name = "Rex" } } };
+        var arrA = new ZooArray { Animals = [new Cat { Age = 4, Name = "Rex" }] };
+        var arrB = new ZooArray { Animals = [new Cat { Age = 4, Name = "Rex" }] };
+        var arrC = new ZooArray { Animals = [new Cat { Age = 5, Name = "Rex" }] };
         Assert.True(ZooArrayDeepEqual.AreDeepEqual(arrA, arrB));
         Assert.False(ZooArrayDeepEqual.AreDeepEqual(arrA, arrC));
 
@@ -258,9 +259,9 @@ public class CollectionsTests
     [Fact]
     public void Polymorphic_Collections_Handle_Nulls()
     {
-        var a = new ZooList { Animals = new() { new Cat { Age = 1, Name = "A" }, null } };
-        var b = new ZooList { Animals = new() { new Cat { Age = 1, Name = "A" }, null } };
-        var c = new ZooList { Animals = new() { new Cat { Age = 1, Name = "A" }, new Cat { Age = 2, Name = "B" } } };
+        var a = new ZooList { Animals = [new Cat { Age = 1, Name = "A" }, null] };
+        var b = new ZooList { Animals = [new Cat { Age = 1, Name = "A" }, null] };
+        var c = new ZooList { Animals = [new Cat { Age = 1, Name = "A" }, new Cat { Age = 2, Name = "B" }] };
         Assert.True(ZooListDeepEqual.AreDeepEqual(a, b));
         Assert.False(ZooListDeepEqual.AreDeepEqual(a, c));
     }
@@ -282,8 +283,8 @@ public class CollectionsTests
     public void ReadOnlyDictionary_Wraps_Are_Equal()
     {
         var baseMap = new Dictionary<string, IAnimal> { ["x"] = new Cat { Age = 1, Name = "A" } };
-        var r1 = new ZooRoDict { Pets = new System.Collections.ObjectModel.ReadOnlyDictionary<string, IAnimal>(baseMap) };
-        var r2 = new ZooRoDict { Pets = new System.Collections.ObjectModel.ReadOnlyDictionary<string, IAnimal>(new Dictionary<string, IAnimal>(baseMap)) };
+        var r1 = new ZooRoDict { Pets = new ReadOnlyDictionary<string, IAnimal>(baseMap) };
+        var r2 = new ZooRoDict { Pets = new ReadOnlyDictionary<string, IAnimal>(new Dictionary<string, IAnimal>(baseMap)) };
         Assert.True(ZooRoDictDeepEqual.AreDeepEqual(r1, r2));
     }
 
@@ -302,9 +303,9 @@ public class CollectionsTests
     [Fact]
     public void Unordered_List_With_Composite_KeyMembers()
     {
-        var a = new CompositeKeyBag { Items = new() { new Item { Name = "a", X = 1 }, new Item { Name = "b", X = 2 } } };
-        var b = new CompositeKeyBag { Items = new() { new Item { Name = "b", X = 2 }, new Item { Name = "a", X = 1 } } };
-        var c = new CompositeKeyBag { Items = new() { new Item { Name = "b", X = 99 }, new Item { Name = "a", X = 1 } } };
+        var a = new CompositeKeyBag { Items = [new Item { Name = "a", X = 1 }, new Item { Name = "b", X = 2 }] };
+        var b = new CompositeKeyBag { Items = [new Item { Name = "b", X = 2 }, new Item { Name = "a", X = 1 }] };
+        var c = new CompositeKeyBag { Items = [new Item { Name = "b", X = 99 }, new Item { Name = "a", X = 1 }] };
         Assert.True(CompositeKeyBagDeepEqual.AreDeepEqual(a, b));
         Assert.False(CompositeKeyBagDeepEqual.AreDeepEqual(a, c));
     }

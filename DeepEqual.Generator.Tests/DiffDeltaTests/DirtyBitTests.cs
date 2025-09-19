@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using DeepEqual.Generator.Shared;
-using Xunit;
 
 namespace DeepEqual.Generator.Tests.DirtyFeature;
 
@@ -97,12 +96,12 @@ public sealed class DirtyFeatureTests
             Name = "c",
             Home = new DAddress { Street = "s", City = "x" }
         },
-        Items = new List<DItem>
-        {
+        Items =
+        [
             new DItem { Sku = "A", Qty = 1 },
             new DItem { Sku = "B", Qty = 2 },
             new DItem { Sku = "C", Qty = 3 }
-        },
+        ],
         Meta = new Dictionary<string, string> { ["env"] = "t" }
     };
 
@@ -131,18 +130,28 @@ public sealed class DirtyFeatureTests
     /// </summary>
     private static void CleanDirty<T>(T obj)
     {
-        if (obj is null) return;
+        if (obj is null)
+        {
+            return;
+        }
 
         var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
         void Recurse(object? o)
         {
-            if (o is null) return;
-            if (!seen.Add(o)) return;
+            if (o is null)
+            {
+                return;
+            }
+
+            if (!seen.Add(o))
+            {
+                return;
+            }
 
             var t = o.GetType();
 
-            var hasAny = t.GetMethod("__HasAnyDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var tryPop = t.GetMethod("__TryPopNextDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var hasAny = t.GetMethod("__HasAnyDirty", BindingFlags.Instance | BindingFlags.NonPublic);
+            var tryPop = t.GetMethod("__TryPopNextDirty", BindingFlags.Instance | BindingFlags.NonPublic);
             if (hasAny is not null && tryPop is not null)
             {
                 var args = new object?[] { null };
@@ -152,17 +161,27 @@ public sealed class DirtyFeatureTests
                 }
             }
 
-            foreach (var p in t.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+            foreach (var p in t.GetProperties(BindingFlags.Instance | BindingFlags.Public))
             {
-                if (p.GetIndexParameters().Length != 0) continue;
+                if (p.GetIndexParameters().Length != 0)
+                {
+                    continue;
+                }
+
                 var pt = p.PropertyType;
 
-                if (pt.IsValueType || pt == typeof(string)) continue;
+                if (pt.IsValueType || pt == typeof(string))
+                {
+                    continue;
+                }
 
                 var v = p.GetValue(o);
-                if (v is null) continue;
+                if (v is null)
+                {
+                    continue;
+                }
 
-                if (v is System.Collections.IEnumerable en && v is not string)
+                if (v is IEnumerable en and not string)
                 {
                     foreach (var e in en) Recurse(e);
                 }
@@ -173,7 +192,7 @@ public sealed class DirtyFeatureTests
             }
         }
 
-        Recurse(obj!);
+        Recurse(obj);
     }
 
     /// <summary>Reference equality comparer for HashSet/Dictionary.</summary>
@@ -181,7 +200,7 @@ public sealed class DirtyFeatureTests
     {
         public static readonly ReferenceEqualityComparer Instance = new();
         public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);
-        public int GetHashCode(object obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
     }
 
     /// <summary>Get the stable member index for Notes by making a distinctive change and selecting the best-matching op.</summary>
@@ -206,7 +225,7 @@ public sealed class DirtyFeatureTests
         b.Id = 1234567;
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
 
-        var op = doc.Operations.First(o => o.Kind == DeltaKind.SetMember && o.Value is int v && v == 1234567);
+        var op = doc.Operations.First(o => o is { Kind: DeltaKind.SetMember, Value: int and 1234567 });
         return op.MemberIndex;
     }
 
@@ -270,8 +289,8 @@ public sealed class DirtyFeatureTests
     [Fact]
     public void Dirty_ThreadSafe_Variant_Correctness()
     {
-        var a = new DOrder_TS { Id = 1, Notes = "n", Items = new List<DItem> { new DItem { Sku = "A", Qty = 1 } } }; CleanDirty(a);
-        var b = new DOrder_TS { Id = 2, Notes = "m", Items = new List<DItem> { new DItem { Sku = "A", Qty = 1 } } }; CleanDirty(b);
+        var a = new DOrder_TS { Id = 1, Notes = "n", Items = [new DItem { Sku = "A", Qty = 1 }] }; CleanDirty(a);
+        var b = new DOrder_TS { Id = 2, Notes = "m", Items = [new DItem { Sku = "A", Qty = 1 }] }; CleanDirty(b);
 
         var doc = DOrder_TSDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);
@@ -290,10 +309,10 @@ public sealed class DirtyFeatureTests
         var doc = DOrderDeepOps.ComputeDelta(a, b, CtxFast());
         Assert.False(doc.IsEmpty);
 
-        bool looksGranular =
-            doc.Operations.Any(o => o.Kind == DeltaKind.SeqReplaceAt && o.Index == 1) ||
-            doc.Operations.Any(o => o.Kind == DeltaKind.NestedMember && o.Nested is DeltaDocument nd && nd.Operations.Any(p => p.Kind == DeltaKind.SeqReplaceAt)) ||
-            doc.Operations.Any(o => o.Kind == DeltaKind.SetMember && o.Value is List<DItem>);
+        var looksGranular =
+            doc.Operations.Any(o => o is { Kind: DeltaKind.SeqReplaceAt, Index: 1 }) ||
+            doc.Operations.Any(o => o is { Kind: DeltaKind.NestedMember, Nested: { } nd } && nd.Operations.Any(p => p.Kind == DeltaKind.SeqReplaceAt)) ||
+            doc.Operations.Any(o => o is { Kind: DeltaKind.SetMember, Value: List<DItem> });
 
         Assert.True(looksGranular, "Expected granular list op, nested granular, or SetMember fallback for Items.");
 

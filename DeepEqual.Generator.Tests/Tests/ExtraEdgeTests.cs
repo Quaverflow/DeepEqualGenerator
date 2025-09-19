@@ -44,9 +44,9 @@ public class ExtraEdgeTests
     [Fact]
     public void Collections_With_Nulls_Are_Handled()
     {
-        var a = new ObjList { Items = new() { 1, null, new[] { "x" } } };
-        var b = new ObjList { Items = new() { 1, null, new[] { "x" } } };
-        var c = new ObjList { Items = new() { 1, null, new[] { "y" } } };
+        var a = new ObjList { Items = [1, null, new[] { "x" }] };
+        var b = new ObjList { Items = [1, null, new[] { "x" }] };
+        var c = new ObjList { Items = [1, null, new[] { "y" }] };
         Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
         Assert.False(ObjListDeepEqual.AreDeepEqual(a, c));
     }
@@ -54,9 +54,9 @@ public class ExtraEdgeTests
     [Fact]
     public void Polymorphism_Inside_Collections()
     {
-        var a = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
-        var b = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
-        var c = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mewz" } } };
+        var a = new ZooList { Animals = [new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" }] };
+        var b = new ZooList { Animals = [new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" }] };
+        var c = new ZooList { Animals = [new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mewz" }] };
         Assert.True(ZooListDeepEqual.AreDeepEqual(a, b));
         Assert.False(ZooListDeepEqual.AreDeepEqual(a, c));
     }
@@ -65,16 +65,16 @@ public class ExtraEdgeTests
     [DeepComparable]
     public sealed class Bucketed
     {
-        [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { nameof(BucketItem.K) })]
-        public List<BucketItem> Items { get; init; } = new();
+        [DeepCompare(OrderInsensitive = true, KeyMembers = [nameof(BucketItem.K)])]
+        public List<BucketItem> Items { get; init; } = [];
     }
 
     [Fact]
     public void Keyed_Unordered_SameCounts_But_DeepValue_Diff_Is_False()
     {
-        var a = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 2 } } };
-        var b = new Bucketed { Items = new() { new() { K = "a", V = 2 }, new() { K = "a", V = 1 } } };
-        var c = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 99 } } };
+        var a = new Bucketed { Items = [new() { K = "a", V = 1 }, new() { K = "a", V = 2 }] };
+        var b = new Bucketed { Items = [new() { K = "a", V = 2 }, new() { K = "a", V = 1 }] };
+        var c = new Bucketed { Items = [new() { K = "a", V = 1 }, new() { K = "a", V = 99 }] };
         Assert.True(BucketedDeepEqual.AreDeepEqual(a, b));
         Assert.False(BucketedDeepEqual.AreDeepEqual(a, c));
     }
@@ -94,8 +94,8 @@ public class ExtraEdgeTests
     [Fact]
     public void Symmetry_And_Repeatability()
     {
-        var a = new ObjList { Items = new() { "a", "b" } };
-        var b = new ObjList { Items = new() { "a", "b" } };
+        var a = new ObjList { Items = ["a", "b"] };
+        var b = new ObjList { Items = ["a", "b"] };
         Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
         Assert.True(ObjListDeepEqual.AreDeepEqual(b, a));
         Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));     }

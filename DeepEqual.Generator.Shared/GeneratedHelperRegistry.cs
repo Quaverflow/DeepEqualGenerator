@@ -5,13 +5,39 @@ using System.Runtime.CompilerServices;
 namespace DeepEqual.Generator.Shared;
 
 /// <summary>
-/// Central registry for generated deep-equality, diff, and delta helpers.
+///     Central registry for generated deep-equality, diff, and delta helpers.
 /// </summary>
 /// <remarks>
-/// This registry avoids runtime reflection in hot paths and is AOT/trimming friendly.
+///     This registry avoids runtime reflection in hot paths and is AOT/trimming friendly.
 /// </remarks>
 public static class GeneratedHelperRegistry
 {
+    /// <summary>
+    ///     Delegate used for runtime delta apply dispatch (object-typed).
+    /// </summary>
+    public delegate void ApplyDeltaObjFunc(ref object? target, ref DeltaReader reader);
+
+    /// <summary>
+    ///     Delegate used to register strongly-typed delta apply providers.
+    /// </summary>
+    public delegate void ApplyDeltaRef<T>(ref T? target, ref DeltaReader reader);
+
+    /// <summary>
+    ///     Delegate used for runtime delta compute dispatch (object-typed).
+    /// </summary>
+    public delegate void ComputeDeltaObjFunc(object? left, object? right, ComparisonContext context,
+        ref DeltaWriter writer);
+
+    /// <summary>
+    ///     Delegate used to register strongly-typed delta compute providers.
+    /// </summary>
+    public delegate void ComputeDeltaRef<T>(T? left, T? right, ComparisonContext context, ref DeltaWriter writer);
+
+    /// <summary>
+    ///     Delegate used for runtime diff dispatch.
+    /// </summary>
+    public delegate bool DiffFunc(object left, object right, ComparisonContext context, out IDiff diff);
+
     private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _eqMap = new();
     private static readonly ConcurrentDictionary<Type, bool> _negativeEqCache = new();
 
@@ -21,22 +47,7 @@ public static class GeneratedHelperRegistry
     private static readonly ConcurrentDictionary<Type, ApplyDeltaObjFunc> _deltaApplyObjMap = new();
 
     /// <summary>
-    /// Delegate used for runtime diff dispatch.
-    /// </summary>
-    public delegate bool DiffFunc(object left, object right, ComparisonContext context, out IDiff diff);
-
-    /// <summary>
-    /// Delegate used for runtime delta compute dispatch (object-typed).
-    /// </summary>
-    public delegate void ComputeDeltaObjFunc(object? left, object? right, ComparisonContext context, ref DeltaWriter writer);
-
-    /// <summary>
-    /// Delegate used for runtime delta apply dispatch (object-typed).
-    /// </summary>
-    public delegate void ApplyDeltaObjFunc(ref object? target, ref DeltaReader reader);
-
-    /// <summary>
-    /// Registers a strongly-typed deep equality comparer for runtime dispatch.
+    ///     Registers a strongly-typed deep equality comparer for runtime dispatch.
     /// </summary>
     public static void RegisterComparer<T>(Func<T, T, ComparisonContext, bool> comparer)
     {
@@ -46,9 +57,10 @@ public static class GeneratedHelperRegistry
     }
 
     /// <summary>
-    /// Attempts to compare two objects of the same runtime type using a generated comparer.
+    ///     Attempts to compare two objects of the same runtime type using a generated comparer.
     /// </summary>
-    public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context, out bool equal)
+    public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context,
+        out bool equal)
     {
         if (_eqMap.TryGetValue(runtimeType, out var fn))
         {
@@ -65,41 +77,53 @@ public static class GeneratedHelperRegistry
         }
 
         for (var bt = runtimeType.BaseType; bt != null; bt = bt.BaseType)
-        {
             if (_eqMap.TryGetValue(bt, out var cmp))
             {
                 equal = cmp(left, right, context);
                 return true;
             }
-        }
 
         foreach (var i in runtimeType.GetInterfaces())
-        {
             if (_eqMap.TryGetValue(i, out var cmp))
             {
                 equal = cmp(left, right, context);
                 return true;
             }
-        }
 
         equal = false;
         return false;
     }
 
     /// <summary>
-    /// Attempts to compare two objects; succeeds when both are null, reference-equal, or share the same runtime type with a registered comparer.
+    ///     Attempts to compare two objects; succeeds when both are null, reference-equal, or share the same runtime type with
+    ///     a registered comparer.
     /// </summary>
     public static bool TryCompare(object? left, object? right, ComparisonContext context, out bool equal)
     {
-        if (ReferenceEquals(left, right)) { equal = true; return true; }
-        if (left is null || right is null) { equal = false; return true; }
+        if (ReferenceEquals(left, right))
+        {
+            equal = true;
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            equal = false;
+            return true;
+        }
+
         var t = left.GetType();
-        if (!ReferenceEquals(t, right.GetType())) { equal = false; return true; }
+        if (!ReferenceEquals(t, right.GetType()))
+        {
+            equal = false;
+            return true;
+        }
+
         return TryCompareSameType(t, left, right, context, out equal);
     }
 
     /// <summary>
-    /// Registers a strongly-typed diff provider for runtime dispatch.
+    ///     Registers a strongly-typed diff provider for runtime dispatch.
     /// </summary>
     public static void RegisterDiff<T>(Func<T?, T?, ComparisonContext, (bool hasDiff, Diff<T> diff)> difffer)
     {
@@ -113,9 +137,10 @@ public static class GeneratedHelperRegistry
     }
 
     /// <summary>
-    /// Attempts to compute a diff for two objects of the same runtime type using a registered provider.
+    ///     Attempts to compute a diff for two objects of the same runtime type using a registered provider.
     /// </summary>
-    public static bool TryGetDiffSameType(Type runtimeType, object left, object right, ComparisonContext ctx, out IDiff diff)
+    public static bool TryGetDiffSameType(Type runtimeType, object left, object right, ComparisonContext ctx,
+        out IDiff diff)
     {
         if (_diffMap.TryGetValue(runtimeType, out var fn))
         {
@@ -134,17 +159,7 @@ public static class GeneratedHelperRegistry
     }
 
     /// <summary>
-    /// Delegate used to register strongly-typed delta compute providers.
-    /// </summary>
-    public delegate void ComputeDeltaRef<T>(T? left, T? right, ComparisonContext context, ref DeltaWriter writer);
-
-    /// <summary>
-    /// Delegate used to register strongly-typed delta apply providers.
-    /// </summary>
-    public delegate void ApplyDeltaRef<T>(ref T? target, ref DeltaReader reader);
-
-    /// <summary>
-    /// Registers strongly-typed delta compute/apply providers for runtime dispatch.
+    ///     Registers strongly-typed delta compute/apply providers for runtime dispatch.
     /// </summary>
     public static void RegisterDelta<T>(ComputeDeltaRef<T> compute, ApplyDeltaRef<T> apply)
     {
@@ -157,16 +172,17 @@ public static class GeneratedHelperRegistry
 
         _deltaApplyObjMap[t] = (ref object? target, ref DeltaReader r) =>
         {
-            T? local = (T?)target;
+            var local = (T?)target;
             apply(ref local, ref r);
             target = local;
         };
     }
 
     /// <summary>
-    /// Computes a delta between two objects of the same runtime type using a registered provider.
+    ///     Computes a delta between two objects of the same runtime type using a registered provider.
     /// </summary>
-    public static void ComputeDeltaSameType(Type runtimeType, object? left, object? right, ComparisonContext context, ref DeltaWriter writer)
+    public static void ComputeDeltaSameType(Type runtimeType, object? left, object? right, ComparisonContext context,
+        ref DeltaWriter writer)
     {
         if (_deltaComputeMap.TryGetValue(runtimeType, out var fn))
         {
@@ -183,7 +199,7 @@ public static class GeneratedHelperRegistry
     }
 
     /// <summary>
-    /// Attempts to apply a delta to an object using a registered provider based on the runtime type.
+    ///     Attempts to apply a delta to an object using a registered provider based on the runtime type.
     /// </summary>
     public static bool TryApplyDeltaSameType(Type runtimeType, ref object? target, ref DeltaReader reader)
     {
@@ -203,11 +219,13 @@ public static class GeneratedHelperRegistry
 
         return false;
     }
+
     /// <summary>
-    /// Attempts to compute a delta for two objects of the same runtime type using a registered provider.
-    /// Returns <c>true</c> if a provider was found and invoked; otherwise <c>false</c>.
+    ///     Attempts to compute a delta for two objects of the same runtime type using a registered provider.
+    ///     Returns <c>true</c> if a provider was found and invoked; otherwise <c>false</c>.
     /// </summary>
-    public static bool TryComputeDeltaSameType(Type runtimeType, object? left, object? right, ComparisonContext context, ref DeltaWriter writer)
+    public static bool TryComputeDeltaSameType(Type runtimeType, object? left, object? right, ComparisonContext context,
+        ref DeltaWriter writer)
     {
         if (_deltaComputeMap.TryGetValue(runtimeType, out var fn))
         {
@@ -225,8 +243,9 @@ public static class GeneratedHelperRegistry
 
         return false;
     }
+
     /// <summary>
-    /// Ensures generated helper types for the given runtime type are initialized.
+    ///     Ensures generated helper types for the given runtime type are initialized.
     /// </summary>
     public static void WarmUp(Type runtimeType)
     {
@@ -234,16 +253,26 @@ public static class GeneratedHelperRegistry
         var ns = runtimeType.Namespace;
         var name = runtimeType.Name;
         var backtick = name.IndexOf('`');
-        if (backtick >= 0) name = name[..backtick];
+        if (backtick >= 0)
+        {
+            name = name[..backtick];
+        }
 
         var helperEquality = (string.IsNullOrEmpty(ns) ? "" : ns + ".") + name + "DeepEqual";
         var helperDiffDelta = (string.IsNullOrEmpty(ns) ? "" : ns + ".") + name + "DeepOps";
 
-        var typeEq = asm.GetType(helperEquality, throwOnError: false);
-        var typeOps = asm.GetType(helperDiffDelta, throwOnError: false);
+        var typeEq = asm.GetType(helperEquality, false);
+        var typeOps = asm.GetType(helperDiffDelta, false);
 
-        if (typeEq != null) RuntimeHelpers.RunClassConstructor(typeEq.TypeHandle);
-        if (typeOps != null) RuntimeHelpers.RunClassConstructor(typeOps.TypeHandle);
+        if (typeEq != null)
+        {
+            RuntimeHelpers.RunClassConstructor(typeEq.TypeHandle);
+        }
+
+        if (typeOps != null)
+        {
+            RuntimeHelpers.RunClassConstructor(typeOps.TypeHandle);
+        }
 
         _negativeEqCache.TryRemove(runtimeType, out _);
     }

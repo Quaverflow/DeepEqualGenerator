@@ -7,9 +7,9 @@ public class SetTypeTests
     [Fact]
     public void HashSet_Int_Order_Irrelevant_Content_Must_Match()
     {
-        var a = new IntSetHolder { Set = new HashSet<int> { 1, 2, 3 } };
-        var b = new IntSetHolder { Set = new HashSet<int> { 3, 2, 1 } };
-        var c = new IntSetHolder { Set = new HashSet<int> { 1, 2 } };
+        var a = new IntSetHolder { Set = [1, 2, 3] };
+        var b = new IntSetHolder { Set = [3, 2, 1] };
+        var c = new IntSetHolder { Set = [1, 2] };
 
         Assert.True(IntSetHolderDeepEqual.AreDeepEqual(a, b));
         Assert.False(IntSetHolderDeepEqual.AreDeepEqual(a, c));

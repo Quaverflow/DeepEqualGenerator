@@ -1,11 +1,8 @@
-﻿using DeepEqual.Generator.Shared;
-using System;
+﻿using System.Collections;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using DeepEqual.Generator.Shared;
 
 namespace DeepEqual.Generator.Tests.DiffDeltaTests;
 
@@ -184,12 +181,12 @@ public class DiffDeltaFullSuite
                 Name = "A",
                 Home = new Address { Street = "S1", City = "C1" }
             },
-            Items = new List<OrderItem>
-            {
+            Items =
+            [
                 new OrderItem { Sku = "X", Qty = 3 },
                 new OrderItem { Sku = "Y", Qty = 1 },
-                new OrderItem { Sku = "Z", Qty = 2 },
-            },
+                new OrderItem { Sku = "Z", Qty = 2 }
+            ],
             Meta = new Dictionary<string, string>
             {
                 ["env"] = "test",
@@ -221,15 +218,17 @@ public class DiffDeltaFullSuite
 
     private static int ProbeItemsMemberIndex()
     {
-        var a = new Order { Items = new List<OrderItem> { new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 2 } } };
-        var b = new Order { Items = new List<OrderItem> { new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 9 } } };
+        var a = new Order { Items = [new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 2 }] };
+        var b = new Order { Items = [new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 9 }] };
         var doc = OrderDeepOps.ComputeDelta(a, b);
         var seq = doc.Operations.FirstOrDefault(op =>
             (op.Kind == DeltaKind.SeqReplaceAt || op.Kind == DeltaKind.SeqAddAt || op.Kind == DeltaKind.SeqRemoveAt));
         if (seq.Kind == DeltaKind.SeqReplaceAt || seq.Kind == DeltaKind.SeqAddAt || seq.Kind == DeltaKind.SeqRemoveAt)
+        {
             return seq.MemberIndex;
+        }
 
-        var set = doc.Operations.First(op => op.Kind == DeltaKind.SetMember && op.Value is List<OrderItem>);
+        var set = doc.Operations.First(op => op is { Kind: DeltaKind.SetMember, Value: List<OrderItem> });
         return set.MemberIndex;
     }
 
@@ -243,9 +242,11 @@ public class DiffDeltaFullSuite
         var dict = doc.Operations.FirstOrDefault(op =>
             op.Kind == DeltaKind.DictSet || op.Kind == DeltaKind.DictRemove || op.Kind == DeltaKind.DictNested);
         if (dict.Kind == DeltaKind.DictSet || dict.Kind == DeltaKind.DictRemove || dict.Kind == DeltaKind.DictNested)
+        {
             return dict.MemberIndex;
+        }
 
-        var set = doc.Operations.First(op => op.Kind == DeltaKind.SetMember && op.Value is Dictionary<string, string>);
+        var set = doc.Operations.First(op => op is { Kind: DeltaKind.SetMember, Value: Dictionary<string, string> });
         return set.MemberIndex;
     }
 
@@ -303,7 +304,7 @@ public class DiffDeltaFullSuite
         Address? left = null, right = new Address { Street = "S", City = "C" };
 
         var doc = AddressDeepOps.ComputeDelta(left, right);
-        Assert.Contains(doc.Operations, op => op.Kind == DeltaKind.ReplaceObject && op.Value is Address);
+        Assert.Contains(doc.Operations, op => op is { Kind: DeltaKind.ReplaceObject, Value: Address });
 
         Address? target = null;
         AddressDeepOps.ApplyDelta(ref target, doc);
@@ -314,13 +315,13 @@ public class DiffDeltaFullSuite
     [Fact]
     public void Delta_ReplaceObject_ObjToNull()
     {
-        Address? left = new Address { Street = "S", City = "C" };
+        var left = new Address { Street = "S", City = "C" };
         Address? right = null;
 
         var doc = AddressDeepOps.ComputeDelta(left, right);
-        Assert.Contains(doc.Operations, op => op.Kind == DeltaKind.ReplaceObject && op.Value is null);
+        Assert.Contains(doc.Operations, op => op is { Kind: DeltaKind.ReplaceObject, Value: null });
 
-        Address? target = new Address { Street = "X", City = "Y" };
+        var target = new Address { Street = "X", City = "Y" };
         AddressDeepOps.ApplyDelta(ref target, doc);
 
         Assert.Null(target);
@@ -353,7 +354,7 @@ public class DiffDeltaFullSuite
         b.Items!.Insert(1, new OrderItem { Sku = "ADD", Qty = 9 });
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
-        Assert.Contains(doc.Operations, op => op.Kind == DeltaKind.SeqAddAt && op.Index == 1);
+        Assert.Contains(doc.Operations, op => op is { Kind: DeltaKind.SeqAddAt, Index: 1 });
 
         var target = Clone(a);
         OrderDeepOps.ApplyDelta(ref target, doc);
@@ -369,7 +370,7 @@ public class DiffDeltaFullSuite
         b.Items!.RemoveAt(1);
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
-        Assert.Contains(doc.Operations, op => op.Kind == DeltaKind.SeqRemoveAt && op.Index == 1);
+        Assert.Contains(doc.Operations, op => op is { Kind: DeltaKind.SeqRemoveAt, Index: 1 });
 
         var target = Clone(a);
         OrderDeepOps.ApplyDelta(ref target, doc);
@@ -389,8 +390,8 @@ public class DiffDeltaFullSuite
         Assert.Contains(doc.Operations, op => op.Kind == DeltaKind.SeqAddAt && op.Index == b.Items!.Count - 1);
 
         Assert.True(
-            doc.Operations.Any(op => op.Kind == DeltaKind.SeqAddAt && op.Index == 0) ||
-            doc.Operations.Any(op => op.Kind == DeltaKind.SeqReplaceAt && op.Index == 0)
+            doc.Operations.Any(op => op is { Kind: DeltaKind.SeqAddAt, Index: 0 }) ||
+            doc.Operations.Any(op => op is { Kind: DeltaKind.SeqReplaceAt, Index: 0 })
         );
 
         var target = Clone(a);
@@ -452,7 +453,7 @@ public class DiffDeltaFullSuite
     {
         var a = NewOrder();
         var b = Clone(a);
-        for (int i = 0; i < b.Items!.Count; i++) b.Items[i].Qty++;
+        for (var i = 0; i < b.Items!.Count; i++) b.Items[i].Qty++;
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
         Assert.True(doc.Operations.All(op => op.Kind == DeltaKind.SeqReplaceAt));
@@ -469,12 +470,12 @@ public class DiffDeltaFullSuite
         var b = new Order { Items = MakeItems(("A", 1), ("BX", 2), ("C", 3), ("E", 5)) };
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
-        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SeqReplaceAt && o.Index == 1);
+        Assert.Contains(doc.Operations, o => o is { Kind: DeltaKind.SeqReplaceAt, Index: 1 });
 
         Assert.True(
             doc.Operations.Any(o => o.Kind == DeltaKind.SeqRemoveAt) ||
             doc.Operations.Any(o => o.Kind == DeltaKind.SeqAddAt) ||
-            doc.Operations.Any(o => o.Kind == DeltaKind.SeqReplaceAt && o.Index >= 3)
+            doc.Operations.Any(o => o is { Kind: DeltaKind.SeqReplaceAt, Index: >= 3 })
         );
 
         var target = new Order { Items = MakeItems(("A", 1), ("B", 2), ("C", 3), ("D", 4)) };
@@ -517,12 +518,12 @@ public class DiffDeltaFullSuite
     [Fact]
     public void List_Idempotence_SetMember_Is_Idempotent()
     {
-        var a = new WithArray { Values = new[] { 1, 2, 3 } };
-        var b = new WithArray { Values = new[] { 1, 9, 3 } };
+        var a = new WithArray { Values = [1, 2, 3] };
+        var b = new WithArray { Values = [1, 9, 3] };
 
         var doc = WithArrayDeepOps.ComputeDelta(a, b);
 
-        var target = new WithArray { Values = new[] { 1, 2, 3 } };
+        var target = new WithArray { Values = [1, 2, 3] };
         WithArrayDeepOps.ApplyDelta(ref target, doc);
 
         WithArrayDeepOps.ApplyDelta(ref target, doc);
@@ -542,7 +543,7 @@ public class DiffDeltaFullSuite
         Assert.True(OrderDeepEqual.AreDeepEqual(b, t1));
 
         OrderDeepOps.ApplyDelta(ref t1, doc);
-        Assert.NotEqual(b.Items!.Count, t1.Items!.Count);
+        Assert.NotEqual(b.Items.Count, t1.Items!.Count);
     }
 
     [Fact]
@@ -556,7 +557,7 @@ public class DiffDeltaFullSuite
         var target = new Order { Items = MakeItems(("A", 1), ("Q", 5), ("C", 3)) };
         var ex = Record.Exception(() => OrderDeepOps.ApplyDelta(ref target, doc));
         Assert.Null(ex);
-        Assert.Equal("BX", target.Items![1].Sku);
+        Assert.Equal("BX", target.Items[1].Sku);
     }
 
 
@@ -608,7 +609,7 @@ public class DiffDeltaFullSuite
         var beforeRef = target.Pets!["d"];
         PolyDictHostDeepOps.ApplyDelta(ref target, doc);
 
-        Assert.True(object.ReferenceEquals(beforeRef, target.Pets!["d"]));
+        Assert.True(ReferenceEquals(beforeRef, target.Pets!["d"]));
         Assert.Equal(2, ((Dog)target.Pets["d"]).Bones);
     }
 
@@ -669,8 +670,8 @@ public class DiffDeltaFullSuite
     [Fact]
     public void Arrays_Fallback_To_SetMember()
     {
-        var a = new WithArray { Values = new[] { 1, 2, 3 } };
-        var b = new WithArray { Values = new[] { 1, 9, 3 } };
+        var a = new WithArray { Values = [1, 2, 3] };
+        var b = new WithArray { Values = [1, 9, 3] };
 
         var doc = WithArrayDeepOps.ComputeDelta(a, b);
 
@@ -679,7 +680,7 @@ public class DiffDeltaFullSuite
 
         Assert.Contains(doc.Operations, op => op.Kind == DeltaKind.SetMember);
 
-        var target = new WithArray { Values = new[] { 1, 2, 3 } };
+        var target = new WithArray { Values = [1, 2, 3] };
         WithArrayDeepOps.ApplyDelta(ref target, doc);
         Assert.True(WithArrayDeepEqual.AreDeepEqual(b, target));
     }
@@ -869,8 +870,8 @@ public class DiffDeltaFullSuite
     [Fact]
     public void Empty_Collections_And_Dicts_Produce_Minimal_Ops()
     {
-        var a = new Order { Items = new List<OrderItem>(), Meta = new Dictionary<string, string>(), Customer = null };
-        var b = new Order { Items = new List<OrderItem>(), Meta = new Dictionary<string, string>(), Customer = null };
+        var a = new Order { Items = [], Meta = new Dictionary<string, string>(), Customer = null };
+        var b = new Order { Items = [], Meta = new Dictionary<string, string>(), Customer = null };
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
         Assert.True(doc.IsEmpty);
@@ -888,7 +889,7 @@ public class DiffDeltaFullSuite
     {
         var a = new IntListHost { Values = Enumerable.Range(0, 10_000).ToList() };
         var b = new IntListHost { Values = Enumerable.Range(0, 10_000).ToList() };
-        b.Values![5_000]++;
+        b.Values[5_000]++;
 
         var doc = IntListHostDeepOps.ComputeDelta(a, b);
 
@@ -905,7 +906,7 @@ public class DiffDeltaFullSuite
     {
         var a = new IntListHost { Values = Enumerable.Range(0, 100).ToList() };
         var b = new IntListHost { Values = Enumerable.Range(0, 100).ToList() };
-        b.Values![40]++; b.Values![41]++;
+        b.Values[40]++; b.Values![41]++;
 
         var doc = IntListHostDeepOps.ComputeDelta(a, b);
 
@@ -943,14 +944,14 @@ public class DiffDeltaFullSuite
 
         var doc = new DeltaDocument();
 
-        var fi = typeof(DeltaDocument).GetField("Ops", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var fi = typeof(DeltaDocument).GetField("Ops", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(fi);
 
-        var ops = (System.Collections.IList)fi!.GetValue(doc)!;
+        var ops = (IList)fi.GetValue(doc)!;
 
         var bogusOp = Activator.CreateInstance(
             typeof(DeltaOp),
-            args: new object?[] { anyIdx, (DeltaKind)999, -1, null, "x", null }
+            args: [anyIdx, (DeltaKind)999, -1, null, "x", null]
         )!;
 
         ops.Add(bogusOp);
@@ -1007,20 +1008,37 @@ public class DiffDeltaFullSuite
     public void RoundTrip_Fuzzed_Random_Changes()
     {
         var rng = new Random(123);
-        for (int iter = 0; iter < 20; iter++)
+        for (var iter = 0; iter < 20; iter++)
         {
             var a = NewOrder();
             var b = Clone(a);
 
-            for (int i = 0; i < b.Items!.Count; i++)
+            for (var i = 0; i < b.Items!.Count; i++)
             {
-                if (rng.NextDouble() < 0.3) b.Items[i].Qty += rng.Next(1, 3);
+                if (rng.NextDouble() < 0.3)
+                {
+                    b.Items[i].Qty += rng.Next(1, 3);
+                }
             }
-            if (rng.NextDouble() < 0.3) b.Items!.Add(new OrderItem { Sku = "R" + rng.Next(100), Qty = 1 });
-            if (rng.NextDouble() < 0.3 && b.Items!.Count > 0) b.Items!.RemoveAt(rng.Next(b.Items.Count));
+            if (rng.NextDouble() < 0.3)
+            {
+                b.Items!.Add(new OrderItem { Sku = "R" + rng.Next(100), Qty = 1 });
+            }
 
-            if (rng.NextDouble() < 0.5) b.Meta!["who"] = "u" + rng.Next(10);
-            if (rng.NextDouble() < 0.2) b.Meta!.Remove("env");
+            if (rng.NextDouble() < 0.3 && b.Items!.Count > 0)
+            {
+                b.Items!.RemoveAt(rng.Next(b.Items.Count));
+            }
+
+            if (rng.NextDouble() < 0.5)
+            {
+                b.Meta!["who"] = "u" + rng.Next(10);
+            }
+
+            if (rng.NextDouble() < 0.2)
+            {
+                b.Meta!.Remove("env");
+            }
 
             var doc = OrderDeepOps.ComputeDelta(a, b);
 
@@ -1076,7 +1094,10 @@ public class DiffDeltaFullSuite
                 var doc = OrderDeepOps.ComputeDelta(p.a, p.b);
                 var t = Clone(p.a);
                 OrderDeepOps.ApplyDelta(ref t, doc);
-                if (!OrderDeepEqual.AreDeepEqual(p.b, t)) throw new InvalidOperationException("Mismatch");
+                if (!OrderDeepEqual.AreDeepEqual(p.b, t))
+                {
+                    throw new InvalidOperationException("Mismatch");
+                }
             }
             catch (Exception ex) { errors.Add(ex); }
         });
@@ -1216,10 +1237,10 @@ public class DiffDeltaFullSuite
             var doc = ReadOnlyDictNestedHostDeepOps.ComputeDelta(a, b);
 
             Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.DictNested && (string)o.Key! == "d");
-            Assert.DoesNotContain(doc.Operations, o => o.Kind == DeltaKind.SetMember && (o.Value is IReadOnlyDictionary<string, Address>));
+            Assert.DoesNotContain(doc.Operations, o => o is { Kind: DeltaKind.SetMember, Value: IReadOnlyDictionary<string, Address> });
 
             var target = new ReadOnlyDictNestedHost { Map = RO(("d", new Address { Street = "S1", City = "C" })) };
-            var beforeRef = target.Map!["d"];
+            var beforeRef = target.Map["d"];
             ReadOnlyDictNestedHostDeepOps.ApplyDelta(ref target, doc);
 
             Assert.Same(beforeRef, target.Map!["d"]);
@@ -1273,7 +1294,7 @@ public class DiffDeltaFullSuite
             var c = new ReadOnlyDictNestedHost { Map = RO(("d", new Address { Street = "S2", City = "C" })) };
             var doc2 = ReadOnlyDictNestedHostDeepOps.ComputeDelta(a, c);
 
-            Assert.DoesNotContain(doc2.Operations, o => o.Kind == DeltaKind.SetMember && o.Value is IReadOnlyDictionary<string, Address>);
+            Assert.DoesNotContain(doc2.Operations, o => o is { Kind: DeltaKind.SetMember, Value: IReadOnlyDictionary<string, Address> });
         }
     }
 }

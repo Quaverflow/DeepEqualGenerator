@@ -1,6 +1,4 @@
-using System.Linq;
 using DeepEqual.Generator.Shared;
-using Xunit;
 
 namespace DeepEqual.Generator.Tests.Tests;
 

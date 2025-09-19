@@ -15,7 +15,7 @@ namespace DeepEqual.Generator.Tests;
 
 public sealed class ListHolder1
 {
-    public List<Point> Points { get; set; } = new();
+    public List<Point> Points { get; set; } = [];
 }
 
 public sealed class ArrayHolder1
@@ -39,8 +39,8 @@ public class ExternalAttributes_Collections_Tests
     [Fact]
     public void ListHolder1_Delta_RoundTrips()
     {
-        var before = new ListHolder1 { Points = new List<Point> { new(1, 1), new(2, 2), new(3, 3) } };
-        var after = new ListHolder1 { Points = new List<Point> { new(1, 1), new(9, 2), new(3, 3) } };
+        var before = new ListHolder1 { Points = [new(1, 1), new(2, 2), new(3, 3)] };
+        var after = new ListHolder1 { Points = [new(1, 1), new(9, 2), new(3, 3)] };
 
         var doc = ListHolder1DeepOps.ComputeDelta(before, after);
         Assert.False(doc.IsEmpty);
@@ -52,8 +52,8 @@ public class ExternalAttributes_Collections_Tests
     [Fact]
     public void ArrayHolder1_Delta_RoundTrips()
     {
-        var before = new ArrayHolder1 { Points = new[] { new Point(1, 1), new Point(2, 2) } };
-        var after = new ArrayHolder1 { Points = new[] { new Point(1, 1), new Point(7, 2) } };
+        var before = new ArrayHolder1 { Points = [new Point(1, 1), new Point(2, 2)] };
+        var after = new ArrayHolder1 { Points = [new Point(1, 1), new Point(7, 2)] };
 
         var doc = ArrayHolder1DeepOps.ComputeDelta(before, after);
         Assert.False(doc.IsEmpty);
@@ -96,8 +96,8 @@ public class ExternalAttributes_Collections_Tests
             Name = "alpha",
             Routes = new Dictionary<int, List<Point>>
             {
-                [1] = new() { new(1, 1), new(2, 2) },
-                [2] = new() { new(3, 3) }
+                [1] = [new(1, 1), new(2, 2)],
+                [2] = [new(3, 3)]
             }
         };
         var after = new MixedHolder
@@ -105,7 +105,8 @@ public class ExternalAttributes_Collections_Tests
             Name = "alpha",
             Routes = new Dictionary<int, List<Point>>
             {
-                [1] = new() { new(1, 1), new(9, 2) },                [2] = new() { new(3, 3), new(4, 4) }             }
+                [1] = [new(1, 1), new(9, 2)],                [2] = [new(3, 3), new(4, 4)]
+            }
         };
 
         var doc = MixedHolderDeepOps.ComputeDelta(before, after);
@@ -143,28 +144,30 @@ public sealed class StableMemberIndexingTests
     {
         var a = new IndexProbeV1 { A = 1 };
         var b = new IndexProbeV1 { A = 2 };        var doc = IndexProbeV1DeepOps.ComputeDelta(a, b);
-        return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is int).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: int }).MemberIndex;
     }
 
     private static int ProbeMemberIndex_B()
     {
         var a = new IndexProbeV1 { B = "x" };
         var b = new IndexProbeV1 { B = "y" };        var doc = IndexProbeV1DeepOps.ComputeDelta(a, b);
-        return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is string).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: string }).MemberIndex;
     }
 
     private static int ProbeMemberIndex_C_SeqReplaceOrSet()
     {
-        var a = new IndexProbeV1 { C = new List<int> { 1, 2, 3 } };
-        var b = new IndexProbeV1 { C = new List<int> { 1, 9, 3 } };        var doc = IndexProbeV1DeepOps.ComputeDelta(a, b);
+        var a = new IndexProbeV1 { C = [1, 2, 3] };
+        var b = new IndexProbeV1 { C = [1, 9, 3] };        var doc = IndexProbeV1DeepOps.ComputeDelta(a, b);
 
         var seq = doc.Operations.FirstOrDefault(o => o.Kind == DeltaKind.SeqReplaceAt
                                                      || o.Kind == DeltaKind.SeqAddAt
                                                      || o.Kind == DeltaKind.SeqRemoveAt);
         if (seq.Kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt)
+        {
             return seq.MemberIndex;
+        }
 
-               return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is List<int>).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: List<int> }).MemberIndex;
     }
 
     private static int ProbeMemberIndex_D_DictSet()
@@ -174,9 +177,11 @@ public sealed class StableMemberIndexingTests
 
         var dict = doc.Operations.FirstOrDefault(o => o.Kind == DeltaKind.DictSet || o.Kind == DeltaKind.DictRemove || o.Kind == DeltaKind.DictNested);
         if (dict.Kind is DeltaKind.DictSet or DeltaKind.DictRemove or DeltaKind.DictNested)
+        {
             return dict.MemberIndex;
+        }
 
-        return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is Dictionary<string, string>).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: Dictionary<string, string> }).MemberIndex;
     }
 
     private static int ProbeMemberIndex_D_DictAddRemoveShape()
@@ -195,7 +200,7 @@ public sealed class StableMemberIndexingTests
         var a = new IndexProbeV2 { A = 1 };
         var b = new IndexProbeV2 { A = 2 };
         var doc = IndexProbeV2DeepOps.ComputeDelta(a, b);
-        return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is int).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: int }).MemberIndex;
     }
 
     private static int ProbeV2_Index_B()
@@ -203,7 +208,7 @@ public sealed class StableMemberIndexingTests
         var a = new IndexProbeV2 { B = "x" };
         var b = new IndexProbeV2 { B = "y" };
         var doc = IndexProbeV2DeepOps.ComputeDelta(a, b);
-        return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is string).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: string }).MemberIndex;
     }
 
     private static int ProbeV2_Index_E()
@@ -211,7 +216,7 @@ public sealed class StableMemberIndexingTests
         var a = new IndexProbeV2 { E = "old" };
         var b = new IndexProbeV2 { E = "new" };
         var doc = IndexProbeV2DeepOps.ComputeDelta(a, b);
-        return doc.Operations.Single(o => o.Kind == DeltaKind.SetMember && o.Value is string).MemberIndex;
+        return doc.Operations.Single(o => o is { Kind: DeltaKind.SetMember, Value: string }).MemberIndex;
     }
 
     [Fact]
@@ -261,14 +266,14 @@ public sealed class StableMemberIndexingTests
         {
             A = 1,
             B = "x",
-            C = new List<int> { 1, 2, 3 },
+            C = [1, 2, 3],
             D = new Dictionary<string, string> { ["k"] = "v1" }
         };
         var right = new IndexProbeV1
         {
             A = 2,
             B = "y",
-            C = new List<int> { 1, 9, 3 },
+            C = [1, 9, 3],
             D = new Dictionary<string, string> { ["k"] = "v2" }
         };
 
@@ -278,7 +283,7 @@ public sealed class StableMemberIndexingTests
         {
             A = 1,
             B = "x",
-            C = new List<int> { 1, 2, 3 },
+            C = [1, 2, 3],
             D = new Dictionary<string, string> { ["k"] = "v1" }
         };
         IndexProbeV1DeepOps.ApplyDelta(ref target, doc);

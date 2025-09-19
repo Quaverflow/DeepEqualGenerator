@@ -3,9 +3,6 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace DeepEqual.Generator.DiffDelta.Benchmarking;
 
@@ -71,14 +68,17 @@ public static class BenchData
         foreach (var o in dst)
         {
             o.Notes = "changed";
-            if ((o.Id & 1) == 0) o.Id = o.Id + 1;
+            if ((o.Id & 1) == 0)
+            {
+                o.Id = o.Id + 1;
+            }
         }
     }
 
     public static List<Order> BuildOrders(int n, int linesPerOrder)
     {
         var list = new List<Order>(n);
-        for (int i = 0; i < n; i++)
+        for (var i = 0; i < n; i++)
         {
             list.Add(new Order
             {
@@ -138,7 +138,11 @@ public static class ManualDeepOps
 {
           public static void ComputeDelta(Address? a, Address? b, ComparisonContext ctx, ref DeltaWriter w)
     {
-        if (ReferenceEquals(a, b)) return;
+        if (ReferenceEquals(a, b))
+        {
+            return;
+        }
+
         if (a is null || b is null)
         {
             w.WriteReplaceObject(b);
@@ -146,27 +150,40 @@ public static class ManualDeepOps
         }
 
         if (!string.Equals(a.Street, b.Street, StringComparison.Ordinal))
+        {
             w.WriteSetMember(0, b.Street);
+        }
 
         if (!string.Equals(a.City, b.City, StringComparison.Ordinal))
+        {
             w.WriteSetMember(1, b.City);
+        }
     }
 
           public static void ComputeDelta(Customer? a, Customer? b, ComparisonContext ctx, ref DeltaWriter w)
     {
-        if (ReferenceEquals(a, b)) return;
+        if (ReferenceEquals(a, b))
+        {
+            return;
+        }
+
         if (a is null || b is null)
         {
             w.WriteReplaceObject(b);
             return;
         }
 
-        if (a.Id != b.Id) w.WriteSetMember(0, b.Id);
+        if (a.Id != b.Id)
+        {
+            w.WriteSetMember(0, b.Id);
+        }
 
         if (!string.Equals(a.Name, b.Name, StringComparison.Ordinal))
+        {
             w.WriteSetMember(1, b.Name);
+        }
 
-               if (!ReferenceEquals(a.Home, b.Home))
+        if (!ReferenceEquals(a.Home, b.Home))
         {
             if (a.Home is null || b.Home is null)
             {
@@ -182,7 +199,11 @@ public static class ManualDeepOps
 
           public static void ComputeDelta(OrderItem? a, OrderItem? b, ComparisonContext ctx, ref DeltaWriter w)
     {
-        if (ReferenceEquals(a, b)) return;
+        if (ReferenceEquals(a, b))
+        {
+            return;
+        }
+
         if (a is null || b is null)
         {
             w.WriteReplaceObject(b);
@@ -190,24 +211,35 @@ public static class ManualDeepOps
         }
 
         if (!string.Equals(a.Sku, b.Sku, StringComparison.Ordinal))
+        {
             w.WriteSetMember(0, b.Sku);
+        }
 
         if (a.Qty != b.Qty)
+        {
             w.WriteSetMember(1, b.Qty);
+        }
     }
 
           public static void ComputeDelta(Order? a, Order? b, ComparisonContext ctx, ref DeltaWriter w)
     {
-        if (ReferenceEquals(a, b)) return;
+        if (ReferenceEquals(a, b))
+        {
+            return;
+        }
+
         if (a is null || b is null)
         {
             w.WriteReplaceObject(b);
             return;
         }
 
-        if (a.Id != b.Id) w.WriteSetMember(0, b.Id);
+        if (a.Id != b.Id)
+        {
+            w.WriteSetMember(0, b.Id);
+        }
 
-               if (!ReferenceEquals(a.Customer, b.Customer))
+        if (!ReferenceEquals(a.Customer, b.Customer))
         {
             if (a.Customer is null || b.Customer is null)
             {
@@ -234,7 +266,9 @@ public static class ManualDeepOps
         }
 
         if (!string.Equals(a.Notes, b.Notes, StringComparison.Ordinal))
+        {
             w.WriteSetMember(3, b.Notes);
+        }
     }
 
        private static void ComputeListDelta_OrderItems(
@@ -255,21 +289,23 @@ public static class ManualDeepOps
 
         var ra = la - prefix - suffix;        var rb = lb - prefix - suffix;        var common = Math.Min(ra, rb);
 
-               for (int i = 0; i < common; i++)
+               for (var i = 0; i < common; i++)
         {
             var ai = prefix + i;
             if (!AreEqual_Item(left[ai], right[ai]))
+            {
                 w.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+            }
         }
 
                if (ra > rb)
         {
-            for (int i = ra - 1; i >= rb; i--)
+            for (var i = ra - 1; i >= rb; i--)
                 w.WriteSeqRemoveAt(memberIndex, prefix + i);
         }
                else if (rb > ra)
         {
-            for (int i = ra; i < rb; i++)
+            for (var i = ra; i < rb; i++)
                 w.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
         }
 
@@ -281,8 +317,15 @@ public static class ManualDeepOps
     {
         if (!ReferenceEquals(a, b))
         {
-                       if (a.Id != b.Id) w.WriteSetMember(0, b.Id);
-            if (!string.Equals(a.Notes, b.Notes, StringComparison.Ordinal)) w.WriteSetMember(1, b.Notes);
+                       if (a.Id != b.Id)
+                       {
+                           w.WriteSetMember(0, b.Id);
+                       }
+
+                       if (!string.Equals(a.Notes, b.Notes, StringComparison.Ordinal))
+                       {
+                           w.WriteSetMember(1, b.Notes);
+                       }
         }
     }
 }
@@ -344,16 +387,16 @@ public class ManualVsGeneratedBenchmarks
 
     private int RunGenerated(List<Order> a, List<Order> b)
     {
-        int ops = 0;
-        for (int i = 0; i < a.Count; i++)
+        var ops = 0;
+        for (var i = 0; i < a.Count; i++)
             ops += OrderDeepOps.ComputeDelta(a[i], b[i], _ctx).Operations.Count;
         return ops;
     }
 
     private int RunManual(List<Order> a, List<Order> b)
     {
-        int ops = 0;
-        for (int i = 0; i < a.Count; i++)
+        var ops = 0;
+        for (var i = 0; i < a.Count; i++)
         {
             var dd = new DeltaDocument();
             var w = new DeltaWriter(dd);
@@ -365,16 +408,16 @@ public class ManualVsGeneratedBenchmarks
 
     private int RunGeneratedDirty(List<DirtyOrder> a, List<DirtyOrder> b)
     {
-        int ops = 0;
-        for (int i = 0; i < a.Count; i++)
+        var ops = 0;
+        for (var i = 0; i < a.Count; i++)
             ops += DirtyOrderDeepOps.ComputeDelta(a[i], b[i], _ctx).Operations.Count;
         return ops;
     }
 
     private int RunManualDirty(List<DirtyOrder> a, List<DirtyOrder> b)
     {
-        int ops = 0;
-        for (int i = 0; i < a.Count; i++)
+        var ops = 0;
+        for (var i = 0; i < a.Count; i++)
         {
             var dd = new DeltaDocument();
             var w = new DeltaWriter(dd);

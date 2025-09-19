@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DeepEqual.Generator.Shared;
 
@@ -13,22 +14,48 @@ public static class ComparisonHelpers
 
     public static bool ArraysEqual<T>(T[]? a, T[]? b)
     {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-        if (a.Length != b.Length) return false;
+        if (ReferenceEquals(a, b))
+        {
+            return true;
+        }
 
-        return System.Linq.Enumerable.SequenceEqual(a, b);
+        if (a is null || b is null)
+        {
+            return false;
+        }
+
+        if (a.Length != b.Length)
+        {
+            return false;
+        }
+
+        return a.SequenceEqual(b);
     }
 
-    public static bool AreEqualEnum<T>(T a, T b) where T : struct, Enum => EqualityComparer<T>.Default.Equals(a, b);
+    public static bool AreEqualEnum<T>(T a, T b) where T : struct, Enum
+    {
+        return EqualityComparer<T>.Default.Equals(a, b);
+    }
 
-    public static bool AreEqualDateTime(DateTime a, DateTime b) => a.Kind == b.Kind && a.Ticks == b.Ticks;
+    public static bool AreEqualDateTime(DateTime a, DateTime b)
+    {
+        return a.Kind == b.Kind && a.Ticks == b.Ticks;
+    }
 
-    public static bool AreEqualDateTimeOffset(DateTimeOffset a, DateTimeOffset b) => a.Offset == b.Offset && a.UtcTicks == b.UtcTicks;
+    public static bool AreEqualDateTimeOffset(DateTimeOffset a, DateTimeOffset b)
+    {
+        return a.Offset == b.Offset && a.UtcTicks == b.UtcTicks;
+    }
 
-    public static bool AreEqualDateOnly(DateOnly a, DateOnly b) => a.DayNumber == b.DayNumber;
+    public static bool AreEqualDateOnly(DateOnly a, DateOnly b)
+    {
+        return a.DayNumber == b.DayNumber;
+    }
 
-    public static bool AreEqualTimeOnly(TimeOnly a, TimeOnly b) => a.Ticks == b.Ticks;
+    public static bool AreEqualTimeOnly(TimeOnly a, TimeOnly b)
+    {
+        return a.Ticks == b.Ticks;
+    }
 
     public static bool AreEqualSingle(float a, float b, ComparisonContext? context)
     {
@@ -73,7 +100,8 @@ public static class ComparisonHelpers
         return Math.Abs(a - b) <= eps;
     }
 
-    public static bool AreEqualArrayRank1<TElement, TComparer>(TElement[]? a, TElement[]? b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualArrayRank1<TElement, TComparer>(TElement[]? a, TElement[]? b, TComparer comparer,
+        ComparisonContext context)
         where TComparer : IElementComparer<TElement>
     {
         if (ReferenceEquals(a, b))
@@ -92,16 +120,16 @@ public static class ComparisonHelpers
         }
 
         for (var i = 0; i < a.Length; i++)
-        {
             if (!comparer.Invoke(a[i], b[i], context))
             {
                 return false;
             }
-        }
+
         return true;
     }
 
-    public static bool AreEqualArray<TElement, TComparer>(Array? a, Array? b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualArray<TElement, TComparer>(Array? a, Array? b, TComparer comparer,
+        ComparisonContext context)
         where TComparer : IElementComparer<TElement>
     {
         if (ReferenceEquals(a, b))
@@ -120,12 +148,11 @@ public static class ComparisonHelpers
         }
 
         for (var d = 0; d < a.Rank; d++)
-        {
             if (a.GetLength(d) != b.GetLength(d))
             {
                 return false;
             }
-        }
+
         if (a.Length == 0)
         {
             return true;
@@ -153,15 +180,18 @@ public static class ComparisonHelpers
                 indices[dim] = 0;
                 dim--;
             }
+
             if (dim < 0)
             {
                 break;
             }
         }
+
         return true;
     }
 
-    public static bool AreEqualArrayUnordered<TElement, TComparer>(Array? a, Array? b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualArrayUnordered<TElement, TComparer>(Array? a, Array? b, TComparer comparer,
+        ComparisonContext context)
         where TComparer : IElementComparer<TElement>
     {
         if (ReferenceEquals(a, b))
@@ -182,11 +212,14 @@ public static class ComparisonHelpers
         var listA = new List<TElement>(a.Length);
         var listB = new List<TElement>(b.Length);
         foreach (var o in a) listA.Add((TElement)o!);
+
         foreach (var o in b) listB.Add((TElement)o!);
+
         return AreEqualUnordered(listA, listB, comparer, context);
     }
 
-    public static bool AreEqualSequencesOrdered<T, TComparer>(IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualSequencesOrdered<T, TComparer>(IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer,
+        ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
         if (ReferenceEquals(a, b))
@@ -222,7 +255,8 @@ public static class ComparisonHelpers
         }
     }
 
-    public static bool AreEqualSequencesUnordered<T, TComparer>(IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualSequencesUnordered<T, TComparer>(IEnumerable<T>? a, IEnumerable<T>? b,
+        TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
         if (ReferenceEquals(a, b))
@@ -245,7 +279,8 @@ public static class ComparisonHelpers
         return AreEqualUnordered(listA, listB, comparer, context);
     }
 
-    public static bool AreEqualSequencesUnorderedHash<T>(IEnumerable<T>? a, IEnumerable<T>? b, IEqualityComparer<T> equalityComparer) where T : notnull
+    public static bool AreEqualSequencesUnorderedHash<T>(IEnumerable<T>? a, IEnumerable<T>? b,
+        IEqualityComparer<T> equalityComparer) where T : notnull
     {
         if (ReferenceEquals(a, b))
         {
@@ -268,6 +303,7 @@ public static class ComparisonHelpers
             counts.TryGetValue(item, out var n);
             counts[item] = n + 1;
         }
+
         foreach (var item in b)
         {
             if (!counts.TryGetValue(item, out var n))
@@ -284,10 +320,12 @@ public static class ComparisonHelpers
                 counts[item] = n - 1;
             }
         }
+
         return counts.Count == 0;
     }
 
-    public static bool AreEqualReadOnlyMemory<T, TComparer>(ReadOnlyMemory<T> a, ReadOnlyMemory<T> b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualReadOnlyMemory<T, TComparer>(ReadOnlyMemory<T> a, ReadOnlyMemory<T> b,
+        TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
         if (a.Length != b.Length)
@@ -298,16 +336,16 @@ public static class ComparisonHelpers
         var sa = a.Span;
         var sb = b.Span;
         for (var i = 0; i < sa.Length; i++)
-        {
             if (!comparer.Invoke(sa[i], sb[i], context))
             {
                 return false;
             }
-        }
+
         return true;
     }
 
-    public static bool AreEqualMemory<T, TComparer>(Memory<T> a, Memory<T> b, TComparer comparer, ComparisonContext context)
+    public static bool AreEqualMemory<T, TComparer>(Memory<T> a, Memory<T> b, TComparer comparer,
+        ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
         if (a.Length != b.Length)
@@ -318,16 +356,16 @@ public static class ComparisonHelpers
         var sa = a.Span;
         var sb = b.Span;
         for (var i = 0; i < sa.Length; i++)
-        {
             if (!comparer.Invoke(sa[i], sb[i], context))
             {
                 return false;
             }
-        }
+
         return true;
     }
 
-    private static bool AreEqualUnordered<T, TComparer>(List<T> a, List<T> b, TComparer comparer, ComparisonContext context)
+    private static bool AreEqualUnordered<T, TComparer>(List<T> a, List<T> b, TComparer comparer,
+        ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
         if (a.Count != b.Count)
@@ -358,15 +396,18 @@ public static class ComparisonHelpers
                     break;
                 }
             }
+
             if (!found)
             {
                 return false;
             }
         }
+
         return true;
     }
 
-    public static bool AreEqualDictionariesAny<TKey, TValue, TValueComparer>(object? a, object? b, TValueComparer comparer, ComparisonContext context)
+    public static bool AreEqualDictionariesAny<TKey, TValue, TValueComparer>(object? a, object? b,
+        TValueComparer comparer, ComparisonContext context)
         where TValueComparer : IElementComparer<TValue>
         where TKey : notnull
     {
@@ -399,8 +440,10 @@ public static class ComparisonHelpers
                     return false;
                 }
             }
+
             return true;
         }
+
         if (a is IDictionary<TKey, TValue> rwa && b is IDictionary<TKey, TValue> rwb)
         {
             if (rwa.Count != rwb.Count)
@@ -420,8 +463,10 @@ public static class ComparisonHelpers
                     return false;
                 }
             }
+
             return true;
         }
+
         return Equals(a, b);
     }
 
@@ -470,11 +515,6 @@ public static class ComparisonHelpers
                 return false;
             }
 
-            if (tl != tr)
-            {
-                return false;
-            }
-
             if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv))
             {
                 return eqv;
@@ -505,17 +545,67 @@ public static class ComparisonHelpers
         };
     }
 
+    public static bool EqualsValueLike(object? a, object? b, ComparisonContext? context)
+    {
+        if (ReferenceEquals(a, b))
+        {
+            return true;
+        }
+
+        if (a is null || b is null)
+        {
+            return false;
+        }
+
+        var ta = a.GetType();
+        var tb = b.GetType();
+        if (ta != tb)
+        {
+            return false;
+        }
+
+        switch (a)
+        {
+            case string sa:
+                return AreEqualStrings(sa, (string)b, context);
+            case float fa:
+                return AreEqualSingle(fa, (float)b, context);
+            case double da:
+                return AreEqualDouble(da, (double)b, context);
+            case decimal ma:
+                return AreEqualDecimal(ma, (decimal)b, context);
+            default:
+                return a.Equals(b);
+        }
+    }
+
     public sealed class StrictDateTimeComparer : IEqualityComparer<DateTime>
     {
         public static readonly StrictDateTimeComparer Instance = new();
-        public bool Equals(DateTime x, DateTime y) => x.Kind == y.Kind && x.Ticks == y.Ticks;
-        public int GetHashCode(DateTime obj) => HashCode.Combine((int)obj.Kind, obj.Ticks);
+
+        public bool Equals(DateTime x, DateTime y)
+        {
+            return x.Kind == y.Kind && x.Ticks == y.Ticks;
+        }
+
+        public int GetHashCode(DateTime obj)
+        {
+            return HashCode.Combine((int)obj.Kind, obj.Ticks);
+        }
     }
 
     public sealed class StrictDateTimeOffsetComparer : IEqualityComparer<DateTimeOffset>
     {
         public static readonly StrictDateTimeOffsetComparer Instance = new();
-        public bool Equals(DateTimeOffset x, DateTimeOffset y) => x.Offset == y.Offset && x.UtcTicks == y.UtcTicks;
-        public int GetHashCode(DateTimeOffset obj) => HashCode.Combine(obj.Offset, obj.UtcTicks);
+
+        public bool Equals(DateTimeOffset x, DateTimeOffset y)
+        {
+            return x.Offset == y.Offset && x.UtcTicks == y.UtcTicks;
+        }
+
+        public int GetHashCode(DateTimeOffset obj)
+        {
+            return HashCode.Combine(obj.Offset, obj.UtcTicks);
+        }
     }
 }

@@ -5,8 +5,8 @@ namespace DeepEqual.Generator.Tests.Models;
 [DeepComparable(OrderInsensitiveCollections = true)]
 public sealed class RootOrderInsensitiveCollections
 {
-    public List<string> Names { get; set; } = new();
-    public List<Person> People { get; set; } = new();
+    public List<string> Names { get; set; } = [];
+    public List<Person> People { get; set; } = [];
     [DeepCompare(OrderInsensitive = false)]
-    public List<int> ForcedOrdered { get; set; } = new();
+    public List<int> ForcedOrdered { get; set; } = [];
 }

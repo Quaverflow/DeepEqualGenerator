@@ -1,9 +1,7 @@
-
-#nullable enable
-using Microsoft.CodeAnalysis;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.CodeAnalysis;
 
 namespace DeepEqual.Generator;
 
@@ -113,18 +111,20 @@ internal static class Diagnostics
 
                 string? path = null;
                 foreach (var kv in a.NamedArguments)
-                    if (kv.Key == "path" && kv.Value.Value is string s) { path = s; break; }
+                    if (kv is { Key: "path", Value.Value: string s }) { path = s; break; }
                 if (path is null && a.ConstructorArguments.Length > 0 && a.ConstructorArguments[0].Value is string s0)
+                {
                     path = s0;
+                }
 
                 if (string.IsNullOrWhiteSpace(path))
                 {
-                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EX001, loc, "<empty>"));
+                    spc.ReportDiagnostic(Diagnostic.Create(EX001, loc, "<empty>"));
                     continue;
                 }
 
                 var tokens = path.Split(['.'], StringSplitOptions.RemoveEmptyEntries);
-                for (int i = 0; i < tokens.Length; i++)
+                for (var i = 0; i < tokens.Length; i++)
                 {
                     var t = tokens[i];
                     var isDictSegment = t.EndsWith("Items", StringComparison.Ordinal) || t.EndsWith("Dictionary", StringComparison.Ordinal);
@@ -134,20 +134,20 @@ internal static class Diagnostics
                         var ok = next.Contains("<key>") || next.Contains("<value>");
                         if (!ok)
                         {
-                            spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EX002, loc, path));
+                            spc.ReportDiagnostic(Diagnostic.Create(EX002, loc, path));
                             break;
                         }
                     }
                 }
 
-                for (int i = 0; i < tokens.Length; i++)
+                for (var i = 0; i < tokens.Length; i++)
                 {
                     var t = tokens[i];
                     var looksEnumerable = t.EndsWith("[]", StringComparison.Ordinal) || t.EndsWith("List", StringComparison.Ordinal) || t.EndsWith("Enumerable", StringComparison.Ordinal);
                     var hasNext = (i + 1) < tokens.Length;
                     if (looksEnumerable && !hasNext)
                     {
-                        spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EX003, loc, path));
+                        spc.ReportDiagnostic(Diagnostic.Create(EX003, loc, path));
                         break;
                     }
                 }
@@ -184,7 +184,7 @@ internal static class ExternalPathResolver
         var segments = Parse(path, report, attrLocation);
         if (segments.Count == 0)
         {
-            report?.Invoke(attrLocation, $"Empty path.", PathDiag.Unresolvable);
+            report?.Invoke(attrLocation, "Empty path.", PathDiag.Unresolvable);
             throw new InvalidOperationException();
         }
 
@@ -192,7 +192,7 @@ internal static class ExternalPathResolver
         INamedTypeSymbol? owner = null;
         ISymbol? found = null;
 
-        for (int i = 0; i < segments.Count; i++)
+        for (var i = 0; i < segments.Count; i++)
         {
             var seg = segments[i];
 
@@ -268,7 +268,10 @@ internal static class ExternalPathResolver
     private static bool TryGetEnumerableElementType(ITypeSymbol t, out ITypeSymbol elem)
     {
         elem = null!;
-        if (t.SpecialType == SpecialType.System_String) return false;
+        if (t.SpecialType == SpecialType.System_String)
+        {
+            return false;
+        }
 
         if (t is IArrayTypeSymbol ats)
         {
@@ -310,14 +313,21 @@ internal static class ExternalPathResolver
             foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
             {
                 if (p.Name == name && p.GetMethod is not null && p.Parameters.Length == 0 && IsAccessible(p, includeInternals, start))
+                {
                     return (t, p, p.Type);
+                }
             }
             foreach (var f in t.GetMembers().OfType<IFieldSymbol>())
             {
-                if (f.Name == name && !f.IsStatic && !f.IsConst && !f.IsImplicitlyDeclared && IsAccessible(f, includeInternals, start))
+                if (f.Name == name && f is { IsStatic: false, IsConst: false, IsImplicitlyDeclared: false } && IsAccessible(f, includeInternals, start))
+                {
                     return (t, f, f.Type);
+                }
             }
-            if (!includeBase) break;
+            if (!includeBase)
+            {
+                break;
+            }
         }
         return null;
     }

@@ -33,11 +33,9 @@ public class RefTypeTests
 
         var shallowLeft = new Item { X = 2, Name = "y" };
         var shallowRightSameValues = new Item { X = 2, Name = "y" };
-        var shallowSameRef = shallowLeft;
 
         var refLeft = new Item { X = 3, Name = "z" };
         var refRightDifferentRefSameValues = new Item { X = 3, Name = "z" };
-        var refSameRef = refLeft;
 
         var skipLeft = new Item { X = 9, Name = "q" };
         var skipRightDifferent = new Item { X = 123, Name = "QQ" };
@@ -59,10 +57,10 @@ public class RefTypeTests
 
         Assert.False(MemberKindContainerDeepEqual.AreDeepEqual(a, b));
 
-        b.ValShallow = shallowSameRef;
+        b.ValShallow = shallowLeft;
         Assert.False(MemberKindContainerDeepEqual.AreDeepEqual(a, b));
 
-        b.ValReference = refSameRef;
+        b.ValReference = refLeft;
         Assert.True(MemberKindContainerDeepEqual.AreDeepEqual(a, b));
     }
 
@@ -72,8 +70,7 @@ public class RefTypeTests
         var a = new ContainerWithTypeLevelShallow { Child = new TypeLevelShallowChild { V = 5 } };
         var b = new ContainerWithTypeLevelShallow { Child = new TypeLevelShallowChild { V = 5 } };
         Assert.False(ContainerWithTypeLevelShallowDeepEqual.AreDeepEqual(a, b));
-        var same = a;
-        Assert.True(ContainerWithTypeLevelShallowDeepEqual.AreDeepEqual(a, same));
+        Assert.True(ContainerWithTypeLevelShallowDeepEqual.AreDeepEqual(a, a));
     }
 
     [Fact]

@@ -73,12 +73,11 @@ public static class DynamicDeepComparer
             }
 
             for (var i = 0; i < arrA.Length; i++)
-            {
                 if (!AreEqualDynamic(arrA.GetValue(i), arrB.GetValue(i), context))
                 {
                     return false;
                 }
-            }
+
             return true;
         }
 
@@ -117,6 +116,7 @@ public static class DynamicDeepComparer
                 return false;
             }
         }
+
         return true;
     }
 
@@ -140,6 +140,7 @@ public static class DynamicDeepComparer
                 return false;
             }
         }
+
         return true;
     }
 
@@ -147,41 +148,54 @@ public static class DynamicDeepComparer
     {
         var ea = a.GetEnumerator();
         var eb = b.GetEnumerator();
-        while (true)
+
+        try
         {
-            var ma = ea.MoveNext();
-            var mb = eb.MoveNext();
-            if (ma != mb)
+            while (true)
             {
-                return false;
-            }
+                var ma = ea.MoveNext();
+                var mb = eb.MoveNext();
+                if (ma != mb)
+                {
+                    return false;
+                }
 
-            if (!ma)
-            {
-                return true;
-            }
+                if (!ma)
+                {
+                    return true;
+                }
 
-            if (!AreEqualDynamic(ea.Current, eb.Current, context))
-            {
-                return false;
+                if (!AreEqualDynamic(ea.Current, eb.Current, context))
+                {
+                    return false;
+                }
             }
+        }
+        finally
+        {
+            (ea as IDisposable)?.Dispose();
+            (eb as IDisposable)?.Dispose();
         }
     }
 
     private static bool IsPrimitiveLike(object v)
-        => v is bool
-        || v is byte || v is sbyte
-        || v is short || v is ushort
-        || v is int || v is uint
-        || v is long || v is ulong
-        || v is char
-        || v is Guid
-        || v is DateTime || v is DateTimeOffset || v is TimeSpan
-        || v.GetType().IsEnum;
+    {
+        return v is bool
+               || v is byte || v is sbyte
+               || v is short || v is ushort
+               || v is int || v is uint
+               || v is long || v is ulong
+               || v is char
+               || v is Guid
+               || v is DateTime || v is DateTimeOffset || v is TimeSpan
+               || v.GetType().IsEnum;
+    }
 
-    private static bool IsNumeric(object o) =>
-        o is byte or sbyte or short or ushort or int or uint or long or ulong
+    private static bool IsNumeric(object o)
+    {
+        return o is byte or sbyte or short or ushort or int or uint or long or ulong
             or float or double or decimal;
+    }
 
     private static bool NumericEqual(object a, object b, ComparisonContext context)
     {
@@ -189,11 +203,11 @@ public static class DynamicDeepComparer
         {
             var da = a is decimal mad ? (double)mad : Convert.ToDouble(a);
             var db = b is decimal mbd ? (double)mbd : Convert.ToDouble(b);
-            return ComparisonHelpers.AreEqualDouble(da, db, context); 
+            return ComparisonHelpers.AreEqualDouble(da, db, context);
         }
 
         var va = Convert.ToDecimal(a);
         var vb = Convert.ToDecimal(b);
         return va == vb;
     }
-    }
+}

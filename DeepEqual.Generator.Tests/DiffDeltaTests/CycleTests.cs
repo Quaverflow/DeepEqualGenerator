@@ -1,6 +1,4 @@
 ﻿using DeepEqual.Generator.Shared;
-using System.Collections.Generic;
-using Xunit;
 
 namespace DeepEqual.Generator.Tests.DiffDeltaTests;
 
