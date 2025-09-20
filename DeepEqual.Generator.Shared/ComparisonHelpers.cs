@@ -484,12 +484,6 @@ public static class ComparisonHelpers
                 {
                     return eqv;
                 }
-
-                GeneratedHelperRegistry.WarmUp(tl);
-                if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out eqv))
-                {
-                    return eqv;
-                }
             }
 
             return EqualityComparer<T>.Default.Equals(left, right);
@@ -516,12 +510,6 @@ public static class ComparisonHelpers
             }
 
             if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv))
-            {
-                return eqv;
-            }
-
-            GeneratedHelperRegistry.WarmUp(tl);
-            if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out eqv))
             {
                 return eqv;
             }

@@ -134,12 +134,6 @@ public sealed class IndexProbeV2
 
 public sealed class StableMemberIndexingTests
 {
-    public StableMemberIndexingTests()
-    {
-               GeneratedHelperRegistry.WarmUp(typeof(IndexProbeV1));
-        GeneratedHelperRegistry.WarmUp(typeof(IndexProbeV2));
-    }
-
     private static int ProbeMemberIndex_A()
     {
         var a = new IndexProbeV1 { A = 1 };

@@ -74,15 +74,6 @@ public partial class DOrder_TS
 
 public sealed class DirtyFeatureTests
 {
-    public DirtyFeatureTests()
-    {
-        GeneratedHelperRegistry.WarmUp(typeof(DOrder));
-        GeneratedHelperRegistry.WarmUp(typeof(DCustomer));
-        GeneratedHelperRegistry.WarmUp(typeof(DAddress));
-        GeneratedHelperRegistry.WarmUp(typeof(DItem));
-        GeneratedHelperRegistry.WarmUp(typeof(DOrder_TS));
-    }
-
     private static ComparisonContext CtxFast() => new(new ComparisonOptions { ValidateDirtyOnEmit = false });
     private static ComparisonContext CtxValidate() => new(new ComparisonOptions { ValidateDirtyOnEmit = true });
 

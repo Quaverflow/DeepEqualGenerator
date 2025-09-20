@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 
 namespace DeepEqual.Generator.Shared;
 
@@ -39,8 +38,6 @@ public static class GeneratedHelperRegistry
     public delegate bool DiffFunc(object left, object right, ComparisonContext context, out IDiff diff);
 
     private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _eqMap = new();
-    private static readonly ConcurrentDictionary<Type, bool> _negativeEqCache = new();
-
     private static readonly ConcurrentDictionary<Type, DiffFunc> _diffMap = new();
 
     private static readonly ConcurrentDictionary<Type, ComputeDeltaObjFunc> _deltaComputeMap = new();
@@ -53,7 +50,6 @@ public static class GeneratedHelperRegistry
     {
         var t = typeof(T);
         _eqMap[t] = (l, r, c) => comparer((T)l, (T)r, c);
-        _negativeEqCache.TryRemove(t, out _);
     }
 
     /// <summary>
@@ -65,14 +61,6 @@ public static class GeneratedHelperRegistry
         if (_eqMap.TryGetValue(runtimeType, out var fn))
         {
             equal = fn(left, right, context);
-            return true;
-        }
-
-        WarmUp(runtimeType);
-
-        if (_eqMap.TryGetValue(runtimeType, out var fn2))
-        {
-            equal = fn2(left, right, context);
             return true;
         }
 
@@ -147,13 +135,6 @@ public static class GeneratedHelperRegistry
             return fn(left, right, ctx, out diff);
         }
 
-        WarmUp(runtimeType);
-
-        if (_diffMap.TryGetValue(runtimeType, out var fn2))
-        {
-            return fn2(left, right, ctx, out diff);
-        }
-
         diff = Diff.Empty;
         return false;
     }
@@ -189,13 +170,6 @@ public static class GeneratedHelperRegistry
             fn(left, right, context, ref writer);
             return;
         }
-
-        WarmUp(runtimeType);
-
-        if (_deltaComputeMap.TryGetValue(runtimeType, out var fn2))
-        {
-            fn2(left, right, context, ref writer);
-        }
     }
 
     /// <summary>
@@ -206,14 +180,6 @@ public static class GeneratedHelperRegistry
         if (_deltaApplyObjMap.TryGetValue(runtimeType, out var fn))
         {
             fn(ref target, ref reader);
-            return true;
-        }
-
-        WarmUp(runtimeType);
-
-        if (_deltaApplyObjMap.TryGetValue(runtimeType, out var fn2))
-        {
-            fn2(ref target, ref reader);
             return true;
         }
 
@@ -233,47 +199,6 @@ public static class GeneratedHelperRegistry
             return true;
         }
 
-        WarmUp(runtimeType);
-
-        if (_deltaComputeMap.TryGetValue(runtimeType, out var fn2))
-        {
-            fn2(left, right, context, ref writer);
-            return true;
-        }
-
         return false;
-    }
-
-    /// <summary>
-    ///     Ensures generated helper types for the given runtime type are initialized.
-    /// </summary>
-    public static void WarmUp(Type runtimeType)
-    {
-        var asm = runtimeType.Assembly;
-        var ns = runtimeType.Namespace;
-        var name = runtimeType.Name;
-        var backtick = name.IndexOf('`');
-        if (backtick >= 0)
-        {
-            name = name[..backtick];
-        }
-
-        var helperEquality = (string.IsNullOrEmpty(ns) ? "" : ns + ".") + name + "DeepEqual";
-        var helperDiffDelta = (string.IsNullOrEmpty(ns) ? "" : ns + ".") + name + "DeepOps";
-
-        var typeEq = asm.GetType(helperEquality, false);
-        var typeOps = asm.GetType(helperDiffDelta, false);
-
-        if (typeEq != null)
-        {
-            RuntimeHelpers.RunClassConstructor(typeEq.TypeHandle);
-        }
-
-        if (typeOps != null)
-        {
-            RuntimeHelpers.RunClassConstructor(typeOps.TypeHandle);
-        }
-
-        _negativeEqCache.TryRemove(runtimeType, out _);
     }
 }
