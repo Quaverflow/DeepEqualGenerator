@@ -226,13 +226,13 @@ public sealed class BinaryDeltaCodecTests
     private static DeltaDocument NestedDemo()
     {
         var inner = Doc(
-            new DeltaOp(MemberIndex: 2, Kind: DeltaKind.SetMember, Index: -1, Key: null, Value: "inside", Nested: null),
-            new DeltaOp(MemberIndex: 3, Kind: DeltaKind.SeqAddAt, Index: 1, Key: null, Value: 999, Nested: null)
+            new DeltaOp(memberIndex: 2, kind: DeltaKind.SetMember, index: -1, key: null, value: "inside", nested: null),
+            new DeltaOp(memberIndex: 3, kind: DeltaKind.SeqAddAt, index: 1, key: null, value: 999, nested: null)
         );
 
         return Doc(
-            new DeltaOp(MemberIndex: 1, Kind: DeltaKind.SetMember, Index: -1, Key: null, Value: 123, Nested: null),
-            new DeltaOp(MemberIndex: 5, Kind: DeltaKind.NestedMember, Index: -1, Key: null, Value: null, Nested: inner)
+            new DeltaOp(memberIndex: 1, kind: DeltaKind.SetMember, index: -1, key: null, value: 123, nested: null),
+            new DeltaOp(memberIndex: 5, kind: DeltaKind.NestedMember, index: -1, key: null, value: null, nested: inner)
         );
     }
 
@@ -270,8 +270,8 @@ public sealed class BinaryDeltaCodecTests
         var doc = Doc(
             new DeltaOp(1, DeltaKind.SetMember, -1, null, E8.Big, null),
             new DeltaOp(2, DeltaKind.SetMember, -1, null, E32.Minus, null),
-            new DeltaOp(3, DeltaKind.DictSet, -1, Key: "who", Value: "me", Nested: null),
-            new DeltaOp(3, DeltaKind.DictSet, -1, Key: "who", Value: "you", Nested: null),            new DeltaOp(4, DeltaKind.ReplaceObject, -1, null, "replace-me", null)
+            new DeltaOp(3, DeltaKind.DictSet, -1, key: "who", value: "me", nested: null),
+            new DeltaOp(3, DeltaKind.DictSet, -1, key: "who", value: "you", nested: null),            new DeltaOp(4, DeltaKind.ReplaceObject, -1, null, "replace-me", null)
         );
 
         var opts = new BinaryDeltaOptions
@@ -308,16 +308,16 @@ public sealed class BinaryDeltaCodecTests
     public void RoundTrip_SequenceAndDictionaryOps_AllKinds()
     {
         var doc = Doc(
-            new DeltaOp(1, DeltaKind.SeqAddAt, Index: 0, Key: null, Value: "a", Nested: null),
-            new DeltaOp(1, DeltaKind.SeqAddAt, Index: 1, Key: null, Value: "b", Nested: null),
-            new DeltaOp(1, DeltaKind.SeqReplaceAt, Index: 1, Key: null, Value: "B", Nested: null),
-            new DeltaOp(1, DeltaKind.SeqRemoveAt, Index: 0, Key: null, Value: null, Nested: null),
+            new DeltaOp(1, DeltaKind.SeqAddAt, index: 0, key: null, value: "a", nested: null),
+            new DeltaOp(1, DeltaKind.SeqAddAt, index: 1, key: null, value: "b", nested: null),
+            new DeltaOp(1, DeltaKind.SeqReplaceAt, index: 1, key: null, value: "B", nested: null),
+            new DeltaOp(1, DeltaKind.SeqRemoveAt, index: 0, key: null, value: null, nested: null),
 
-            new DeltaOp(2, DeltaKind.DictSet, -1, Key: "who", Value: "me", Nested: null),
-            new DeltaOp(2, DeltaKind.DictNested, -1, Key: "nested",
-                        Value: null,
-                        Nested: Doc(new DeltaOp(5, DeltaKind.SetMember, -1, null, 777, null))),
-            new DeltaOp(2, DeltaKind.DictRemove, -1, Key: "who", Value: null, Nested: null)
+            new DeltaOp(2, DeltaKind.DictSet, -1, key: "who", value: "me", nested: null),
+            new DeltaOp(2, DeltaKind.DictNested, -1, key: "nested",
+                        value: null,
+                        nested: Doc(new DeltaOp(5, DeltaKind.SetMember, -1, null, 777, null))),
+            new DeltaOp(2, DeltaKind.DictRemove, -1, key: "who", value: null, nested: null)
         );
 
         var round = RoundTrip(doc, new BinaryDeltaOptions { IncludeHeader = false });

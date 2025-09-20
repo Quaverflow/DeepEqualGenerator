@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading.Channels;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace DeepEqual.Generator.Shared;
 
@@ -63,25 +66,21 @@ public enum DeltaKind
     DictNested = 22
 }
 
-public readonly struct DeltaOp
+[method: MethodImpl(MethodImplOptions.AggressiveInlining)]
+public readonly struct DeltaOp(
+    int memberIndex,
+    DeltaKind kind,
+    int index,
+    object? key,
+    object? value,
+    DeltaDocument? nested)
 {
-    public readonly int MemberIndex;
-    public readonly DeltaKind Kind;
-    public readonly int Index;
-    public readonly object? Key;
-    public readonly object? Value;
-    public readonly DeltaDocument? Nested;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public DeltaOp(int memberIndex, DeltaKind kind, int index, object? key, object? value, DeltaDocument? nested)
-    {
-        MemberIndex = memberIndex;
-        Kind = kind;
-        Index = index;
-        Key = key;
-        Value = value;
-        Nested = nested;
-    }
+    public readonly int MemberIndex = memberIndex;
+    public readonly DeltaKind Kind = kind;
+    public readonly int Index = index;
+    public readonly object? Key = key;
+    public readonly object? Value = value;
+    public readonly DeltaDocument? Nested = nested;
 }
 
 
@@ -107,7 +106,7 @@ public ref struct DeltaWriter(DeltaDocument doc)
 
     public NestedMemberScope BeginNestedMember(int memberIndex, out DeltaWriter nestedWriter)
     {
-        var nested = DeltaDocument.Rent(initialCapacity: 8);        nestedWriter = new DeltaWriter(nested);
+        var nested = DeltaDocument.Rent(initialCapacity: 8); nestedWriter = new DeltaWriter(nested);
         return new NestedMemberScope(this, memberIndex, nested);
     }
 
@@ -274,14 +273,82 @@ public struct DeltaReader(DeltaDocument? doc)
 /// </summary>
 public static class DeltaHelpers
 {
+    public static void ApplyListOpCloneIfNeeded<T>(ref object? target, in DeltaOp op)
+    {
+        if (target is List<T> list)
+        {
+            switch (op.Kind)
+            {
+                case DeltaKind.SeqReplaceAt:
+                    list[op.Index] = (T)op.Value!;
+                    return;
+                case DeltaKind.SeqAddAt:
+                    if (list.Count + 1 > list.Capacity) list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
+                    list.Insert(op.Index, (T)op.Value!);
+                    return;
+                case DeltaKind.SeqRemoveAt:
+                    list.RemoveAt(op.Index);
+                    return;
+            }
+            return;
+        }
+
+        if (target is IList<T> ilist && !IsReadOnly(ilist))
+        {
+            switch (op.Kind)
+            {
+                case DeltaKind.SeqReplaceAt:
+                    ilist[op.Index] = (T)op.Value!;
+                    return;
+                case DeltaKind.SeqAddAt:
+                    ilist.Insert(op.Index, (T)op.Value!);
+                    return;
+                case DeltaKind.SeqRemoveAt:
+                    ilist.RemoveAt(op.Index);
+                    return;
+            }
+            return;
+        }
+
+        List<T> clone;
+        if (target is IReadOnlyList<T> ro)
+        {
+            clone = new List<T>(ro.Count);
+            for (int i = 0; i < ro.Count; i++) clone.Add(ro[i]);
+        }
+        else
+        {
+            clone = new List<T>();
+        }
+
+        switch (op.Kind)
+        {
+            case DeltaKind.SeqReplaceAt:
+                clone[op.Index] = (T)op.Value!;
+                break;
+            case DeltaKind.SeqAddAt:
+                clone.Insert(op.Index, (T)op.Value!);
+                break;
+            case DeltaKind.SeqRemoveAt:
+                clone.RemoveAt(op.Index);
+                break;
+        }
+
+        target = clone;
+
+        static bool IsReadOnly(IList<T> l)
+        {
+            return l.IsReadOnly;
+        }
+    }
     public static void ComputeListDelta<T, TComparer>(
-        IList<T>? left,
-        IList<T>? right,
-        int memberIndex,
-        ref DeltaWriter writer,
-        TComparer comparer,
-        ComparisonContext context)
-        where TComparer : struct, IElementComparer<T>
+            IList<T>? left,
+            IList<T>? right,
+            int memberIndex,
+            ref DeltaWriter writer,
+            TComparer comparer,
+            ComparisonContext context)
+            where TComparer : struct, IElementComparer<T>
     {
         if (ReferenceEquals(left, right))
         {
@@ -535,7 +602,7 @@ public static class DeltaHelpers
     public static void ApplyDictOpCloneIfNeeded<TKey, TValue>(ref object? target, in DeltaOp op)
         where TKey : notnull
     {
-               if (target is Dictionary<TKey, TValue> md)
+        if (target is Dictionary<TKey, TValue> md)
         {
             switch (op.Kind)
             {
@@ -567,7 +634,7 @@ public static class DeltaHelpers
             return;
         }
 
-               if (target is IDictionary<TKey, TValue> { IsReadOnly: false } map)
+        if (target is IDictionary<TKey, TValue> { IsReadOnly: false } map)
         {
             switch (op.Kind)
             {
@@ -593,7 +660,7 @@ public static class DeltaHelpers
             return;
         }
 
-               var ro = target as IReadOnlyDictionary<TKey, TValue>;
+        var ro = target as IReadOnlyDictionary<TKey, TValue>;
         var clone = ro is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(ro);
 
         switch (op.Kind)
