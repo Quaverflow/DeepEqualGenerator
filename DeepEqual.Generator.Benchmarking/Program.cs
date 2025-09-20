@@ -5,9 +5,6 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
 
-// (optional) Kellerman CompareNetObjects — remove if you don't want it at all
-// using KellermanSoftware.CompareNetObjects;
-
 namespace DeepEqual.Generator.Benchmarking;
 
 internal class Program
@@ -17,7 +14,8 @@ internal class Program
 
 public enum Region { NA, EU, APAC }
 
-[DeepComparable(CycleTracking = false, GenerateDelta = true)]
+// Enable both Diff & Delta across the graph for full coverage
+[DeepComparable(CycleTracking = false, GenerateDiff = true, GenerateDelta = true)]
 public sealed class Address
 {
     public string Line1 { get; set; } = "";
@@ -27,7 +25,7 @@ public sealed class Address
     public ExpandoObject? Countr3y { get; set; }
 }
 
-[DeepComparable(CycleTracking = false, GenerateDelta = true)]
+[DeepComparable(CycleTracking = false, GenerateDiff = true, GenerateDelta = true)]
 public sealed class OrderLine
 {
     public string Sku { get; set; } = "";
@@ -35,7 +33,7 @@ public sealed class OrderLine
     public decimal LineTotal { get; set; }
 }
 
-[DeepComparable(CycleTracking = false, GenerateDelta = true)]
+[DeepComparable(CycleTracking = false, GenerateDiff = true, GenerateDelta = true)]
 public sealed class Order
 {
     public Guid Id { get; set; }
@@ -44,7 +42,7 @@ public sealed class Order
     public Dictionary<string, string> Meta { get; set; } = new(StringComparer.Ordinal);
 }
 
-[DeepComparable(CycleTracking = false, GenerateDelta = true)]
+[DeepComparable(CycleTracking = false, GenerateDiff = true, GenerateDelta = true)]
 public sealed class Customer
 {
     public Guid Id { get; set; }
@@ -54,7 +52,7 @@ public sealed class Customer
     public List<Order> Orders { get; set; } = [];
 }
 
-[DeepComparable(CycleTracking = false, GenerateDelta = true)]
+[DeepComparable(CycleTracking = false, GenerateDiff = true, GenerateDelta = true)]
 public sealed class MidGraph
 {
     public string Title { get; set; } = "";
@@ -144,242 +142,99 @@ public static class MidGraphFactory
     }
 }
 
-// ------------------ Manual comparers (unchanged logic) ------------------
+// ------------------ Manual comparers (unchanged) ------------------
 
 public static class ManualNonLinq
 {
     public static bool AreEqual(MidGraph? a, MidGraph? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
 
-        if (a is null || b is null)
-        {
-            return false;
-        }
+        if (!string.Equals(a.Title, b.Title, StringComparison.Ordinal)) return false;
+        if (!DictEqual(a.PriceIndex, b.PriceIndex)) return false;
+        if (!ObjectEqual(a.Polymorph, b.Polymorph)) return false;
+        if (!DynamicEqual(a.Extra, b.Extra)) return false;
 
-        if (!string.Equals(a.Title, b.Title, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        if (!DictEqual(a.PriceIndex, b.PriceIndex))
-        {
-            return false;
-        }
-
-        if (!ObjectEqual(a.Polymorph, b.Polymorph))
-        {
-            return false;
-        }
-
-        if (!DynamicEqual(a.Extra, b.Extra))
-        {
-            return false;
-        }
-
-        if (a.Customers.Count != b.Customers.Count)
-        {
-            return false;
-        }
-
+        if (a.Customers.Count != b.Customers.Count) return false;
         for (var i = 0; i < a.Customers.Count; i++)
-            if (!CustomerEqual(a.Customers[i], b.Customers[i]))
-            {
-                return false;
-            }
+            if (!CustomerEqual(a.Customers[i], b.Customers[i])) return false;
 
         return true;
     }
     private static bool CustomerEqual(Customer? a, Customer? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
 
-        if (a is null || b is null)
-        {
-            return false;
-        }
+        if (!string.Equals(a.FullName, b.FullName, StringComparison.Ordinal)) return false;
+        if (a.Region != b.Region) return false;
+        if (!AddressEqual(a.ShipTo, b.ShipTo)) return false;
 
-        if (!string.Equals(a.FullName, b.FullName, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        if (a.Region != b.Region)
-        {
-            return false;
-        }
-
-        if (!AddressEqual(a.ShipTo, b.ShipTo))
-        {
-            return false;
-        }
-
-        if (a.Orders.Count != b.Orders.Count)
-        {
-            return false;
-        }
-
+        if (a.Orders.Count != b.Orders.Count) return false;
         for (var i = 0; i < a.Orders.Count; i++)
-            if (!OrderEqual(a.Orders[i], b.Orders[i]))
-            {
-                return false;
-            }
+            if (!OrderEqual(a.Orders[i], b.Orders[i])) return false;
 
         return true;
     }
     private static bool OrderEqual(Order? a, Order? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
 
-        if (a is null || b is null)
-        {
-            return false;
-        }
+        if (a.Id != b.Id) return false;
+        if (a.Created != b.Created) return false;
+        if (!DictEqual(a.Meta, b.Meta)) return false;
 
-        if (a.Id != b.Id)
-        {
-            return false;
-        }
-
-        if (a.Created != b.Created)
-        {
-            return false;
-        }
-
-        if (!DictEqual(a.Meta, b.Meta))
-        {
-            return false;
-        }
-
-        if (a.Lines.Count != b.Lines.Count)
-        {
-            return false;
-        }
-
+        if (a.Lines.Count != b.Lines.Count) return false;
         for (var i = 0; i < a.Lines.Count; i++)
-            if (!LineEqual(a.Lines[i], b.Lines[i]))
-            {
-                return false;
-            }
+            if (!LineEqual(a.Lines[i], b.Lines[i])) return false;
 
         return true;
     }
     private static bool LineEqual(OrderLine? a, OrderLine? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
-
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
         return a.Sku == b.Sku && a.Qty == b.Qty && a.LineTotal == b.LineTotal;
     }
     private static bool AddressEqual(Address? a, Address? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
-
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
         return a.Line1 == b.Line1 && a.City == b.City && a.Postcode == b.Postcode && a.Country == b.Country;
     }
     private static bool DictEqual<TKey, TValue>(Dictionary<TKey, TValue>? a, Dictionary<TKey, TValue>? b)
         where TKey : notnull
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
-
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        if (a.Count != b.Count)
-        {
-            return false;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.Count != b.Count) return false;
 
         foreach (var kv in a)
         {
-            if (!b.TryGetValue(kv.Key, out var bv))
-            {
-                return false;
-            }
-
-            if (!Equals(kv.Value, bv))
-            {
-                return false;
-            }
+            if (!b.TryGetValue(kv.Key, out var bv)) return false;
+            if (!Equals(kv.Value, bv)) return false;
         }
         return true;
     }
     private static bool ObjectEqual(object? a, object? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.GetType() != b.GetType()) return false;
 
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        if (a.GetType() != b.GetType())
-        {
-            return false;
-        }
-
-        if (a is string sa)
-        {
-            return string.Equals(sa, (string)b, StringComparison.Ordinal);
-        }
-
-        if (a is Address aa)
-        {
-            return AddressEqual(aa, (Address)b);
-        }
-
+        if (a is string sa) return string.Equals(sa, (string)b, StringComparison.Ordinal);
+        if (a is Address aa) return AddressEqual(aa, (Address)b);
         return a.Equals(b);
     }
     private static bool DynamicEqual(IDictionary<string, object?> a, IDictionary<string, object?> b)
     {
-        if (a.Count != b.Count)
-        {
-            return false;
-        }
-
+        if (a.Count != b.Count) return false;
         foreach (var kv in a)
         {
-            if (!b.TryGetValue(kv.Key, out var bv))
-            {
-                return false;
-            }
-
-            if (!ObjectEqual(kv.Value, bv))
-            {
-                return false;
-            }
+            if (!b.TryGetValue(kv.Key, out var bv)) return false;
+            if (!ObjectEqual(kv.Value, bv)) return false;
         }
         return true;
     }
@@ -389,15 +244,8 @@ public static class ManualLinqy
 {
     public static bool AreEqual(MidGraph? a, MidGraph? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
-
-        if (a is null || b is null)
-        {
-            return false;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
 
         return a.Title == b.Title
                && DictEqual(a.PriceIndex, b.PriceIndex)
@@ -410,15 +258,8 @@ public static class ManualLinqy
     {
         public bool Equals(Customer? x, Customer? y)
         {
-            if (ReferenceEquals(x, y))
-            {
-                return true;
-            }
-
-            if (x is null || y is null)
-            {
-                return false;
-            }
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
 
             return x.FullName == y.FullName
                    && x.Region == y.Region
@@ -432,15 +273,8 @@ public static class ManualLinqy
     {
         public bool Equals(Order? x, Order? y)
         {
-            if (ReferenceEquals(x, y))
-            {
-                return true;
-            }
-
-            if (x is null || y is null)
-            {
-                return false;
-            }
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
 
             return x.Id == y.Id
                    && x.Created.Equals(y.Created)
@@ -459,16 +293,8 @@ public static class ManualLinqy
 
     private static bool AddressEqual(Address? a, Address? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
-
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
         return a.Line1 == b.Line1 && a.City == b.City && a.Postcode == b.Postcode && a.Country == b.Country;
     }
     private static bool DictEqual<TKey, TValue>(Dictionary<TKey, TValue> a, Dictionary<TKey, TValue> b)
@@ -476,20 +302,9 @@ public static class ManualLinqy
         => a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var bv) && Equals(kv.Value, bv));
     private static bool ObjectEqual(object? a, object? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
-
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        if (a.GetType() != b.GetType())
-        {
-            return false;
-        }
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.GetType() != b.GetType()) return false;
 
         return a switch
         {
@@ -519,7 +334,6 @@ public class MidGraphBenchmarks
     private MidGraph _neqDeepA = null!;
     private MidGraph _neqDeepB = null!;
 
-      
     private BinaryDeltaOptions _bin = null!;
     private DeltaDocument _deltaShallow = null!;
     private DeltaDocument _deltaDeep = null!;
@@ -542,33 +356,27 @@ public class MidGraphBenchmarks
         var lastO = lastC.Orders[^1];
         lastO.Lines[^1].Qty += 1;
 
-              
         _bin = new BinaryDeltaOptions { IncludeHeader = false };
 
-               {
-            var doc = new DeltaDocument();
+        {
             var ctx = new ComparisonContext();
-            MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
-            _deltaShallow = doc;
-
+            _deltaShallow = MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
             var buf = new ArrayBufferWriter<byte>();
             BinaryDeltaCodec.Write(_deltaShallow, buf, _bin);
             _deltaShallowBin = buf.WrittenSpan.ToArray();
         }
 
-               {
-            var doc = new DeltaDocument();
+        {
             var ctx = new ComparisonContext();
-            MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB,  ctx);
-            _deltaDeep = doc;
-
+            _deltaDeep = MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB, ctx);
             var buf = new ArrayBufferWriter<byte>();
             BinaryDeltaCodec.Write(_deltaDeep, buf, _bin);
             _deltaDeepBin = buf.WrittenSpan.ToArray();
         }
     }
 
-       [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+    // Equality (generated vs manual)
+    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
 
@@ -580,7 +388,62 @@ public class MidGraphBenchmarks
     [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-       [Benchmark]
+    // Diff surface (no change vs deep change)
+    [Benchmark]
+    public bool Generated_Diff_NoChange_HasDiff()
+    {
+        var ctx = new ComparisonContext();
+        var (has, diff) = MidGraphDeepOps.GetDiff(_eqA, _eqB, ctx);
+        _ = diff;
+        return has;
+    }
+
+    [Benchmark]
+    public int Generated_Diff_Deep_Change_MemberCount()
+    {
+        var ctx = new ComparisonContext();
+        var (has, diff) = MidGraphDeepOps.GetDiff(_neqDeepA, _neqDeepB, ctx);
+        return has && diff.MemberChanges is not null ? diff.MemberChanges.Count : 0;
+    }
+
+    // Delta compute (in-memory) — shallow vs deep
+    [Benchmark]
+    public int Generated_ComputeDelta_Shallow_OpCount()
+    {
+        var ctx = new ComparisonContext();
+        var doc = MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
+        return doc.Operations.Count;
+    }
+
+    [Benchmark]
+    public int Generated_ComputeDelta_Deep_OpCount()
+    {
+        var ctx = new ComparisonContext();
+        var doc = MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB, ctx);
+        return doc.Operations.Count;
+    }
+
+    // Delta apply (in-memory)
+    [Benchmark]
+    public bool Apply_InMemory_Shallow_Delta()
+    {
+        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
+        var readerDoc = _deltaShallow;
+        MidGraphDeepOps.ApplyDelta(ref target, readerDoc);
+        return ManualNonLinq.AreEqual(target, _neqShallowB);
+    }
+
+    [Benchmark]
+    public bool Apply_InMemory_Deep_Delta()
+    {
+        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
+        var readerDoc = _deltaDeep;
+        MidGraphDeepOps.ApplyDelta(ref target, readerDoc);
+        return ManualNonLinq.AreEqual(target, _neqDeepB);
+    }
+
+    // Binary codec (encode size, decode op count)
+    [Benchmark]
     public int Binary_Encode_Shallow_Delta_Size()
     {
         var buf = new ArrayBufferWriter<byte>();
