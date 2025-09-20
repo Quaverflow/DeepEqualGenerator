@@ -3214,27 +3214,27 @@ internal sealed class DiffDeltaEmitter
                     var elFqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
                     w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqReplaceAt:");
-                    w.Open($"if ({propAccess} is System.Collections.Generic.IList<{elFqn}> __list_r)");
-                    w.Line($"__list_r[op.Index] = ({elFqn})op.Value!;");
-                    w.Close();
+                    w.Line("object? __obj_seq_r = " + propAccess + ";");
+                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref __obj_seq_r, in op);");
+                    w.Line($"{propAccess} = ({typeFqn})__obj_seq_r;");
                     if (!type.IsValueType && deltaTracked)
                         w.Line($"target.__ClearDirtyBit({ordinal});");
                     w.Line("break;");
                     w.Close();
 
                     w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqAddAt:");
-                    w.Open($"if ({propAccess} is System.Collections.Generic.IList<{elFqn}> __list_a)");
-                    w.Line($"__list_a.Insert(op.Index, ({elFqn})op.Value!);");
-                    w.Close();
+                    w.Line("object? __obj_seq_a = " + propAccess + ";");
+                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref __obj_seq_a, in op);");
+                    w.Line($"{propAccess} = ({typeFqn})__obj_seq_a;");
                     if (!type.IsValueType && deltaTracked)
                         w.Line($"target.__ClearDirtyBit({ordinal});");
                     w.Line("break;");
                     w.Close();
 
                     w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt:");
-                    w.Open($"if ({propAccess} is System.Collections.Generic.IList<{elFqn}> __list_d)");
-                    w.Line("__list_d.RemoveAt(op.Index);");
-                    w.Close();
+                    w.Line("object? __obj_seq_d = " + propAccess + ";");
+                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref __obj_seq_d, in op);");
+                    w.Line($"{propAccess} = ({typeFqn})__obj_seq_d;");
                     if (!type.IsValueType && deltaTracked)
                         w.Line($"target.__ClearDirtyBit({ordinal});");
                     w.Line("break;");
