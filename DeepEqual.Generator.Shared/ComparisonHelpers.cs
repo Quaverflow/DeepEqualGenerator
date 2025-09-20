@@ -190,92 +190,173 @@ public static class ComparisonHelpers
         return true;
     }
 
-    public static bool AreEqualArrayUnordered<TElement, TComparer>(Array? a, Array? b, TComparer comparer,
-        ComparisonContext context)
-        where TComparer : IElementComparer<TElement>
-    {
-        if (ReferenceEquals(a, b))
-        {
-            return true;
-        }
+    // FILE: DeepEqual.Generator.Shared/ComparisonHelpers.cs
 
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        if (a.Length != b.Length)
-        {
-            return false;
-        }
-
-        var listA = new List<TElement>(a.Length);
-        var listB = new List<TElement>(b.Length);
-        foreach (var o in a) listA.Add((TElement)o!);
-
-        foreach (var o in b) listB.Add((TElement)o!);
-
-        return AreEqualUnordered(listA, listB, comparer, context);
-    }
-
-    public static bool AreEqualSequencesOrdered<T, TComparer>(IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer,
-        ComparisonContext context)
+    public static bool AreEqualSequencesOrdered<T, TComparer>(
+        IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
-        if (ReferenceEquals(a, b))
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        // Fast paths: avoid interface enumeration/boxing
+        if (a is T[] aa && b is T[] bb)
+            return AreEqualArrayRank1<T, TComparer>(aa, bb, comparer, context);
+
+        if (a is IList<T> la && b is IList<T> lb)
         {
+            if (la.Count != lb.Count) return false;
+            for (int i = 0; i < la.Count; i++)
+                if (!comparer.Invoke(la[i], lb[i], context)) return false;
             return true;
         }
 
-        if (a is null || b is null)
+        if (a is IReadOnlyList<T> ra && b is IReadOnlyList<T> rb)
         {
-            return false;
+            if (ra.Count != rb.Count) return false;
+            for (int i = 0; i < ra.Count; i++)
+                if (!comparer.Invoke(ra[i], rb[i], context)) return false;
+            return true;
         }
 
+        // Fallback: general enumerators
         using var ea = a.GetEnumerator();
         using var eb = b.GetEnumerator();
         while (true)
         {
             var ma = ea.MoveNext();
             var mb = eb.MoveNext();
-            if (ma != mb)
-            {
-                return false;
-            }
-
-            if (!ma)
-            {
-                return true;
-            }
-
-            if (!comparer.Invoke(ea.Current, eb.Current, context))
-            {
-                return false;
-            }
+            if (ma != mb) return false;
+            if (!ma) return true;
+            if (!comparer.Invoke(ea.Current, eb.Current, context)) return false;
         }
     }
 
-    public static bool AreEqualSequencesUnordered<T, TComparer>(IEnumerable<T>? a, IEnumerable<T>? b,
-        TComparer comparer, ComparisonContext context)
+    // FILE: DeepEqual.Generator.Shared/ComparisonHelpers.cs
+
+    public static bool AreEqualSequencesUnordered<T, TComparer>(
+        IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
-        if (ReferenceEquals(a, b))
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        // If both have a count, short‑circuit unequal sizes
+        if (a is ICollection<T> ca && b is ICollection<T> cb)
         {
+            if (ca.Count != cb.Count) return false;
+            if (ca.Count == 0) return true;
+
+            // No‑copy list fast paths
+            if (a is IList<T> la && b is IList<T> lb)
+                return AreEqualUnorderedIList(la, lb, comparer, context);
+
+            if (a is IReadOnlyList<T> ra && b is IReadOnlyList<T> rb)
+                return AreEqualUnorderedOrList(ra, rb, comparer, context);
+        }
+
+        // Fallback: previous list copy behavior (preserves semantics)
+        var listA = a as List<T> ?? new List<T>(a);
+        var listB = b as List<T> ?? new List<T>(b);
+        return AreEqualUnordered(listA, listB, comparer, context);
+    }
+
+    // No‑copy unordered matcher for IList<T>
+    private static bool AreEqualUnorderedIList<T, TComparer>(
+        IList<T> a, IList<T> b, TComparer comparer, ComparisonContext context)
+        where TComparer : IElementComparer<T>
+    {
+        if (a.Count != b.Count) return false;
+        if (a.Count == 0) return true;
+
+        var matched = new bool[b.Count];
+        for (int i = 0; i < a.Count; i++)
+        {
+            bool found = false;
+            var ai = a[i];
+            for (int j = 0; j < b.Count; j++)
+            {
+                if (matched[j]) continue;
+                if (comparer.Invoke(ai, b[j], context))
+                {
+                    matched[j] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    // No‑copy unordered matcher for IReadOnlyList<T>
+    private static bool AreEqualUnorderedOrList<T, TComparer>(
+        IReadOnlyList<T> a, IReadOnlyList<T> b, TComparer comparer, ComparisonContext context)
+        where TComparer : IElementComparer<T>
+    {
+        if (a.Count != b.Count) return false;
+        if (a.Count == 0) return true;
+
+        var matched = new bool[b.Count];
+        for (int i = 0; i < a.Count; i++)
+        {
+            bool found = false;
+            var ai = a[i];
+            for (int j = 0; j < b.Count; j++)
+            {
+                if (matched[j]) continue;
+                if (comparer.Invoke(ai, b[j], context))
+                {
+                    matched[j] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    // FILE: DeepEqual.Generator.Shared/ComparisonHelpers.cs
+
+    public static bool AreEqualArrayUnordered<TElement, TComparer>(
+        Array? a, Array? b, TComparer comparer, ComparisonContext context)
+        where TComparer : IElementComparer<TElement>
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.Length != b.Length) return false;
+
+        // Rank‑1 no‑copy fast path
+        if (a.Rank == 1 && b.Rank == 1)
+        {
+            var len = a.Length;
+            var matched = new bool[len];
+            for (int i = 0; i < len; i++)
+            {
+                var ai = (TElement)a.GetValue(i)!;
+                bool found = false;
+                for (int j = 0; j < len; j++)
+                {
+                    if (matched[j]) continue;
+                    var bj = (TElement)b.GetValue(j)!;
+                    if (comparer.Invoke(ai, bj, context))
+                    {
+                        matched[j] = true;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return false;
+            }
             return true;
         }
 
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        if (a is ICollection<T> ca && b is ICollection<T> cb && ca.Count != cb.Count)
-        {
-            return false;
-        }
-
-        var listA = new List<T>(a);
-        var listB = new List<T>(b);
+        // Fallback for multi‑dimensional arrays: preserve previous behavior
+        var listA = new List<TElement>(a.Length);
+        var listB = new List<TElement>(b.Length);
+        foreach (var o in a) listA.Add((TElement)o!);
+        foreach (var o in b) listB.Add((TElement)o!);
         return AreEqualUnordered(listA, listB, comparer, context);
     }
 

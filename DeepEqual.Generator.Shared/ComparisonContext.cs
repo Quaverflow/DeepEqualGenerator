@@ -1049,55 +1049,6 @@ public static class BinaryDeltaCodec
 
         private int _nesting = 0;
 
-        public DeltaDocument ReadDocument()
-        {
-            var sr = new SpanReader(_data);
-
-            if (_opt.IncludeHeader)
-            {
-                sr.RequireBytes(4);
-                if (sr.ReadByte() != (byte)'B' || sr.ReadByte() != (byte)'D' ||
-                    sr.ReadByte() != (byte)'C' || sr.ReadByte() != (byte)'1')
-                {
-                    throw new InvalidOperationException("Invalid BinaryDelta header magic.");
-                }
-
-                var version = sr.ReadVarUInt();
-                if (version != 1)
-                {
-                    throw new NotSupportedException($"Unsupported BinaryDelta version {version}.");
-                }
-
-                _ = sr.ReadVarUInt();
-                var flags = sr.ReadByte();
-                var hasStrings = (flags & 0b01) != 0;
-                var hasTypes = (flags & 0b10) != 0;
-
-                if (hasStrings)
-                {
-                    var n = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
-                    _strings = new string[n];
-                    for (var i = 0; i < n; i++)
-                        _strings[i] = sr.ReadUtf8StringInlineChecked(_opt.Safety.MaxStringBytes);
-                }
-
-                if (hasTypes)
-                {
-                    var n = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
-                    _enumTypes = new Type[n];
-                    for (var i = 0; i < n; i++) _enumTypes[i] = ReadTypeEntry(ref sr);
-                }
-            }
-
-            var opCount = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
-            var doc = new DeltaDocument();
-            var ops = doc.Ops;
-            for (var i = 0; i < opCount; i++) ops.Add(ReadOp(ref sr));
-
-            _data = sr.Remaining;
-            return doc;
-        }
-
         private DeltaOp ReadOp(ref SpanReader sr)
         {
             var kind = (DeltaKind)sr.ReadVarUInt();
@@ -1144,24 +1095,77 @@ public static class BinaryDeltaCodec
 
             return new DeltaOp(memberIndex, kind, index, key, value, nested);
         }
+        public DeltaDocument ReadDocument()
+        {
+            var sr = new SpanReader(_data);
 
+            if (_opt.IncludeHeader)
+            {
+                sr.RequireBytes(4);
+                if (sr.ReadByte() != (byte)'B' || sr.ReadByte() != (byte)'D' ||
+                    sr.ReadByte() != (byte)'C' || sr.ReadByte() != (byte)'1')
+                {
+                    throw new InvalidOperationException("Invalid BinaryDelta header magic.");
+                }
+
+                var version = sr.ReadVarUInt();
+                if (version != 1)
+                    throw new NotSupportedException($"Unsupported BinaryDelta version {version}.");
+
+                _ = sr.ReadVarUInt(); // stable fingerprint (optional)
+                var flags = sr.ReadByte();
+                var hasStrings = (flags & 0b01) != 0;
+                var hasTypes = (flags & 0b10) != 0;
+
+                if (hasStrings)
+                {
+                    var n = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
+                    _strings = new string[n];
+                    for (var i = 0; i < n; i++)
+                        _strings[i] = sr.ReadUtf8StringInlineChecked(_opt.Safety.MaxStringBytes);
+                }
+
+                if (hasTypes)
+                {
+                    var n = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
+                    _enumTypes = new Type[n];
+                    for (var i = 0; i < n; i++)
+                        _enumTypes[i] = ReadTypeEntry(ref sr);
+                }
+            }
+
+            var opCount = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
+
+            // Preallocate list capacity to avoid growth/copies
+            var doc = new DeltaDocument();
+            doc.Ops.Capacity = Math.Max(doc.Ops.Capacity, opCount);
+
+            var ops = doc.Ops;
+            for (var i = 0; i < opCount; i++)
+                ops.Add(ReadOp(ref sr));
+
+            _data = sr.Remaining;
+            return doc;
+        }
 
         private DeltaDocument ReadNested(ref SpanReader sr)
         {
             if (++_nesting > _opt.Safety.MaxNesting)
-            {
                 throw new InvalidOperationException("Max nesting exceeded");
-            }
 
             var count = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
+
+            // Preallocate nested doc capacity as well
             var doc = new DeltaDocument();
+            doc.Ops.Capacity = Math.Max(doc.Ops.Capacity, count);
+
             var list = doc.Ops;
-            for (var i = 0; i < count; i++) list.Add(ReadOp(ref sr));
+            for (var i = 0; i < count; i++)
+                list.Add(ReadOp(ref sr));
 
             _nesting--;
             return doc;
         }
-
         private object? ReadValue(ref SpanReader sr)
         {
             var tag = (VTag)sr.ReadByte();
