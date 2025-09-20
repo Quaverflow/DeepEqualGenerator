@@ -375,8 +375,7 @@ public class MidGraphBenchmarks
         }
     }
 
-    // Equality (generated vs manual)
-    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+       [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
 
@@ -388,8 +387,7 @@ public class MidGraphBenchmarks
     [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-    // Diff surface (no change vs deep change)
-    [Benchmark]
+       [Benchmark]
     public bool Generated_Diff_NoChange_HasDiff()
     {
         var ctx = new ComparisonContext();
@@ -406,8 +404,7 @@ public class MidGraphBenchmarks
         return has && diff.MemberChanges is not null ? diff.MemberChanges.Count : 0;
     }
 
-    // Delta compute (in-memory) — shallow vs deep
-    [Benchmark]
+       [Benchmark]
     public int Generated_ComputeDelta_Shallow_OpCount()
     {
         var ctx = new ComparisonContext();
@@ -423,8 +420,7 @@ public class MidGraphBenchmarks
         return doc.Operations.Count;
     }
 
-    // Delta apply (in-memory)
-    [Benchmark]
+       [Benchmark]
     public bool Apply_InMemory_Shallow_Delta()
     {
         var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
@@ -442,8 +438,7 @@ public class MidGraphBenchmarks
         return ManualNonLinq.AreEqual(target, _neqDeepB);
     }
 
-    // Binary codec (encode size, decode op count)
-    [Benchmark]
+       [Benchmark]
     public int Binary_Encode_Shallow_Delta_Size()
     {
         var buf = new ArrayBufferWriter<byte>();

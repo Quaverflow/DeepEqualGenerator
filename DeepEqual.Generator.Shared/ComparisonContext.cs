@@ -1424,8 +1424,7 @@ public static class BinaryDeltaCodec
                 }
                 catch
                 {
-                    // ignored
-                }
+                                   }
             }
 
             return null;

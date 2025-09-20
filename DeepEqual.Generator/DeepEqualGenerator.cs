@@ -181,8 +181,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                 }
                 catch
                 {
-                    // ignored
-                }
+                                   }
             }
 
             var roots = new Dictionary<INamedTypeSymbol, (bool incInt, bool ordIns, bool eqCycle, bool ddCycle, bool incBase, bool genDiff, bool genDelta, StableMemberIndexMode stableMode, bool emitSnapshot, Location? loc)>(SymbolEqualityComparer.Default);
@@ -449,9 +448,7 @@ internal sealed class EqualityEmitter
 
         w.Close();
 
-        // Ensure the helper's static constructor runs at module load time
-        // so all comparer registrations are available without manual warmup.
-        string OpenGenericSuffix(int arity)
+                      string OpenGenericSuffix(int arity)
         {
             if (arity <= 0) return "";
             if (arity == 1) return "<>";
