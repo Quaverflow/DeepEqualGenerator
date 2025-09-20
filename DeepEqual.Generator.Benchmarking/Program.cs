@@ -375,112 +375,112 @@ public class MidGraphBenchmarks
         }
     }
 
-    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
-    [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
-    [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
-    [Benchmark] public bool Generated_NotEqual_Shallow() => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
-    [Benchmark] public bool Manual_NonLinq_NotEqual_Shallow() => ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
-    [Benchmark] public bool Manual_Linqy_NotEqual_Shallow() => ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
     [Benchmark] public bool Generated_NotEqual_Deep() => MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
-    [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
-    [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
+    [Benchmark] public bool Generated_NotEqual_Shallow() => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
+    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+    //[Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
+    //[Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
+    //[Benchmark] public bool Manual_NonLinq_NotEqual_Shallow() => ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
+    //[Benchmark] public bool Manual_Linqy_NotEqual_Shallow() => ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
+    //[Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
+    //[Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-    [Benchmark]
-    public bool Generated_Diff_NoChange_HasDiff()
-    {
-        var ctx = new ComparisonContext();
-        var (has, diff) = MidGraphDeepOps.GetDiff(_eqA, _eqB, ctx);
-        _ = diff;
-        return has;
-    }
+    //[Benchmark]
+    //public bool Generated_Diff_NoChange_HasDiff()
+    //{
+    //    var ctx = new ComparisonContext();
+    //    var (has, diff) = MidGraphDeepOps.GetDiff(_eqA, _eqB, ctx);
+    //    _ = diff;
+    //    return has;
+    //}
 
-    [Benchmark]
-    public int Generated_Diff_Deep_Change_MemberCount()
-    {
-        var ctx = new ComparisonContext();
-        var (has, diff) = MidGraphDeepOps.GetDiff(_neqDeepA, _neqDeepB, ctx);
-        return has && diff.MemberChanges is not null ? diff.MemberChanges.Count : 0;
-    }
+    //[Benchmark]
+    //public int Generated_Diff_Deep_Change_MemberCount()
+    //{
+    //    var ctx = new ComparisonContext();
+    //    var (has, diff) = MidGraphDeepOps.GetDiff(_neqDeepA, _neqDeepB, ctx);
+    //    return has && diff.MemberChanges is not null ? diff.MemberChanges.Count : 0;
+    //}
 
-    [Benchmark]
-    public int Generated_ComputeDelta_Shallow_OpCount()
-    {
-        var ctx = new ComparisonContext();
-        var doc = MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
-        return doc.Operations.Count;
-    }
+    //[Benchmark]
+    //public int Generated_ComputeDelta_Shallow_OpCount()
+    //{
+    //    var ctx = new ComparisonContext();
+    //    var doc = MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
+    //    return doc.Operations.Count;
+    //}
 
-    [Benchmark]
-    public int Generated_ComputeDelta_Deep_OpCount()
-    {
-        var ctx = new ComparisonContext();
-        var doc = MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB, ctx);
-        return doc.Operations.Count;
-    }
+    //[Benchmark]
+    //public int Generated_ComputeDelta_Deep_OpCount()
+    //{
+    //    var ctx = new ComparisonContext();
+    //    var doc = MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB, ctx);
+    //    return doc.Operations.Count;
+    //}
 
-    [Benchmark]
-    public bool Apply_InMemory_Shallow_Delta()
-    {
-        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
-        var readerDoc = _deltaShallow;
-        MidGraphDeepOps.ApplyDelta(ref target, readerDoc);
-        return ManualNonLinq.AreEqual(target, _neqShallowB);
-    }
+    //[Benchmark]
+    //public bool Apply_InMemory_Shallow_Delta()
+    //{
+    //    var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
+    //    var readerDoc = _deltaShallow;
+    //    MidGraphDeepOps.ApplyDelta(ref target, readerDoc);
+    //    return ManualNonLinq.AreEqual(target, _neqShallowB);
+    //}
 
-    [Benchmark]
-    public bool Apply_InMemory_Deep_Delta()
-    {
-        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
-        var readerDoc = _deltaDeep;
-        MidGraphDeepOps.ApplyDelta(ref target, readerDoc);
-        return ManualNonLinq.AreEqual(target, _neqDeepB);
-    }
+    //[Benchmark]
+    //public bool Apply_InMemory_Deep_Delta()
+    //{
+    //    var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
+    //    var readerDoc = _deltaDeep;
+    //    MidGraphDeepOps.ApplyDelta(ref target, readerDoc);
+    //    return ManualNonLinq.AreEqual(target, _neqDeepB);
+    //}
 
-    [Benchmark]
-    public int Binary_Encode_Shallow_Delta_Size()
-    {
-        var buf = new ArrayBufferWriter<byte>();
-        BinaryDeltaCodec.Write(_deltaShallow, buf, _bin);
-        return buf.WrittenCount;
-    }
+    //[Benchmark]
+    //public int Binary_Encode_Shallow_Delta_Size()
+    //{
+    //    var buf = new ArrayBufferWriter<byte>();
+    //    BinaryDeltaCodec.Write(_deltaShallow, buf, _bin);
+    //    return buf.WrittenCount;
+    //}
 
-    [Benchmark]
-    public int Binary_Decode_Shallow_Delta_OpCount()
-    {
-        var doc = BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
-        return doc.Operations.Count;
-    }
+    //[Benchmark]
+    //public int Binary_Decode_Shallow_Delta_OpCount()
+    //{
+    //    var doc = BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
+    //    return doc.Operations.Count;
+    //}
 
-    [Benchmark]
-    public bool Binary_Apply_Shallow_Delta()
-    {
-        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
-        var doc = BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
-        MidGraphDeepOps.ApplyDelta(ref target, doc);
-        return ManualNonLinq.AreEqual(target, _neqShallowB);
-    }
+    //[Benchmark]
+    //public bool Binary_Apply_Shallow_Delta()
+    //{
+    //    var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
+    //    var doc = BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
+    //    MidGraphDeepOps.ApplyDelta(ref target, doc);
+    //    return ManualNonLinq.AreEqual(target, _neqShallowB);
+    //}
 
-    [Benchmark]
-    public int Binary_Encode_Deep_Delta_Size()
-    {
-        var buf = new ArrayBufferWriter<byte>();
-        BinaryDeltaCodec.Write(_deltaDeep, buf, _bin);
-        return buf.WrittenCount;
-    }
+    //[Benchmark]
+    //public int Binary_Encode_Deep_Delta_Size()
+    //{
+    //    var buf = new ArrayBufferWriter<byte>();
+    //    BinaryDeltaCodec.Write(_deltaDeep, buf, _bin);
+    //    return buf.WrittenCount;
+    //}
 
-    [Benchmark]
-    public int Binary_Decode_Deep_Delta_OpCount()
-    {
-        var doc = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
-        return doc.Operations.Count;
-    }
+    //[Benchmark]
+    //public int Binary_Decode_Deep_Delta_OpCount()
+    //{
+    //    var doc = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
+    //    return doc.Operations.Count;
+    //}
 
-    [Benchmark]
-    public bool Binary_Apply_Deep_Delta()
-    {
-        var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
-        var doc = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
-        MidGraphDeepOps.ApplyDelta(ref target, doc);
-        return ManualNonLinq.AreEqual(target, _neqDeepB);
-    }
+    //[Benchmark]
+    //public bool Binary_Apply_Deep_Delta()
+    //{
+    //    var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
+    //    var doc = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
+    //    MidGraphDeepOps.ApplyDelta(ref target, doc);
+    //    return ManualNonLinq.AreEqual(target, _neqDeepB);
+    //}
 }

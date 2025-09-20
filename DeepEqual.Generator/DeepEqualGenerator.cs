@@ -106,7 +106,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                     var genDelta = HasNamedTrue(attr, "GenerateDelta");
 
                     var cycleSpecified = GetNamedBool(attr, "CycleTracking");
-                    var eqCycle = cycleSpecified ?? true;
+                    var eqCycle = cycleSpecified ?? false;
                     var ddCycle = cycleSpecified ?? false;
 
                     var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
@@ -227,7 +227,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                 var genDiff = HasNamedTrue(attr, "GenerateDiff");
                 var genDelta = HasNamedTrue(attr, "GenerateDelta");
                 var (cycleVal, present) = GetNamedBool(attr, "CycleTracking");
-                var eqCycle = !present || (cycleVal ?? true);
+                var eqCycle = !present || (cycleVal ?? false);
                 var ddCycle = present && (cycleVal ?? false);
                 var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
                 var emitSnapshot = HasNamedTrue(attr, "EmitSchemaSnapshot");
@@ -1185,12 +1185,11 @@ internal sealed class EqualityEmitter
 
         if (equalityMember.Type is INamedTypeSymbol nts && IsUserObjectType(nts))
         {
-            var helperExpr = "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" +
-                             nts.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ">(" + leftExpr + ", " +
-                             rightExpr + ", context)";
-            w.Open("if (!(" + helperExpr + "))");
+            var helperExpr = GetHelperMethodName(nts) + "(" + leftExpr + ", " + rightExpr + ", context)";
+            w.Open("if (!" + helperExpr + ")");
             w.Line("return false;");
             w.Close();
+
             w.Line();
             return;
         }
@@ -1246,10 +1245,8 @@ internal sealed class EqualityEmitter
 
         if (valueType is INamedTypeSymbol namedTypeSymbol && IsUserObjectType(namedTypeSymbol))
         {
-            var helperExpr = "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" +
-                             namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ">(" + leftExpr +
-                             ".Value, " + rightExpr + ".Value, context)";
-            w.Open("if (!(" + helperExpr + "))");
+            var helperExpr = GetHelperMethodName(namedTypeSymbol) + "(" + leftExpr + ".Value, " + rightExpr + ".Value, context)";
+            w.Open("if (!" + helperExpr + ")");
             w.Line("return false;");
             w.Close();
             return;

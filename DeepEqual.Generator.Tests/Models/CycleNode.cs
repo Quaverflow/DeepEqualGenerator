@@ -2,7 +2,7 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepComparable]
+[DeepComparable(CycleTracking = true)]
 public sealed class CycleNode
 {
     public int Id { get; set; }

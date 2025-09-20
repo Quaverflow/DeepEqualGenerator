@@ -17,8 +17,8 @@ namespace DeepEqual.Generator.Shared;
 public sealed class ComparisonContext
 {
     // Cycle-tracking state (only used when _tracking == true)
-    private readonly Stack<RefPair> _stack = new();
-    private readonly HashSet<RefPair> _visited = new(RefPair.Comparer.Instance);
+    private Stack<RefPair>? _stack;
+    private HashSet<RefPair>? _visited;
 
     // Configuration for this context instance
     private readonly bool _tracking;
@@ -52,13 +52,14 @@ public sealed class ComparisonContext
     public bool Enter(object left, object right)
     {
         if (!_tracking) return true;
-
+        _visited ??= new HashSet<RefPair>(RefPair.Comparer.Instance);
+        _stack ??= new Stack<RefPair>();
         var pair = new RefPair(left, right);
-        if (!_visited.Add(pair)) return false; // already visited
-
+        if (!_visited.Add(pair)) return false;
         _stack.Push(pair);
         return true;
     }
+
 
     /// <summary>
     /// Exit the most recent (left,right) pair scope. No-op when tracking is disabled.
@@ -66,9 +67,8 @@ public sealed class ComparisonContext
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Exit(object left, object right)
     {
-        if (!_tracking) return;
+        if (!_tracking || _stack is null || _visited is null) return;
         if (_stack.Count == 0) return;
-
         var last = _stack.Pop();
         _visited.Remove(last);
     }
