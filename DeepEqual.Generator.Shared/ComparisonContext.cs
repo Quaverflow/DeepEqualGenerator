@@ -8,89 +8,105 @@ using System.Text;
 
 namespace DeepEqual.Generator.Shared;
 
+/// <summary>
+/// Per-call comparison context:
+/// - Holds options
+/// - (Optionally) tracks visited object pairs to break cycles
+/// - Provides thread-local, reset-per-call "no-tracking" instance to be safe under parallel usage
+/// </summary>
 public sealed class ComparisonContext
 {
+    // Cycle-tracking state (only used when _tracking == true)
     private readonly Stack<RefPair> _stack = new();
-    private readonly bool _tracking;
     private readonly HashSet<RefPair> _visited = new(RefPair.Comparer.Instance);
 
-    public ComparisonContext() : this(true, new ComparisonOptions())
-    {
-    }
+    // Configuration for this context instance
+    private readonly bool _tracking;
+    public ComparisonOptions Options { get; private set; }
 
-    public ComparisonContext(ComparisonOptions? options) : this(true, options ?? new ComparisonOptions())
-    {
-    }
+    /// <summary>
+    /// Thread-local, reset-per-call context with cycle tracking disabled and default options.
+    /// Safe from parallel races (no shared mutable state across threads or calls).
+    /// </summary>
+    public static ComparisonContext NoTracking => new(false, null);
 
-    private ComparisonContext(bool enableTracking, ComparisonOptions? options)
+    /// <summary>Creates a context with cycle tracking enabled and default options.</summary>
+    public ComparisonContext() : this(true, new ComparisonOptions()) { }
+
+    /// <summary>Creates a context with cycle tracking enabled and explicit options.</summary>
+    public ComparisonContext(ComparisonOptions? options) : this(true, options ?? new ComparisonOptions()) { }
+
+    internal ComparisonContext(bool trackCycles, ComparisonOptions? options)
     {
-        _tracking = enableTracking;
+        _tracking = trackCycles;
         Options = options ?? new ComparisonOptions();
     }
 
-    public ComparisonOptions Options { get; }
+    // ---- Cycle bookkeeping API used by generated code ----
 
-    public static ComparisonContext NoTracking { get; } = new(false, new ComparisonOptions());
-
+    /// <summary>
+    /// Enter a (left,right) object pair. Returns false if we've already visited the pair (cycle).
+    /// When cycle tracking is disabled, returns true and performs no bookkeeping.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Enter(object left, object right)
     {
-        if (!_tracking)
-        {
-            return true;
-        }
+        if (!_tracking) return true;
 
         var pair = new RefPair(left, right);
-        if (!_visited.Add(pair))
-        {
-            return false;
-        }
+        if (!_visited.Add(pair)) return false; // already visited
 
         _stack.Push(pair);
         return true;
     }
 
+    /// <summary>
+    /// Exit the most recent (left,right) pair scope. No-op when tracking is disabled.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Exit(object left, object right)
     {
-        if (!_tracking)
-        {
-            return;
-        }
-
-        if (_stack.Count == 0)
-        {
-            return;
-        }
+        if (!_tracking) return;
+        if (_stack.Count == 0) return;
 
         var last = _stack.Pop();
         _visited.Remove(last);
     }
 
-    private readonly struct RefPair(object left, object right)
+    // ---- Pair identity for cycle tracking ----
+
+    private readonly struct RefPair
     {
-        private readonly object _left = left;
-        private readonly object _right = right;
+        private readonly object _left;
+        private readonly object _right;
+
+        public RefPair(object left, object right)
+        {
+            _left = left;
+            _right = right;
+        }
 
         public sealed class Comparer : IEqualityComparer<RefPair>
         {
             public static readonly Comparer Instance = new();
 
             public bool Equals(RefPair x, RefPair y)
-            {
-                return ReferenceEquals(x._left, y._left) && ReferenceEquals(x._right, y._right);
-            }
+                => ReferenceEquals(x._left, y._left) && ReferenceEquals(x._right, y._right);
 
             public int GetHashCode(RefPair obj)
             {
                 unchecked
                 {
-                    var a = RuntimeHelpers.GetHashCode(obj._left);
-                    var b = RuntimeHelpers.GetHashCode(obj._right);
+                    // Identity-based hash; order matters (L,R) vs (R,L)
+                    int a = RuntimeHelpers.GetHashCode(obj._left);
+                    int b = RuntimeHelpers.GetHashCode(obj._right);
                     return (a * 397) ^ b;
                 }
             }
         }
     }
 }
+
 
 /// <summary> Marker for any diff payload. </summary>
 public interface IDiff
@@ -447,7 +463,7 @@ public static class BinaryDeltaCodec
             sw.WriteVarUInt((uint)op.Kind);
             sw.WriteVarInt(op.MemberIndex);
 
-            if (op.Kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt)
+            if (op.Kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt or DeltaKind.SeqNestedAt)
             {
                 sw.WriteVarUInt((uint)op.Index);
             }
@@ -463,7 +479,7 @@ public static class BinaryDeltaCodec
                 WriteValue(ref sw, op.Value);
             }
 
-            if (op.Kind is DeltaKind.NestedMember or DeltaKind.DictNested)
+            if (op.Kind is DeltaKind.NestedMember or DeltaKind.DictNested or DeltaKind.SeqNestedAt)
             {
                 WriteNested(ref sw, op.Nested!);
             }
@@ -1055,10 +1071,7 @@ public static class BinaryDeltaCodec
 
             var mi64 = sr.ReadVarInt();
             if (mi64 < int.MinValue || mi64 > int.MaxValue)
-            {
                 throw new InvalidOperationException("memberIndex out of Int32 range.");
-            }
-
             var memberIndex = (int)mi64;
 
             var index = -1;
@@ -1066,14 +1079,10 @@ public static class BinaryDeltaCodec
             object? value = null;
             DeltaDocument? nested = null;
 
-            if (kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt)
+            if (kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt or DeltaKind.SeqNestedAt)
             {
                 var idx = sr.ReadVarUInt();
-                if (idx > int.MaxValue)
-                {
-                    throw new InvalidOperationException("sequence index out of Int32 range.");
-                }
-
+                if (idx > int.MaxValue) throw new InvalidOperationException("sequence index out of Int32 range.");
                 index = (int)idx;
             }
 
@@ -1088,13 +1097,14 @@ public static class BinaryDeltaCodec
                 value = ReadValue(ref sr);
             }
 
-            if (kind is DeltaKind.NestedMember or DeltaKind.DictNested)
+            if (kind is DeltaKind.NestedMember or DeltaKind.DictNested or DeltaKind.SeqNestedAt)
             {
                 nested = ReadNested(ref sr);
             }
 
             return new DeltaOp(memberIndex, kind, index, key, value, nested);
         }
+
         public DeltaDocument ReadDocument()
         {
             var sr = new SpanReader(_data);
@@ -1187,28 +1197,28 @@ public static class BinaryDeltaCodec
                 case VTag.Char16: return (char)sr.ReadUInt16();
 
                 case VTag.Single:
-                {
-                    var u = sr.ReadUInt32();
-                    return BitConverter.Int32BitsToSingle((int)u);
-                }
+                    {
+                        var u = sr.ReadUInt32();
+                        return BitConverter.Int32BitsToSingle((int)u);
+                    }
                 case VTag.Double:
-                {
-                    var u = sr.ReadUInt64();
-                    return BitConverter.Int64BitsToDouble((long)u);
-                }
+                    {
+                        var u = sr.ReadUInt64();
+                        return BitConverter.Int64BitsToDouble((long)u);
+                    }
                 case VTag.Decimal: return ReadDecimal(ref sr);
 
                 case VTag.StringInline: return sr.ReadUtf8StringInlineChecked(_opt.Safety.MaxStringBytes);
                 case VTag.StringRef:
-                {
-                    var sid = (int)sr.ReadVarUIntChecked(_strings?.Length ?? 0);
-                    if (_strings is null)
                     {
-                        throw new InvalidOperationException("No string table in stream.");
-                    }
+                        var sid = (int)sr.ReadVarUIntChecked(_strings?.Length ?? 0);
+                        if (_strings is null)
+                        {
+                            throw new InvalidOperationException("No string table in stream.");
+                        }
 
-                    return _strings[sid];
-                }
+                        return _strings[sid];
+                    }
 
                 case VTag.Guid16:
                     return ReadGuid16(ref sr);
@@ -1220,25 +1230,25 @@ public static class BinaryDeltaCodec
                     return new TimeSpan(sr.ReadVarInt());
 
                 case VTag.DateTimeOffset:
-                {
-                    var ticks = sr.ReadVarInt();
-                    var offMin = (int)sr.ReadVarInt();
-                    return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offMin));
-                }
+                    {
+                        var ticks = sr.ReadVarInt();
+                        var offMin = (int)sr.ReadVarInt();
+                        return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offMin));
+                    }
 
                 case VTag.Enum:
-                {
-                    var (enumT, underlying) = ReadEnumTypeIdentity(ref sr);
-                    return ReadEnumValue(ref sr, enumT, underlying);
-                }
+                    {
+                        var (enumT, underlying) = ReadEnumTypeIdentity(ref sr);
+                        return ReadEnumValue(ref sr, enumT, underlying);
+                    }
 
                 case VTag.ByteArray:
-                {
-                    var len = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxStringBytes);
-                    var bytes = new byte[len];
-                    sr.ReadBytes(bytes);
-                    return bytes;
-                }
+                    {
+                        var len = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxStringBytes);
+                        var bytes = new byte[len];
+                        sr.ReadBytes(bytes);
+                        return bytes;
+                    }
 
                 case VTag.Array: return ReadArray(ref sr);
                 case VTag.List: return ReadList(ref sr);
@@ -1428,7 +1438,7 @@ public static class BinaryDeltaCodec
                 }
                 catch
                 {
-                                   }
+                }
             }
 
             return null;

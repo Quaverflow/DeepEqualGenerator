@@ -60,11 +60,13 @@ public enum DeltaKind
     SeqReplaceAt = 10,
     SeqAddAt = 11,
     SeqRemoveAt = 12,
+    SeqNestedAt = 13,   // NEW: nested delta for an element at index
 
     DictSet = 20,
     DictRemove = 21,
     DictNested = 22
 }
+
 
 [method: MethodImpl(MethodImplOptions.AggressiveInlining)]
 public readonly struct DeltaOp(
@@ -82,6 +84,40 @@ public readonly struct DeltaOp(
     public readonly object? Value = value;
     public readonly DeltaDocument? Nested = nested;
 }
+public ref struct SeqNestedScope
+{
+    private DeltaWriter _parent;
+    private readonly int _memberIndex;
+    private readonly int _index;
+    private DeltaDocument? _nested;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal SeqNestedScope(DeltaWriter parent, int memberIndex, int index, DeltaDocument nested)
+    {
+        _parent = parent;
+        _memberIndex = memberIndex;
+        _index = index;
+        _nested = nested;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Dispose()
+    {
+        var doc = _nested;
+        if (doc is null) return;
+
+        if (doc.IsEmpty)
+        {
+            DeltaDocument.Return(doc);  
+        }
+        else
+        {
+            _parent.WriteSeqNestedAt(_memberIndex, _index, doc);
+        }
+
+        _nested = null;
+    }
+}
 
 
 /// <summary>
@@ -91,7 +127,21 @@ public readonly struct DeltaOp(
 public ref struct DeltaWriter(DeltaDocument doc)
 {
     public DeltaDocument Document { get; } = doc ?? throw new ArgumentNullException(nameof(doc));
+   
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void WriteSeqNestedAt(int memberIndex, int index, DeltaDocument nested)
+    {
+        Document.Ops.Add(new DeltaOp(memberIndex, DeltaKind.SeqNestedAt, index, null, null, nested));
+    }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public SeqNestedScope BeginSeqNestedAt(int memberIndex, int index, out DeltaWriter nestedWriter)
+    {
+        var nested = DeltaDocument.Rent(initialCapacity: 8);
+        nestedWriter = new DeltaWriter(nested);
+        return new SeqNestedScope(this, memberIndex, index, nested);
+    }
+   
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteReplaceObject(object? newValue) =>
         Document.Ops.Add(new DeltaOp(-1, DeltaKind.ReplaceObject, -1, null, newValue, null));
@@ -275,6 +325,7 @@ public static class DeltaHelpers
 {
     public static void ApplyListOpCloneIfNeeded<T>(ref object? target, in DeltaOp op)
     {
+        // Fast path: concrete List<T>
         if (target is List<T> list)
         {
             switch (op.Kind)
@@ -282,17 +333,38 @@ public static class DeltaHelpers
                 case DeltaKind.SeqReplaceAt:
                     list[op.Index] = (T)op.Value!;
                     return;
+
                 case DeltaKind.SeqAddAt:
-                    if (list.Count + 1 > list.Capacity) list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
+                    if (list.Count + 1 > list.Capacity)
+                        list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
                     list.Insert(op.Index, (T)op.Value!);
                     return;
+
                 case DeltaKind.SeqRemoveAt:
                     list.RemoveAt(op.Index);
                     return;
+
+                case DeltaKind.SeqNestedAt:
+                    {
+                        var idx = op.Index;
+                        if ((uint)idx < (uint)list.Count)
+                        {
+                            var cur = list[idx];
+                            if (cur is not null)
+                            {
+                                object? obj = cur!;
+                                var subReader = new DeltaReader(op.Nested!);
+                                GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                                list[idx] = (T)obj!;
+                            }
+                        }
+                        return;
+                    }
             }
             return;
         }
 
+        // Fast path: mutable IList<T> (but not read-only)
         if (target is IList<T> ilist && !IsReadOnly(ilist))
         {
             switch (op.Kind)
@@ -300,21 +372,46 @@ public static class DeltaHelpers
                 case DeltaKind.SeqReplaceAt:
                     ilist[op.Index] = (T)op.Value!;
                     return;
+
                 case DeltaKind.SeqAddAt:
                     ilist.Insert(op.Index, (T)op.Value!);
                     return;
+
                 case DeltaKind.SeqRemoveAt:
                     ilist.RemoveAt(op.Index);
                     return;
+
+                case DeltaKind.SeqNestedAt:
+                    {
+                        var idx = op.Index;
+                        if ((uint)idx < (uint)ilist.Count)
+                        {
+                            var cur = ilist[idx];
+                            if (cur is not null)
+                            {
+                                object? obj = cur!;
+                                var subReader = new DeltaReader(op.Nested!);
+                                GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                                ilist[idx] = (T)obj!;
+                            }
+                        }
+                        return;
+                    }
             }
             return;
         }
 
+        // Slow path: clone to List<T> (supports IReadOnlyList<T> and everything else)
         List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
             clone = new List<T>(ro.Count);
             for (int i = 0; i < ro.Count; i++) clone.Add(ro[i]);
+        }
+        else if (target is IEnumerable<T> seq)
+        {
+            clone = new List<T>();
+            foreach (var e in seq) clone.Add(e);
         }
         else
         {
@@ -326,21 +423,182 @@ public static class DeltaHelpers
             case DeltaKind.SeqReplaceAt:
                 clone[op.Index] = (T)op.Value!;
                 break;
+
             case DeltaKind.SeqAddAt:
                 clone.Insert(op.Index, (T)op.Value!);
                 break;
+
             case DeltaKind.SeqRemoveAt:
                 clone.RemoveAt(op.Index);
                 break;
+
+            case DeltaKind.SeqNestedAt:
+                {
+                    var idx = op.Index;
+                    if ((uint)idx < (uint)clone.Count)
+                    {
+                        var cur = clone[idx];
+                        if (cur is not null)
+                        {
+                            object? obj = cur!;
+                            var subReader = new DeltaReader(op.Nested!);
+                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                            clone[idx] = (T)obj!;
+                        }
+                    }
+                    break;
+                }
         }
 
         target = clone;
 
-        static bool IsReadOnly(IList<T> l)
+        static bool IsReadOnly(IList<T> l) => l.IsReadOnly;
+    }
+    public static void ComputeListDeltaNested<T>(
+        IList<T>? left,
+        IList<T>? right,
+        int memberIndex,
+        ref DeltaWriter writer,
+        ComparisonContext context)
+    {
+        if (ReferenceEquals(left, right))
+            return;
+
+        // Best-perf policy: null/new => shallow SetMember
+        if (left is null || right is null)
         {
-            return l.IsReadOnly;
+            writer.WriteSetMember(memberIndex, right);
+            return;
+        }
+
+        var la = left.Count;
+        var lb = right.Count;
+
+        // 1) Trim common prefix
+        var prefix = 0;
+        var maxPrefix = Math.Min(la, lb);
+        while (prefix < maxPrefix && ComparisonHelpers.DeepComparePolymorphic(left[prefix], right[prefix], context))
+            prefix++;
+
+        // 2) Trim common suffix (after prefix)
+        var suffix = 0;
+        var maxSuffix = Math.Min(la - prefix, lb - prefix);
+        while (suffix < maxSuffix &&
+               ComparisonHelpers.DeepComparePolymorphic(
+                   left[la - 1 - suffix],
+                   right[lb - 1 - suffix],
+                   context))
+            suffix++;
+
+        var ra = la - prefix - suffix; // remaining (left)
+        var rb = lb - prefix - suffix; // remaining (right)
+
+        // Early-out if nothing remains
+        if (ra == 0 && rb == 0)
+            return;
+
+        // -----------------------------
+        // SHIFT-ALIGNMENT FOR INSERTS
+        // -----------------------------
+        // If right has strictly more items in the middle window, try to align by a small left-shift `k`
+        // so that left[prefix..prefix+ra-1] == right[prefix+k..prefix+k+ra-1], with 0 <= k <= (rb - ra).
+        // When found, we can model the difference purely as:
+        //   - k head inserts at indices prefix..prefix+k-1
+        //   - (rb - ra - k) tail inserts after the aligned block
+        if (rb >= ra && ra > 0)
+        {
+            var addBudget = rb - ra;
+            int chosenK = -1;
+
+            // Try the smallest k that yields a perfect alignment
+            for (var k = 0; k <= addBudget; k++)
+            {
+                bool match = true;
+                for (var i = 0; i < ra; i++)
+                {
+                    if (!ComparisonHelpers.DeepComparePolymorphic(
+                            left[prefix + i],
+                            right[prefix + k + i],
+                            context))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) { chosenK = k; break; }
+            }
+
+            if (chosenK >= 0)
+            {
+                // Emit HEAD adds (prefix..prefix+chosenK-1)
+                for (var i = 0; i < chosenK; i++)
+                    writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+
+                // Emit TAIL adds for remaining budget (after the aligned block)
+                var alignedLen = ra;
+                var tailAdds = addBudget - chosenK;
+                for (var i = 0; i < tailAdds; i++)
+                {
+                    var insertIndex = prefix + chosenK + alignedLen + i;
+                    writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
+                }
+
+                // All aligned; no replacements needed in the middle region
+                return;
+            }
+        }
+
+        // -----------------------------
+        // GENERAL CASE: per-index nested/replace + adds/removes for length diffs
+        // -----------------------------
+
+        var common = Math.Min(ra, rb);
+
+        // Handle common overlap
+        for (var i = 0; i < common; i++)
+        {
+            var ai = prefix + i;
+            if (!ComparisonHelpers.DeepComparePolymorphic(left[ai], right[ai], context))
+            {
+                var lo = (object?)left[ai];
+                var ro = (object?)right[ai];
+
+                if (lo is not null && ro is not null && ReferenceEquals(lo.GetType(), ro.GetType()))
+                {
+                    var scope = writer.BeginSeqNestedAt(memberIndex, ai, out var w);
+                    GeneratedHelperRegistry.ComputeDeltaSameType(lo.GetType(), lo, ro, context, ref w);
+                    var had = !w.Document.IsEmpty;
+                    scope.Dispose();
+
+                    if (!had)
+                    {
+                        // Ultra-rare: no nested changes detected—fallback to replace
+                        writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+                    }
+                }
+                else
+                {
+                    // Null/new/type-change => shallow element replacement
+                    writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+                }
+            }
+        }
+
+        // Removes (from the end of the middle block)
+        if (ra > rb)
+        {
+            for (var i = ra - 1; i >= rb; i--)
+                writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+        }
+        // Adds (at the end of the middle block)
+        else if (rb > ra)
+        {
+            for (var i = ra; i < rb; i++)
+                writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
         }
     }
+
+
     public static void ComputeListDelta<T, TComparer>(
             IList<T>? left,
             IList<T>? right,

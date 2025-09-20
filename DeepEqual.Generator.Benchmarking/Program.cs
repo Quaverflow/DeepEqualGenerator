@@ -375,19 +375,17 @@ public class MidGraphBenchmarks
         }
     }
 
-       [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+    [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
     [Benchmark] public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
-
     [Benchmark] public bool Generated_NotEqual_Shallow() => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
     [Benchmark] public bool Manual_NonLinq_NotEqual_Shallow() => ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Shallow() => ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
-
     [Benchmark] public bool Generated_NotEqual_Deep() => MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-       [Benchmark]
+    [Benchmark]
     public bool Generated_Diff_NoChange_HasDiff()
     {
         var ctx = new ComparisonContext();
@@ -404,7 +402,7 @@ public class MidGraphBenchmarks
         return has && diff.MemberChanges is not null ? diff.MemberChanges.Count : 0;
     }
 
-       [Benchmark]
+    [Benchmark]
     public int Generated_ComputeDelta_Shallow_OpCount()
     {
         var ctx = new ComparisonContext();
@@ -420,7 +418,7 @@ public class MidGraphBenchmarks
         return doc.Operations.Count;
     }
 
-       [Benchmark]
+    [Benchmark]
     public bool Apply_InMemory_Shallow_Delta()
     {
         var target = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
@@ -438,7 +436,7 @@ public class MidGraphBenchmarks
         return ManualNonLinq.AreEqual(target, _neqDeepB);
     }
 
-       [Benchmark]
+    [Benchmark]
     public int Binary_Encode_Shallow_Delta_Size()
     {
         var buf = new ArrayBufferWriter<byte>();

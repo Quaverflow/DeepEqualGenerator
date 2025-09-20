@@ -301,9 +301,21 @@ public sealed class DirtyFeatureTests
         Assert.False(doc.IsEmpty);
 
         var looksGranular =
-            doc.Operations.Any(o => o is { Kind: DeltaKind.SeqReplaceAt, Index: 1 }) ||
-            doc.Operations.Any(o => o is { Kind: DeltaKind.NestedMember, Nested: { } nd } && nd.Operations.Any(p => p.Kind == DeltaKind.SeqReplaceAt)) ||
-            doc.Operations.Any(o => o is { Kind: DeltaKind.SetMember, Value: List<DItem> });
+            // direct granular list op on Items
+            doc.Operations.Any(o =>
+                (o.Kind == DeltaKind.SeqNestedAt || o.Kind == DeltaKind.SeqReplaceAt) &&
+                o.Index == 1)
+            // OR container-level nested doc that contains a granular list op inside
+            || doc.Operations.Any(o =>
+                o.Kind == DeltaKind.NestedMember &&
+                o.Nested is { } nd &&
+                nd.Operations.Any(p =>
+                    p.Kind == DeltaKind.SeqNestedAt || p.Kind == DeltaKind.SeqReplaceAt))
+            // OR legacy whole-list replacement fallback
+            || doc.Operations.Any(o =>
+                o.Kind == DeltaKind.SetMember &&
+                (o.Value is System.Collections.Generic.IList<DItem> ||
+                 o.Value is System.Collections.Generic.IReadOnlyList<DItem>));
 
         Assert.True(looksGranular, "Expected granular list op, nested granular, or SetMember fallback for Items.");
 

@@ -53,7 +53,8 @@ public sealed class Cat : IAnimal { public string? Name { get; set; } public int
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class Zoo
 {
-    public IAnimal? Pet { get; set; }}
+    public IAnimal? Pet { get; set; }
+}
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class ShallowWrap
@@ -74,7 +75,8 @@ public sealed class SkipWrap
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class WithArray
 {
-    public int[]? Values { get; set; }}
+    public int[]? Values { get; set; }
+}
 
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
@@ -137,7 +139,8 @@ public sealed class ModuleInitFoo
 }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
-public sealed class SealedThing{
+public sealed class SealedThing
+{
     public int A { get; set; }
     public Address? Addr { get; set; }
 }
@@ -198,8 +201,8 @@ public class DiffDeltaFullSuite
         var b = new Order { Items = [new() { Sku = "A", Qty = 1 }, new() { Sku = "B", Qty = 9 }] };
         var doc = OrderDeepOps.ComputeDelta(a, b);
         var seq = doc.Operations.FirstOrDefault(op =>
-            (op.Kind == DeltaKind.SeqReplaceAt || op.Kind == DeltaKind.SeqAddAt || op.Kind == DeltaKind.SeqRemoveAt));
-        if (seq.Kind == DeltaKind.SeqReplaceAt || seq.Kind == DeltaKind.SeqAddAt || seq.Kind == DeltaKind.SeqRemoveAt)
+            (op.Kind == DeltaKind.SeqReplaceAt || op.Kind == DeltaKind.SeqAddAt || op.Kind == DeltaKind.SeqRemoveAt || op.Kind == DeltaKind.SeqNestedAt));
+        if (seq.Kind == DeltaKind.SeqReplaceAt || seq.Kind == DeltaKind.SeqAddAt || seq.Kind == DeltaKind.SeqRemoveAt || seq.Kind == DeltaKind.SeqNestedAt)
         {
             return seq.MemberIndex;
         }
@@ -313,7 +316,7 @@ public class DiffDeltaFullSuite
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
-        var repl = doc.Operations.Single(op => op.Kind == DeltaKind.SeqReplaceAt);
+        var repl = doc.Operations.Single(op => op.Kind == DeltaKind.SeqNestedAt);
         Assert.Equal(1, repl.Index);
 
         var target = Clone(a);
@@ -400,7 +403,7 @@ public class DiffDeltaFullSuite
         b.Items![1].Qty = 99;
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
-        var ops = doc.Operations.Where(o => o.Kind == DeltaKind.SeqReplaceAt).ToList();
+        var ops = doc.Operations.Where(o => o.Kind == DeltaKind.SeqNestedAt).ToList();
         Assert.Single(ops);
         Assert.Equal(1, ops[0].Index);
 
@@ -417,7 +420,7 @@ public class DiffDeltaFullSuite
         b.Items![1].Sku = "MID";
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
-        Assert.Single(doc.Operations.Where(op => op.Kind == DeltaKind.SeqReplaceAt));
+        Assert.Single(doc.Operations.Where(op => op.Kind == DeltaKind.SeqNestedAt));
 
         var target = Clone(a);
         OrderDeepOps.ApplyDelta(ref target, doc);
@@ -432,7 +435,7 @@ public class DiffDeltaFullSuite
         for (var i = 0; i < b.Items!.Count; i++) b.Items[i].Qty++;
 
         var doc = OrderDeepOps.ComputeDelta(a, b);
-        Assert.True(doc.Operations.All(op => op.Kind == DeltaKind.SeqReplaceAt));
+        Assert.True(doc.Operations.All(op => op.Kind == DeltaKind.SeqNestedAt));
 
         var target = Clone(a);
         OrderDeepOps.ApplyDelta(ref target, doc);
@@ -446,12 +449,13 @@ public class DiffDeltaFullSuite
         var b = new Order { Items = MakeItems(("A", 1), ("BX", 2), ("C", 3), ("E", 5)) };
         var doc = OrderDeepOps.ComputeDelta(a, b);
 
-        Assert.Contains(doc.Operations, o => o is { Kind: DeltaKind.SeqReplaceAt, Index: 1 });
+        Assert.Contains(doc.Operations, o =>
+            (o.Kind == DeltaKind.SeqNestedAt || o.Kind == DeltaKind.SeqReplaceAt) && o.Index == 1);
 
         Assert.True(
             doc.Operations.Any(o => o.Kind == DeltaKind.SeqRemoveAt) ||
             doc.Operations.Any(o => o.Kind == DeltaKind.SeqAddAt) ||
-            doc.Operations.Any(o => o is { Kind: DeltaKind.SeqReplaceAt, Index: >= 3 })
+            doc.Operations.Any(o => (o.Kind == DeltaKind.SeqNestedAt || o.Kind == DeltaKind.SeqReplaceAt) && o.Index >= 3)
         );
 
         var target = new Order { Items = MakeItems(("A", 1), ("B", 2), ("C", 3), ("D", 4)) };
@@ -469,7 +473,7 @@ public class DiffDeltaFullSuite
         var removes = doc.Operations.Where(o => o.Kind == DeltaKind.SeqRemoveAt).Select(o => o.Index).ToList();
         var adds = doc.Operations.Where(o => o.Kind == DeltaKind.SeqAddAt).Select(o => o.Index).ToList();
 
-        Assert.True(removes.SequenceEqual(removes.OrderByDescending(x => x)));        Assert.True(adds.SequenceEqual(adds.OrderBy(x => x)));                
+        Assert.True(removes.SequenceEqual(removes.OrderByDescending(x => x))); Assert.True(adds.SequenceEqual(adds.OrderBy(x => x)));
         var target = a;
         OrderDeepOps.ApplyDelta(ref target, doc);
         Assert.True(OrderDeepEqual.AreDeepEqual(b, target));
@@ -781,7 +785,7 @@ public class DiffDeltaFullSuite
     [Fact]
     public void Polymorphic_Unregistered_Runtime_Type_Falls_Back_To_SetMember()
     {
-        var a = new Zoo { Pet = new Parrot { Name = "p", Seeds = 1 } };        var b = new Zoo { Pet = new Parrot { Name = "p", Seeds = 2 } };
+        var a = new Zoo { Pet = new Parrot { Name = "p", Seeds = 1 } }; var b = new Zoo { Pet = new Parrot { Name = "p", Seeds = 2 } };
 
         var doc = ZooDeepOps.ComputeDelta(a, b);
         Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);
@@ -915,7 +919,7 @@ public class DiffDeltaFullSuite
         var o = NewOrder();
 
         var a = NewOrder();
-        var b = Clone(a); b.Notes = "changed";        var probe = OrderDeepOps.ComputeDelta(a, b);
+        var b = Clone(a); b.Notes = "changed"; var probe = OrderDeepOps.ComputeDelta(a, b);
         var anyIdx = probe.Operations.First().MemberIndex;
 
         var doc = new DeltaDocument();
@@ -943,7 +947,7 @@ public class DiffDeltaFullSuite
 
         var doc = new DeltaDocument();
         var w = new DeltaWriter(doc);
-        w.WriteReplaceObject(right);                      w.WriteSetMember(123, "noise");           
+        w.WriteReplaceObject(right); w.WriteSetMember(123, "noise");
         var target = (Address?)null;
         AddressDeepOps.ApplyDelta(ref target, doc);
 
@@ -1045,7 +1049,7 @@ public class DiffDeltaFullSuite
 
         var doc = SealedThingDeepOps.ComputeDelta(a, b);
 
-        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember);                  Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.NestedMember);      
+        Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.SetMember); Assert.Contains(doc.Operations, o => o.Kind == DeltaKind.NestedMember);
         var target = new SealedThing { A = 1, Addr = new Address { Street = "s", City = "c" } };
         SealedThingDeepOps.ApplyDelta(ref target, doc);
         Assert.True(SealedThingDeepEqual.AreDeepEqual(b, target));
@@ -1160,7 +1164,8 @@ public class DiffDeltaFullSuite
 
             Assert.Equal("you", target.Meta!["who"]);
             Assert.True(ReadOnlyDictGranularHostDeepEqual.AreDeepEqual(b, target));
-            Assert.NotSame(before, target.Meta);        }
+            Assert.NotSame(before, target.Meta);
+        }
 
         [Fact]
         public void IReadOnlyDictionary_Value_Change_Mutates_InPlace_When_Target_Is_Mutable()
@@ -1170,10 +1175,11 @@ public class DiffDeltaFullSuite
 
             var doc = ReadOnlyDictGranularHostDeepOps.ComputeDelta(a, b);
 
-            var target = new ReadOnlyDictGranularHost { Meta = RO(("k", "v1")) };            var before = target.Meta;
+            var target = new ReadOnlyDictGranularHost { Meta = RO(("k", "v1")) }; var before = target.Meta;
             ReadOnlyDictGranularHostDeepOps.ApplyDelta(ref target, doc);
 
-            Assert.Same(before, target.Meta);                   Assert.Equal("v2", target.Meta!["k"]);          }
+            Assert.Same(before, target.Meta); Assert.Equal("v2", target.Meta!["k"]);
+        }
 
         [Fact]
         public void IReadOnlyDictionary_Add_Remove_Emit_Granular_Ops_And_Apply()
