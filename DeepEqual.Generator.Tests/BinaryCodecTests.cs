@@ -25,29 +25,17 @@ public sealed class BinaryDeltaCodecTests
             AssertValueEqual(x.Key, y.Key);
             AssertValueEqual(x.Value, y.Value);
 
-            if ((x.Nested is null) != (y.Nested is null))
-            {
-                Assert.True(false, $"Nested presence mismatch at op {i}");
-            }
+            if (x.Nested is null != y.Nested is null) Assert.True(false, $"Nested presence mismatch at op {i}");
 
-            if (x.Nested is not null)
-            {
-                AssertDocsEqual(x.Nested, y.Nested);
-            }
+            if (x.Nested is not null) AssertDocsEqual(x.Nested, y.Nested);
         }
     }
 
     private static void AssertValueEqual(object? a, object? b)
     {
-        if (ReferenceEquals(a, b))
-        {
-            return;
-        }
+        if (ReferenceEquals(a, b)) return;
 
-        if (a is null || b is null)
-        {
-            Assert.Equal(a, b);
-        }
+        if (a is null || b is null) Assert.Equal(a, b);
 
         if (a is byte[] ba && b is byte[] bb)
         {
@@ -79,10 +67,11 @@ public sealed class BinaryDeltaCodecTests
                 Assert.True(db.Contains(e.Key), $"Missing key {e.Key}");
                 AssertValueEqual(e.Value, db[e.Key]);
             }
+
             return;
         }
 
-               if (a.GetType().IsEnum && b.GetType().IsEnum)
+        if (a.GetType().IsEnum && b.GetType().IsEnum)
         {
             Assert.Equal(a.GetType(), b.GetType());
             Assert.Equal(EnumBits(a), EnumBits(b));
@@ -109,12 +98,8 @@ public sealed class BinaryDeltaCodecTests
             }
         }
 
-               Assert.Equal(a, b);
+        Assert.Equal(a, b);
     }
-
-       private enum E8 : byte { Zero = 0, One = 1, Big = 200 }
-    private enum E32
-    { Minus = -3, Zero = 0, Plus = 42 }
 
     private static DeltaDocument Doc(params DeltaOp[] ops)
     {
@@ -122,7 +107,6 @@ public sealed class BinaryDeltaCodecTests
         var w = new DeltaWriter(d);
 
         foreach (var op in ops)
-        {
             switch (op.Kind)
             {
                 case DeltaKind.ReplaceObject:
@@ -134,10 +118,7 @@ public sealed class BinaryDeltaCodecTests
                     break;
 
                 case DeltaKind.NestedMember:
-                    if (op.Nested is null)
-                    {
-                        throw new InvalidOperationException("NestedMember requires Nested");
-                    }
+                    if (op.Nested is null) throw new InvalidOperationException("NestedMember requires Nested");
 
                     w.WriteNestedMember(op.MemberIndex, op.Nested);
                     break;
@@ -163,10 +144,7 @@ public sealed class BinaryDeltaCodecTests
                     break;
 
                 case DeltaKind.DictNested:
-                    if (op.Nested is null)
-                    {
-                        throw new InvalidOperationException("DictNested requires Nested");
-                    }
+                    if (op.Nested is null) throw new InvalidOperationException("DictNested requires Nested");
 
                     w.WriteDictNested(op.MemberIndex, op.Key!, op.Nested);
                     break;
@@ -174,7 +152,6 @@ public sealed class BinaryDeltaCodecTests
                 default:
                     throw new NotSupportedException($"Unhandled kind: {op.Kind}");
             }
-        }
 
         return d;
     }
@@ -223,16 +200,17 @@ public sealed class BinaryDeltaCodecTests
                 throw new InvalidOperationException($"Unsupported kind {op.Kind}");
         }
     }
+
     private static DeltaDocument NestedDemo()
     {
         var inner = Doc(
-            new DeltaOp(memberIndex: 2, kind: DeltaKind.SetMember, index: -1, key: null, value: "inside", nested: null),
-            new DeltaOp(memberIndex: 3, kind: DeltaKind.SeqAddAt, index: 1, key: null, value: 999, nested: null)
+            new DeltaOp(2, DeltaKind.SetMember, -1, null, "inside", null),
+            new DeltaOp(3, DeltaKind.SeqAddAt, 1, null, 999, null)
         );
 
         return Doc(
-            new DeltaOp(memberIndex: 1, kind: DeltaKind.SetMember, index: -1, key: null, value: 123, nested: null),
-            new DeltaOp(memberIndex: 5, kind: DeltaKind.NestedMember, index: -1, key: null, value: null, nested: inner)
+            new DeltaOp(1, DeltaKind.SetMember, -1, null, 123, null),
+            new DeltaOp(5, DeltaKind.NestedMember, -1, null, null, inner)
         );
     }
 
@@ -253,11 +231,15 @@ public sealed class BinaryDeltaCodecTests
             new DeltaOp(11, DeltaKind.SetMember, -1, null, 'ß', null),
             new DeltaOp(12, DeltaKind.SetMember, -1, null, 123.25f, null),
             new DeltaOp(13, DeltaKind.SetMember, -1, null, 123.25d, null),
-            new DeltaOp(14, DeltaKind.SetMember, -1, null, 79228162514264337593543950335m, null),            new DeltaOp(15, DeltaKind.SetMember, -1, null, "hello 🌍", null),
+            new DeltaOp(14, DeltaKind.SetMember, -1, null, 79228162514264337593543950335m, null),
+            new DeltaOp(15, DeltaKind.SetMember, -1, null, "hello 🌍", null),
             new DeltaOp(16, DeltaKind.SetMember, -1, null, Guid.NewGuid(), null),
-            new DeltaOp(17, DeltaKind.SetMember, -1, null, new DateTime(2020, 2, 29, 12, 34, 56, DateTimeKind.Utc), null),
+            new DeltaOp(17, DeltaKind.SetMember, -1, null, new DateTime(2020, 2, 29, 12, 34, 56, DateTimeKind.Utc),
+                null),
             new DeltaOp(18, DeltaKind.SetMember, -1, null, TimeSpan.FromMilliseconds(123456789), null),
-            new DeltaOp(19, DeltaKind.SetMember, -1, null, new DateTimeOffset(new DateTime(2021, 1, 2, 3, 4, 5, DateTimeKind.Unspecified), TimeSpan.FromMinutes(150)), null)
+            new DeltaOp(19, DeltaKind.SetMember, -1, null,
+                new DateTimeOffset(new DateTime(2021, 1, 2, 3, 4, 5, DateTimeKind.Unspecified),
+                    TimeSpan.FromMinutes(150)), null)
         );
 
         var round = RoundTrip(doc, new BinaryDeltaOptions { IncludeHeader = false });
@@ -270,8 +252,9 @@ public sealed class BinaryDeltaCodecTests
         var doc = Doc(
             new DeltaOp(1, DeltaKind.SetMember, -1, null, E8.Big, null),
             new DeltaOp(2, DeltaKind.SetMember, -1, null, E32.Minus, null),
-            new DeltaOp(3, DeltaKind.DictSet, -1, key: "who", value: "me", nested: null),
-            new DeltaOp(3, DeltaKind.DictSet, -1, key: "who", value: "you", nested: null),            new DeltaOp(4, DeltaKind.ReplaceObject, -1, null, "replace-me", null)
+            new DeltaOp(3, DeltaKind.DictSet, -1, "who", "me", null),
+            new DeltaOp(3, DeltaKind.DictSet, -1, "who", "you", null),
+            new DeltaOp(4, DeltaKind.ReplaceObject, -1, null, "replace-me", null)
         );
 
         var opts = new BinaryDeltaOptions
@@ -308,16 +291,15 @@ public sealed class BinaryDeltaCodecTests
     public void RoundTrip_SequenceAndDictionaryOps_AllKinds()
     {
         var doc = Doc(
-            new DeltaOp(1, DeltaKind.SeqAddAt, index: 0, key: null, value: "a", nested: null),
-            new DeltaOp(1, DeltaKind.SeqAddAt, index: 1, key: null, value: "b", nested: null),
-            new DeltaOp(1, DeltaKind.SeqReplaceAt, index: 1, key: null, value: "B", nested: null),
-            new DeltaOp(1, DeltaKind.SeqRemoveAt, index: 0, key: null, value: null, nested: null),
-
-            new DeltaOp(2, DeltaKind.DictSet, -1, key: "who", value: "me", nested: null),
-            new DeltaOp(2, DeltaKind.DictNested, -1, key: "nested",
-                        value: null,
-                        nested: Doc(new DeltaOp(5, DeltaKind.SetMember, -1, null, 777, null))),
-            new DeltaOp(2, DeltaKind.DictRemove, -1, key: "who", value: null, nested: null)
+            new DeltaOp(1, DeltaKind.SeqAddAt, 0, null, "a", null),
+            new DeltaOp(1, DeltaKind.SeqAddAt, 1, null, "b", null),
+            new DeltaOp(1, DeltaKind.SeqReplaceAt, 1, null, "B", null),
+            new DeltaOp(1, DeltaKind.SeqRemoveAt, 0, null, null, null),
+            new DeltaOp(2, DeltaKind.DictSet, -1, "who", "me", null),
+            new DeltaOp(2, DeltaKind.DictNested, -1, "nested",
+                null,
+                Doc(new DeltaOp(5, DeltaKind.SetMember, -1, null, 777, null))),
+            new DeltaOp(2, DeltaKind.DictRemove, -1, "who", null, null)
         );
 
         var round = RoundTrip(doc, new BinaryDeltaOptions { IncludeHeader = false });
@@ -329,7 +311,8 @@ public sealed class BinaryDeltaCodecTests
     {
         var doc = NestedDemo();
         var round1 = RoundTrip(doc, new BinaryDeltaOptions { IncludeHeader = false });
-        var round2 = RoundTrip(doc, new BinaryDeltaOptions { IncludeHeader = true, UseStringTable = true, UseTypeTable = true });
+        var round2 = RoundTrip(doc,
+            new BinaryDeltaOptions { IncludeHeader = true, UseStringTable = true, UseTypeTable = true });
         AssertDocsEqual(doc, round1);
         AssertDocsEqual(doc, round2);
     }
@@ -349,7 +332,7 @@ public sealed class BinaryDeltaCodecTests
     [Fact]
     public void Safety_MaxOps_Triggers()
     {
-               var big = new DeltaDocument();
+        var big = new DeltaDocument();
         var w = new DeltaWriter(big);
         for (var i = 0; i < 10_001; i++)
             w.WriteSetMember(1, i);
@@ -367,17 +350,17 @@ public sealed class BinaryDeltaCodecTests
     [Fact]
     public void Safety_MaxNesting_Triggers()
     {
-               DeltaDocument current = new();
+        DeltaDocument current = new();
         for (var i = 0; i < 64; i++)
             current = Doc(new DeltaOp(i, DeltaKind.NestedMember, -1, null, null, current));
 
-               var writeOpts = new BinaryDeltaOptions { IncludeHeader = false };
+        var writeOpts = new BinaryDeltaOptions { IncludeHeader = false };
         writeOpts.Safety.MaxNesting = 1_000_000;
 
         var buf = new ArrayBufferWriter<byte>();
         BinaryDeltaCodec.Write(current, buf, writeOpts);
 
-               var readOpts = new BinaryDeltaOptions { IncludeHeader = false };
+        var readOpts = new BinaryDeltaOptions { IncludeHeader = false };
         readOpts.Safety.MaxNesting = 32;
 
         Assert.Throws<InvalidOperationException>(() =>
@@ -412,7 +395,7 @@ public sealed class BinaryDeltaCodecTests
     [Fact]
     public void Size_Usually_Smaller_Than_TrivialTextualRepresentation()
     {
-               var doc = Doc(
+        var doc = Doc(
             new DeltaOp(1, DeltaKind.SetMember, -1, null, "who", null),
             new DeltaOp(1, DeltaKind.SetMember, -1, null, "you", null),
             new DeltaOp(2, DeltaKind.DictSet, -1, "message", "hello hello hello hello hello", null)
@@ -423,16 +406,28 @@ public sealed class BinaryDeltaCodecTests
 
         var textual = new StringBuilder();
         foreach (var op in doc.Operations)
-        {
             textual.Append(op.Kind).Append('|')
-                   .Append(op.MemberIndex).Append('|')
-                   .Append(op.Index).Append('|')
-                   .Append(op.Key).Append('|')
-                   .Append(op.Value).AppendLine();
-        }
+                .Append(op.MemberIndex).Append('|')
+                .Append(op.Index).Append('|')
+                .Append(op.Key).Append('|')
+                .Append(op.Value).AppendLine();
 
-               var binarySize = buf.WrittenCount;
+        var binarySize = buf.WrittenCount;
         var textSize = Encoding.UTF8.GetByteCount(textual.ToString());
         Assert.True(binarySize < textSize, $"Binary {binarySize} vs textual {textSize}");
+    }
+
+    private enum E8 : byte
+    {
+        Zero = 0,
+        One = 1,
+        Big = 200
+    }
+
+    private enum E32
+    {
+        Minus = -3,
+        Zero = 0,
+        Plus = 42
     }
 }

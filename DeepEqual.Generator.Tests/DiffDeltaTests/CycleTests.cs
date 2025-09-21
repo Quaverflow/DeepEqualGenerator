@@ -117,11 +117,13 @@ public class NewTests
         {
             var a1 = new A1 { V = 10 };
             var b1 = new B1 { W = 100 };
-            a1.B = b1; b1.A = a1;
+            a1.B = b1;
+            b1.A = a1;
 
             var a2 = new A1 { V = 11 };
             var b2 = new B1 { W = 100 };
-            a2.B = b2; b2.A = a2;
+            a2.B = b2;
+            b2.A = a2;
 
             var doc = A1DeepOps.ComputeDelta(a1, a2);
             Assert.False(doc.IsEmpty);

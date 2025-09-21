@@ -2,4 +2,8 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepComparable] public sealed class ZooArray { public IAnimal[] Animals { get; init; } = []; }
+[DeepComparable]
+public sealed class ZooArray
+{
+    public IAnimal[] Animals { get; init; } = [];
+}

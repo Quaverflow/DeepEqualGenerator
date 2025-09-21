@@ -59,7 +59,7 @@ public static class GeneratedHelperRegistry
     public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context,
         out bool equal)
     {
-               if (_eqMiss.TryGetValue(runtimeType, out _))
+        if (_eqMiss.TryGetValue(runtimeType, out _))
         {
             equal = false;
             return false;
@@ -72,26 +72,22 @@ public static class GeneratedHelperRegistry
         }
 
         for (var bt = runtimeType.BaseType; bt is not null; bt = bt.BaseType)
-        {
             if (_eqMap.TryGetValue(bt, out var cmp))
             {
                 _eqMap.TryAdd(runtimeType, cmp);
                 equal = cmp(left, right, context);
                 return true;
             }
-        }
 
         foreach (var i in runtimeType.GetInterfaces())
-        {
             if (_eqMap.TryGetValue(i, out var cmp))
             {
                 _eqMap.TryAdd(runtimeType, cmp);
                 equal = cmp(left, right, context);
                 return true;
             }
-        }
 
-               _eqMiss.TryAdd(runtimeType, true);
+        _eqMiss.TryAdd(runtimeType, true);
         equal = false;
         return false;
     }
@@ -145,10 +141,7 @@ public static class GeneratedHelperRegistry
     public static bool TryGetDiffSameType(Type runtimeType, object left, object right, ComparisonContext ctx,
         out IDiff diff)
     {
-        if (_diffMap.TryGetValue(runtimeType, out var fn))
-        {
-            return fn(left, right, ctx, out diff);
-        }
+        if (_diffMap.TryGetValue(runtimeType, out var fn)) return fn(left, right, ctx, out diff);
 
         diff = Diff.Empty;
         return false;
@@ -187,24 +180,20 @@ public static class GeneratedHelperRegistry
         }
 
         for (var bt = runtimeType.BaseType; bt is not null; bt = bt.BaseType)
-        {
             if (_deltaComputeMap.TryGetValue(bt, out var baseFn))
             {
                 _deltaComputeMap.TryAdd(runtimeType, baseFn);
                 baseFn(left, right, context, ref writer);
                 return;
             }
-        }
 
         foreach (var i in runtimeType.GetInterfaces())
-        {
             if (_deltaComputeMap.TryGetValue(i, out var ifaceFn))
             {
                 _deltaComputeMap.TryAdd(runtimeType, ifaceFn);
                 ifaceFn(left, right, context, ref writer);
                 return;
             }
-        }
     }
 
     public static bool TryComputeDeltaSameType(Type runtimeType, object? left, object? right, ComparisonContext context,
@@ -217,24 +206,20 @@ public static class GeneratedHelperRegistry
         }
 
         for (var bt = runtimeType.BaseType; bt is not null; bt = bt.BaseType)
-        {
             if (_deltaComputeMap.TryGetValue(bt, out var baseFn))
             {
                 _deltaComputeMap.TryAdd(runtimeType, baseFn);
                 baseFn(left, right, context, ref writer);
                 return true;
             }
-        }
 
         foreach (var i in runtimeType.GetInterfaces())
-        {
             if (_deltaComputeMap.TryGetValue(i, out var ifaceFn))
             {
                 _deltaComputeMap.TryAdd(runtimeType, ifaceFn);
                 ifaceFn(left, right, context, ref writer);
                 return true;
             }
-        }
 
         return false;
     }
@@ -251,24 +236,20 @@ public static class GeneratedHelperRegistry
         }
 
         for (var bt = runtimeType.BaseType; bt is not null; bt = bt.BaseType)
-        {
             if (_deltaApplyObjMap.TryGetValue(bt, out var baseFn))
             {
                 _deltaApplyObjMap.TryAdd(runtimeType, baseFn);
                 baseFn(ref target, ref reader);
                 return true;
             }
-        }
 
         foreach (var i in runtimeType.GetInterfaces())
-        {
             if (_deltaApplyObjMap.TryGetValue(i, out var ifaceFn))
             {
                 _deltaApplyObjMap.TryAdd(runtimeType, ifaceFn);
                 ifaceFn(ref target, ref reader);
                 return true;
             }
-        }
 
         return false;
     }

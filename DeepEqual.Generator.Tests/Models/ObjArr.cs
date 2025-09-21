@@ -2,4 +2,8 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepComparable] public sealed class ObjArr { public object? Any { get; init; } }
+[DeepComparable]
+public sealed class ObjArr
+{
+    public object? Any { get; init; }
+}

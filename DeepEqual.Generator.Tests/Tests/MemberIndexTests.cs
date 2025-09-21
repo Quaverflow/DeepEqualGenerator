@@ -10,7 +10,8 @@ public sealed class OrdinalHost
     public int C { get; set; }
 }
 
-[DeepComparable(GenerateDiff = true, GenerateDelta = true)]public sealed class StableHost
+[DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+public sealed class StableHost
 {
     public int A { get; set; }
     public int B { get; set; }

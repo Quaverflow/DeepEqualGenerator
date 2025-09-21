@@ -1,244 +1,190 @@
-# DeepEqual.Generator
+# DeepEqual Source Generator — Tiered Usage & Configuration
 
-A C# source generator that creates **super-fast, allocation-free deep equality comparers** for your classes and structs.
+This guide explains the DeepEqual source generator in **three tiers of complexity**:
 
-Stop writing `Equals` by hand. Stop serializing to JSON just to compare objects.
-Just add an attribute, and you get a complete deep comparer generated at compile time.
+* **Tier 1 — Common use cases** (most developers)
+* **Tier 2 — Uncommon / intermediate** (customizations)
+* **Tier 3 — Specialized / expert** (advanced scenarios)
 
----
-
-## ✨ Why use this?
-
-* **Simple** – annotate your models, and you’re done.
-* **Flexible** – opt-in options for unordered collections, numeric tolerances, string case sensitivity, custom comparers.
-* **Robust** – covers tricky cases (cycles, sets, dictionaries, polymorphism) that manual code often misses.
+All features and configuration knobs are documented, but grouped by when you realistically need them.
 
 ---
 
-## ⚡ Why is it faster than handwritten code?
+## Tier 1 — Common use cases
 
-* **Compile-time codegen**: emitted at build time as optimized IL — no reflection, no runtime expression building.
-* **Direct member access**: expands equality checks into straight-line code instead of generic loops or helper calls.
-* **No allocations**: avoids closures, iterators, or boxing that sneak into LINQ or naive implementations.
+For most developers, you just want deep equality, diffing, or deltas. The generator makes this very simple.
 
-Result: consistently **5–7× faster** than handwritten comparers, and orders of magnitude faster than JSON/library approaches.
+### Quick start
 
----
-
-## 🛡️ Why is it more robust?
-
-* **Covers corner cases**: nested collections, dictionaries, sets, polymorphism, reference cycles.
-* **Deterministic**: guarantees the same behavior regardless of field order or shape.
-* **Safer than manual**: no risk of forgetting a property or comparing the wrong shape.
-
-In short: you get **the speed of hand-tuned code**, but with **the coverage of a well-tested library** — and without runtime overhead.
-
----
-
-## 📦 Installation
-
-You need **two packages**:
-
-```powershell
-dotnet add package DeepEqual.Generator.Shared
-dotnet add package DeepEqual.Generator
-```
-
-* **Shared** → contains runtime comparers and attributes.
-* **Generator** → analyzer that emits the equality code at compile time.
-
-If you install only the generator, builds will fail because the generated code depends on the runtime package.
-
----
-
-## 🚀 Quick start
-
-Annotate your type:
+Annotate your model:
 
 ```csharp
-using DeepEqual.Generator.Shared;
-
 [DeepComparable]
-public sealed class Person
+public partial class Person
 {
-    public string Name { get; set; } = "";
+    public string Name { get; set; }
     public int Age { get; set; }
 }
 ```
 
-At compile time, a static helper is generated:
+### Equality
 
 ```csharp
-PersonDeepEqual.AreDeepEqual(personA, personB);
+var areEqual = PersonDeepEqual.AreDeepEqual(a, b);
 ```
+
+### Diff
+
+Enable diff:
+
+```csharp
+[DeepComparable(GenerateDiff = true)]
+public partial class Person { ... }
+```
+
+Usage:
+
+```csharp
+var diffs = PersonDeepOps.Diff(left, right);
+```
+
+### Delta (patching)
+
+Enable delta:
+
+```csharp
+[DeepComparable(GenerateDelta = true)]
+public partial class Person { ... }
+```
+
+Usage:
+
+```csharp
+var doc = DeltaDocument.Rent();
+var writer = new DeltaWriter(doc);
+PersonDeepOps.ComputeDelta(left, right, default, ref writer);
+PersonDeepOps.ApplyDelta(ref target, ref new DeltaReader(doc));
+```
+
+✅ That’s it for Tier 1. You can stop here and already have powerful, high-performance equality and delta handling.
 
 ---
 
-## 🔍 Supported comparisons
+## Tier 2 — Uncommon / Intermediate use cases
 
-* **Primitives & enums** – by value.
-* **Strings** – configurable (ordinal, ignore case, culture aware).
-* **DateTime / DateTimeOffset** – strict (both `Kind`/`Offset` and `Ticks` must match).
-* **Guid, TimeSpan, DateOnly, TimeOnly** – by value.
-* **Nullable<T>** – compared only if both have a value.
-* **Arrays & collections** – element by element.
-* **Dictionaries** – key/value pairs deeply compared.
-* **Jagged & multidimensional arrays** – handled correctly.
-* **Object** properties – compared polymorphically if the runtime type has a generated helper.
-* **Dynamics / ExpandoObject** – compared as dictionaries.
-* **Cycles** – supported (can be turned off if you know your graph has no cycles).
+When you need more control over how members are compared, or want runtime tweaks.
+
+### `[DeepCompare]` (member-level overrides)
+
+* `Kind` → `Deep` (default), `Shallow`, `Reference`, `Skip`.
+* `OrderInsensitive` → ignore element order in collections.
+* `ComparerType` → custom `IEqualityComparer<T>`.
+* `KeyMembers` → member(s) used to match items in unordered collections.
+* `DeltaShallow` / `DeltaSkip` → influence delta emission.
+
+**Example:**
+
+```csharp
+public class Order
+{
+    [DeepCompare(Kind = DeepCompareKind.Shallow)]
+    public byte[] RawBytes { get; set; }
+}
+```
+
+### Options at runtime (`ComparisonOptions`)
+
+```csharp
+var ctx = new ComparisonContext(new ComparisonOptions
+{
+    StringComparison = StringComparison.OrdinalIgnoreCase,
+    TreatNaNEqual = true,
+    DoubleEpsilon = 1e-6
+});
+
+if (PersonDeepEqual.AreDeepEqual(a, b, ctx)) { ... }
+```
+
+Available options:
+
+* `StringComparison`
+* `TreatNaNEqual`
+* `DoubleEpsilon` / `FloatEpsilon` / `DecimalEpsilon`
+* `ValidateDirtyOnEmit`
+
+### Dirty-bit tracking
+
+```csharp
+[DeltaTrack(ThreadSafe = true)]
+public partial class PlayerState { ... }
+```
+
+This enables efficient change tracking for emitting small deltas.
 
 ---
 
-## 🎛 Options
+## Tier 3 — Specialized / Expert use cases
 
-### On the root type
+When you need schema stability, cross-version transport, or custom integration.
+
+### Attributes
+
+* `IncludeInternals` — include internal members of the same assembly.
+* `IncludeBaseMembers` — include inherited members.
+* `OrderInsensitiveCollections` — collections default to unordered.
+* `CycleTracking` — enable cycle detection for graphs.
+* `StableMemberIndex` — control stability of member indices in deltas: `Auto`, `On`, `Off`.
+* `EmitSchemaSnapshot` — emit schema snapshot code for versioning.
+
+### Assembly-scoped attributes
+
+* `[ExternalDeepComparable(typeof(SomeExternalType))]`
+* `[ExternalDeepCompare(typeof(SomeExternalType), "Path.To.Member")]`
+
+### Binary delta codec (`BinaryDeltaOptions`)
+
+* `IncludeHeader` — include header with type/string tables.
+* `StableTypeFingerprint` — schema fingerprint (64-bit).
+* `UseTypeTable` / `UseStringTable` — optimize binary size.
+* `IncludeEnumTypeIdentity` — include enum identity with values.
+* Safety caps:
+
+  * `MaxOps` (default 1M)
+  * `MaxStringBytes` (default 16MB)
+  * `MaxNesting` (default 256)
+
+### Examples
 
 ```csharp
-[DeepComparable(OrderInsensitiveCollections = true, IncludeInternals = true, IncludeBaseMembers = true)]
-public sealed class Order { … }
-```
-
-**Defaults:**
-
-* `OrderInsensitiveCollections` → **false**
-* `IncludeInternals` → **false**
-* `IncludeBaseMembers` → **true**
-* `CycleTracking` → **true**
-
-### On individual members
-
-```csharp
-public sealed class Person
+// Binary encode with schema fingerprint
+var options = new BinaryDeltaOptions
 {
-    [DeepCompare(Kind = CompareKind.Shallow)]
-    public Address? Home { get; set; }
-
-    [DeepCompare(OrderInsensitive = true)]
-    public List<string>? Tags { get; set; }
-
-    [DeepCompare(IgnoreMembers = new[] { "CreatedAt", "UpdatedAt" })]
-    public AuditInfo Info { get; set; } = new();
-}
-```
-
----
-
-## 📚 Ordered vs unordered collections
-
-By default, collections are compared **in order**. If you want them compared ignoring order (like sets), you can:
-
-* Enable globally:
-
-```csharp
-[DeepComparable(OrderInsensitiveCollections = true)]
-public sealed class OrderBatch
-{
-    public List<int> Ids { get; set; } = new();
-}
-```
-
-* On specific members:
-
-```csharp
-public sealed class TagSet
-{
-    [DeepCompare(OrderInsensitive = true)]
-    public List<string> Tags { get; set; } = new();
-}
-```
-
-* Or use **key-based matching**:
-
-```csharp
-[DeepCompare(KeyMembers = new[] { "Id" })]
-public sealed class Customer
-{
-    public string Id { get; set; } = "";
-    public string Name { get; set; } = "";
-}
-```
-
----
-
-## ⚡ Numeric & string options
-
-```csharp
-var opts = new ComparisonOptions
-{
-    FloatEpsilon = 0f,
-    DoubleEpsilon = 0d,
-    DecimalEpsilon = 0m,
-    TreatNaNEqual = false,
-    StringComparison = StringComparison.Ordinal
+    IncludeHeader = true,
+    StableTypeFingerprint = 0xDEADBEEFCAFEBABE
 };
+
+var buffer = new ArrayBufferWriter<byte>();
+doc.ToBinary(buffer, options);
+var parsed = DeltaDocument.FromBinary(buffer.WrittenSpan, options);
 ```
 
-Defaults: strict equality for numbers and case-sensitive ordinal for strings.
+### Runtime APIs (registry)
+
+* `GeneratedHelperRegistry.RegisterComparer<T>()`
+* `TryCompare`, `TryCompareSameType`
+* `RegisterDelta<T>(compute, apply)`
+* `ComputeDeltaSameType`, `TryApplyDeltaSameType`
+
+### Dynamic comparer
+
+* `DynamicDeepComparer.AreEqualDynamic(a, b, ctx)` — fallback for unknown runtime types.
 
 ---
 
-## 🌀 Cycles
+## Summary
 
-Cyclic graphs are handled safely:
+* **Tier 1 (Common):** `[DeepComparable]`, equality, diff, delta → easy.
+* **Tier 2 (Intermediate):** member overrides, runtime options, dirty-bit tracking.
+* **Tier 3 (Expert):** schema/versioning, binary codec tuning, external type overrides.
 
-```csharp
-[DeepComparable]
-public sealed class Node
-{
-    public string Id { get; set; } = "";
-    public Node? Next { get; set; }
-}
-
-var a = new Node { Id = "a" };
-var b = new Node { Id = "a" };
-a.Next = a;
-b.Next = b;
-
-NodeDeepEqual.AreDeepEqual(a, b);
-```
-
----
-
-## 📊 Benchmarks
-
-The generated comparer outperforms handwritten, JSON, and popular libraries by a wide margin:
-
-| Method              |    Equal | Allocations |
-| ------------------- | -------: | ----------: |
-| **Generated**       |   0.3 µs |       120 B |
-| Handwritten (Linq)  |   2.1 µs |      3.5 KB |
-| JSON (STJ)          |  1.401 s |      1.4 MB |
-| Compare-Net-Objects |  2.099 s |      3.4 MB |
-| ObjectsComparer     | 13.527 s |       13 MB |
-| FluentAssertions    | 10.818 s |       21 MB |
-
----
-
-## ✅ When to use
-
-* Large object graphs (domain models, caches, trees).
-* Unit/integration tests where you assert deep equality.
-* Regression testing with snapshot objects.
-* High-throughput APIs needing object deduplication.
-* Anywhere you need correctness *and* speed.
-
----
-
-## 📦 Roadmap
-
-* [x] Strict time semantics
-* [x] Numeric tolerances
-* [x] String comparison options
-* [x] Cycle tracking
-* [x] Include internals & base members
-* [x] Order-insensitive collections
-* [x] Key-based unordered matching
-* [x] Custom comparers
-* [x] Memory<T> / ReadOnlyMemory<T>
-* [x] Benchmarks & tests
-* [ ] Analyzer diagnostics
-* [ ] Developer guide & samples site
-
-
-update the benchmark to use the unit next to the number and increase unit ns, ms, s, etc, based on the number size
+This structure lets new users succeed quickly while giving advanced teams full control when needed.

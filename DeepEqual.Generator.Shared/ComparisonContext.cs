@@ -9,36 +9,32 @@ using System.Text;
 namespace DeepEqual.Generator.Shared;
 
 /// <summary>
-/// Per-call comparison context:
-/// - Holds options
-/// - (Optionally) tracks visited object pairs to break cycles
-/// - Provides thread-local, reset-per-call "no-tracking" instance to be safe under parallel usage
+///     Per-call comparison context:
+///     - Holds options
+///     - (Optionally) tracks visited object pairs to break cycles
+///     - Provides thread-local, reset-per-call "no-tracking" instance to be safe under parallel usage
 /// </summary>
 public sealed class ComparisonContext
 {
-       private Stack<RefPair>? _stack;
-    private HashSet<RefPair>? _visited;
-
-       private readonly bool _tracking;
-    public ComparisonOptions Options { get; private set; }
-
     /// <summary>
-    /// Thread-local, reset-per-call context with cycle tracking disabled and default options.
-    /// Safe from parallel races (no shared mutable state across threads or calls).
+    ///     Thread-local, reset-per-call context with cycle tracking disabled and default options.
+    ///     Safe from parallel races (no shared mutable state across threads or calls).
     /// </summary>
     [ThreadStatic] private static ComparisonContext? _cachedNoTracking;
 
-    /// <summary>
-    /// Reusable thread-local context with cycle tracking disabled and default options.
-    /// Safe because when tracking==false the context keeps no per-call mutable state.
-    /// </summary>
-    public static ComparisonContext NoTracking => _cachedNoTracking ??= new ComparisonContext(trackCycles: false, options: null);
+    private readonly bool _tracking;
+    private Stack<RefPair>? _stack;
+    private HashSet<RefPair>? _visited;
 
     /// <summary>Creates a context with cycle tracking enabled and default options.</summary>
-    public ComparisonContext() : this(true, new ComparisonOptions()) { }
+    public ComparisonContext() : this(true, new ComparisonOptions())
+    {
+    }
 
     /// <summary>Creates a context with cycle tracking enabled and explicit options.</summary>
-    public ComparisonContext(ComparisonOptions? options) : this(true, options ?? new ComparisonOptions()) { }
+    public ComparisonContext(ComparisonOptions? options) : this(true, options ?? new ComparisonOptions())
+    {
+    }
 
     internal ComparisonContext(bool trackCycles, ComparisonOptions? options)
     {
@@ -46,10 +42,18 @@ public sealed class ComparisonContext
         Options = options ?? new ComparisonOptions();
     }
 
-   
+    public ComparisonOptions Options { get; private set; }
+
     /// <summary>
-    /// Enter a (left,right) object pair. Returns false if we've already visited the pair (cycle).
-    /// When cycle tracking is disabled, returns true and performs no bookkeeping.
+    ///     Reusable thread-local context with cycle tracking disabled and default options.
+    ///     Safe because when tracking==false the context keeps no per-call mutable state.
+    /// </summary>
+    public static ComparisonContext NoTracking => _cachedNoTracking ??= new ComparisonContext(false, null);
+
+
+    /// <summary>
+    ///     Enter a (left,right) object pair. Returns false if we've already visited the pair (cycle).
+    ///     When cycle tracking is disabled, returns true and performs no bookkeeping.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Enter(object left, object right)
@@ -76,7 +80,7 @@ public sealed class ComparisonContext
         _visited.Remove(last);
     }
 
-   
+
     private readonly struct RefPair
     {
         private readonly object _left;
@@ -93,21 +97,22 @@ public sealed class ComparisonContext
             public static readonly Comparer Instance = new();
 
             public bool Equals(RefPair x, RefPair y)
-                => ReferenceEquals(x._left, y._left) && ReferenceEquals(x._right, y._right);
+            {
+                return ReferenceEquals(x._left, y._left) && ReferenceEquals(x._right, y._right);
+            }
 
             public int GetHashCode(RefPair obj)
             {
                 unchecked
                 {
-                                       int a = RuntimeHelpers.GetHashCode(obj._left);
-                    int b = RuntimeHelpers.GetHashCode(obj._right);
+                    var a = RuntimeHelpers.GetHashCode(obj._left);
+                    var b = RuntimeHelpers.GetHashCode(obj._right);
                     return (a * 397) ^ b;
                 }
             }
         }
     }
 }
-
 
 /// <summary> Marker for any diff payload. </summary>
 public interface IDiff
@@ -151,10 +156,7 @@ public readonly struct Diff<T> : IDiff
 
     public static Diff<T> Members(List<MemberChange> changes)
     {
-        if (changes.Count == 0)
-        {
-            return Empty;
-        }
+        if (changes.Count == 0) return Empty;
 
         return new Diff<T>(true, false, default, changes);
     }
@@ -203,25 +205,13 @@ public readonly struct DefaultElementComparer<T> : IElementComparer<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public bool Invoke(T left, T right, ComparisonContext context)
     {
-        if (left is string sa && right is string sb)
-        {
-            return ComparisonHelpers.AreEqualStrings(sa, sb, context);
-        }
+        if (left is string sa && right is string sb) return ComparisonHelpers.AreEqualStrings(sa, sb, context);
 
-        if (left is double da && right is double db)
-        {
-            return ComparisonHelpers.AreEqualDouble(da, db, context);
-        }
+        if (left is double da && right is double db) return ComparisonHelpers.AreEqualDouble(da, db, context);
 
-        if (left is float fa && right is float fb)
-        {
-            return ComparisonHelpers.AreEqualSingle(fa, fb, context);
-        }
+        if (left is float fa && right is float fb) return ComparisonHelpers.AreEqualSingle(fa, fb, context);
 
-        if (left is decimal ma && right is decimal mb)
-        {
-            return ComparisonHelpers.AreEqualDecimal(ma, mb, context);
-        }
+        if (left is decimal ma && right is decimal mb) return ComparisonHelpers.AreEqualDecimal(ma, mb, context);
 
         return EqualityComparer<T>.Default.Equals(left, right);
     }
@@ -464,34 +454,23 @@ public static class BinaryDeltaCodec
             sw.WriteVarUInt((uint)op.Kind);
             sw.WriteVarInt(op.MemberIndex);
 
-            if (op.Kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt or DeltaKind.SeqNestedAt)
-            {
-                sw.WriteVarUInt((uint)op.Index);
-            }
+            if (op.Kind is DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt
+                or DeltaKind.SeqNestedAt) sw.WriteVarUInt((uint)op.Index);
 
             if (op.Kind is DeltaKind.DictSet or DeltaKind.DictRemove or DeltaKind.DictNested)
-            {
                 WriteValue(ref sw, op.Key);
-            }
 
             if (op.Kind is DeltaKind.ReplaceObject or DeltaKind.SetMember or DeltaKind.SeqReplaceAt
                 or DeltaKind.SeqAddAt or DeltaKind.DictSet)
-            {
                 WriteValue(ref sw, op.Value);
-            }
 
             if (op.Kind is DeltaKind.NestedMember or DeltaKind.DictNested or DeltaKind.SeqNestedAt)
-            {
                 WriteNested(ref sw, op.Nested!);
-            }
         }
 
         private void WriteNested(ref SpanWriter sw, DeltaDocument nested)
         {
-            if (++_nesting > _opt.Safety.MaxNesting)
-            {
-                throw new InvalidOperationException("Max nesting exceeded");
-            }
+            if (++_nesting > _opt.Safety.MaxNesting) throw new InvalidOperationException("Max nesting exceeded");
 
             sw.WriteVarUInt((uint)nested.Operations.Count);
             foreach (var op in nested.Operations) WriteOp(ref sw, op);
@@ -714,13 +693,9 @@ public static class BinaryDeltaCodec
             sw.WriteVarUInt((uint)TypeSpecKind.Enum);
             if (_opt is { IncludeHeader: true, UseTypeTable: true } && _typeToId is not null &&
                 _typeToId.TryGetValue(enumType, out var tid))
-            {
                 sw.WriteVarUInt((uint)tid);
-            }
             else
-            {
                 WriteInlineEnumTypeDesc(ref sw, enumType);
-            }
         }
 
         private static void WriteEnumUnderlying(ref SpanWriter sw, object boxedEnum, Type underlying)
@@ -784,23 +759,16 @@ public static class BinaryDeltaCodec
                 return;
             }
 
-            if (TryWriteKnownTypeSpec(ref sw, t))
-            {
-                return;
-            }
+            if (TryWriteKnownTypeSpec(ref sw, t)) return;
 
             if (t.IsEnum)
             {
                 sw.WriteVarUInt((uint)TypeSpecKind.Enum);
                 if (_opt is { IncludeHeader: true, UseTypeTable: true } && _typeToId is not null &&
                     _typeToId.TryGetValue(t, out var tid))
-                {
                     sw.WriteVarUInt((uint)tid);
-                }
                 else
-                {
                     WriteInlineEnumTypeDesc(ref sw, t);
-                }
 
                 return;
             }
@@ -812,81 +780,43 @@ public static class BinaryDeltaCodec
         {
             KnownTypeCode code;
             if (t == typeof(sbyte))
-            {
                 code = KnownTypeCode.SByte;
-            }
             else if (t == typeof(byte))
-            {
                 code = KnownTypeCode.Byte;
-            }
             else if (t == typeof(short))
-            {
                 code = KnownTypeCode.Int16;
-            }
             else if (t == typeof(ushort))
-            {
                 code = KnownTypeCode.UInt16;
-            }
             else if (t == typeof(int))
-            {
                 code = KnownTypeCode.Int32;
-            }
             else if (t == typeof(uint))
-            {
                 code = KnownTypeCode.UInt32;
-            }
             else if (t == typeof(long))
-            {
                 code = KnownTypeCode.Int64;
-            }
             else if (t == typeof(ulong))
-            {
                 code = KnownTypeCode.UInt64;
-            }
             else if (t == typeof(float))
-            {
                 code = KnownTypeCode.Single;
-            }
             else if (t == typeof(double))
-            {
                 code = KnownTypeCode.Double;
-            }
             else if (t == typeof(decimal))
-            {
                 code = KnownTypeCode.Decimal;
-            }
             else if (t == typeof(bool))
-            {
                 code = KnownTypeCode.Bool;
-            }
             else if (t == typeof(char))
-            {
                 code = KnownTypeCode.Char;
-            }
             else if (t == typeof(string))
-            {
                 code = KnownTypeCode.String;
-            }
             else if (t == typeof(Guid))
-            {
                 code = KnownTypeCode.Guid;
-            }
             else if (t == typeof(DateTime))
-            {
                 code = KnownTypeCode.DateTime;
-            }
             else if (t == typeof(TimeSpan))
-            {
                 code = KnownTypeCode.TimeSpan;
-            }
             else if (t == typeof(DateTimeOffset))
-            {
                 code = KnownTypeCode.DateTimeOffset;
-            }
             else
-            {
                 return false;
-            }
 
             sw.WriteVarUInt((uint)TypeSpecKind.PrimitiveOrKnown);
             sw.WriteVarUInt((uint)code);
@@ -910,37 +840,24 @@ public static class BinaryDeltaCodec
 
         private void BuildTablesIfNeeded(DeltaDocument doc)
         {
-            if (!_opt.IncludeHeader)
-            {
-                return;
-            }
+            if (!_opt.IncludeHeader) return;
 
             HashSet<Type>? enumTypes = _opt.UseTypeTable ? new HashSet<Type>() : null;
-            Dictionary<string, int>? counts = _opt.UseStringTable ? new Dictionary<string, int>() : null;
+            var counts = _opt.UseStringTable ? new Dictionary<string, int>() : null;
 
             void CountString(string s)
             {
-                if (counts is null)
-                {
-                    return;
-                }
+                if (counts is null) return;
 
                 if (counts.TryGetValue(s, out var c))
-                {
                     counts[s] = c + 1;
-                }
                 else
-                {
                     counts[s] = 1;
-                }
             }
 
             void VisitValue(object? v)
             {
-                if (v is null)
-                {
-                    return;
-                }
+                if (v is null) return;
 
                 switch (v)
                 {
@@ -966,10 +883,7 @@ public static class BinaryDeltaCodec
                 }
 
                 var t = v.GetType();
-                if (t.IsEnum)
-                {
-                    enumTypes?.Add(t);
-                }
+                if (t.IsEnum) enumTypes?.Add(t);
             }
 
             void WalkDoc(DeltaDocument d)
@@ -977,20 +891,13 @@ public static class BinaryDeltaCodec
                 foreach (var op in d.Operations)
                 {
                     if (op.Key is string ks)
-                    {
                         CountString(ks);
-                    }
                     else
-                    {
                         VisitValue(op.Key);
-                    }
 
                     VisitValue(op.Value);
 
-                    if (op.Nested is not null)
-                    {
-                        WalkDoc(op.Nested);
-                    }
+                    if (op.Nested is not null) WalkDoc(op.Nested);
                 }
             }
 
@@ -1030,14 +937,9 @@ public static class BinaryDeltaCodec
                     if (_strToId is not null)
                     {
                         if (!_strToId.ContainsKey(t.FullName ?? t.Name))
-                        {
                             _strToId[t.FullName ?? t.Name] = _strings!.AddAndReturnIndex(t.FullName ?? t.Name);
-                        }
 
-                        if (!_strToId.ContainsKey(asm))
-                        {
-                            _strToId[asm] = _strings!.AddAndReturnIndex(asm);
-                        }
+                        if (!_strToId.ContainsKey(asm)) _strToId[asm] = _strings!.AddAndReturnIndex(asm);
                     }
                 }
             }
@@ -1087,21 +989,14 @@ public static class BinaryDeltaCodec
                 index = (int)idx;
             }
 
-            if (kind is DeltaKind.DictSet or DeltaKind.DictRemove or DeltaKind.DictNested)
-            {
-                key = ReadValue(ref sr);
-            }
+            if (kind is DeltaKind.DictSet or DeltaKind.DictRemove or DeltaKind.DictNested) key = ReadValue(ref sr);
 
             if (kind is DeltaKind.ReplaceObject or DeltaKind.SetMember or DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt
                 or DeltaKind.DictSet)
-            {
                 value = ReadValue(ref sr);
-            }
 
             if (kind is DeltaKind.NestedMember or DeltaKind.DictNested or DeltaKind.SeqNestedAt)
-            {
                 nested = ReadNested(ref sr);
-            }
 
             return new DeltaOp(memberIndex, kind, index, key, value, nested);
         }
@@ -1115,15 +1010,14 @@ public static class BinaryDeltaCodec
                 sr.RequireBytes(4);
                 if (sr.ReadByte() != (byte)'B' || sr.ReadByte() != (byte)'D' ||
                     sr.ReadByte() != (byte)'C' || sr.ReadByte() != (byte)'1')
-                {
                     throw new InvalidOperationException("Invalid BinaryDelta header magic.");
-                }
 
                 var version = sr.ReadVarUInt();
                 if (version != 1)
                     throw new NotSupportedException($"Unsupported BinaryDelta version {version}.");
 
-                _ = sr.ReadVarUInt();                var flags = sr.ReadByte();
+                _ = sr.ReadVarUInt();
+                var flags = sr.ReadByte();
                 var hasStrings = (flags & 0b01) != 0;
                 var hasTypes = (flags & 0b10) != 0;
 
@@ -1146,7 +1040,7 @@ public static class BinaryDeltaCodec
 
             var opCount = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
 
-                       var doc = new DeltaDocument();
+            var doc = new DeltaDocument();
             doc.Ops.Capacity = Math.Max(doc.Ops.Capacity, opCount);
 
             var ops = doc.Ops;
@@ -1164,7 +1058,7 @@ public static class BinaryDeltaCodec
 
             var count = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
 
-                       var doc = new DeltaDocument();
+            var doc = new DeltaDocument();
             doc.Ops.Capacity = Math.Max(doc.Ops.Capacity, count);
 
             var list = doc.Ops;
@@ -1174,6 +1068,7 @@ public static class BinaryDeltaCodec
             _nesting--;
             return doc;
         }
+
         private object? ReadValue(ref SpanReader sr)
         {
             var tag = (VTag)sr.ReadByte();
@@ -1195,28 +1090,25 @@ public static class BinaryDeltaCodec
                 case VTag.Char16: return (char)sr.ReadUInt16();
 
                 case VTag.Single:
-                    {
-                        var u = sr.ReadUInt32();
-                        return BitConverter.Int32BitsToSingle((int)u);
-                    }
+                {
+                    var u = sr.ReadUInt32();
+                    return BitConverter.Int32BitsToSingle((int)u);
+                }
                 case VTag.Double:
-                    {
-                        var u = sr.ReadUInt64();
-                        return BitConverter.Int64BitsToDouble((long)u);
-                    }
+                {
+                    var u = sr.ReadUInt64();
+                    return BitConverter.Int64BitsToDouble((long)u);
+                }
                 case VTag.Decimal: return ReadDecimal(ref sr);
 
                 case VTag.StringInline: return sr.ReadUtf8StringInlineChecked(_opt.Safety.MaxStringBytes);
                 case VTag.StringRef:
-                    {
-                        var sid = (int)sr.ReadVarUIntChecked(_strings?.Length ?? 0);
-                        if (_strings is null)
-                        {
-                            throw new InvalidOperationException("No string table in stream.");
-                        }
+                {
+                    var sid = (int)sr.ReadVarUIntChecked(_strings?.Length ?? 0);
+                    if (_strings is null) throw new InvalidOperationException("No string table in stream.");
 
-                        return _strings[sid];
-                    }
+                    return _strings[sid];
+                }
 
                 case VTag.Guid16:
                     return ReadGuid16(ref sr);
@@ -1228,25 +1120,25 @@ public static class BinaryDeltaCodec
                     return new TimeSpan(sr.ReadVarInt());
 
                 case VTag.DateTimeOffset:
-                    {
-                        var ticks = sr.ReadVarInt();
-                        var offMin = (int)sr.ReadVarInt();
-                        return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offMin));
-                    }
+                {
+                    var ticks = sr.ReadVarInt();
+                    var offMin = (int)sr.ReadVarInt();
+                    return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offMin));
+                }
 
                 case VTag.Enum:
-                    {
-                        var (enumT, underlying) = ReadEnumTypeIdentity(ref sr);
-                        return ReadEnumValue(ref sr, enumT, underlying);
-                    }
+                {
+                    var (enumT, underlying) = ReadEnumTypeIdentity(ref sr);
+                    return ReadEnumValue(ref sr, enumT, underlying);
+                }
 
                 case VTag.ByteArray:
-                    {
-                        var len = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxStringBytes);
-                        var bytes = new byte[len];
-                        sr.ReadBytes(bytes);
-                        return bytes;
-                    }
+                {
+                    var len = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxStringBytes);
+                    var bytes = new byte[len];
+                    sr.ReadBytes(bytes);
+                    return bytes;
+                }
 
                 case VTag.Array: return ReadArray(ref sr);
                 case VTag.List: return ReadList(ref sr);
@@ -1274,15 +1166,11 @@ public static class BinaryDeltaCodec
             if (TryCreateArray(elem, len, out var arr, out var objecty))
             {
                 if (objecty)
-                {
                     for (var i = 0; i < len; i++)
                         arr.SetValue(ReadValue(ref sr), i);
-                }
                 else
-                {
                     for (var i = 0; i < len; i++)
                         arr.SetValue(ConvertValueForElement(ReadValue(ref sr), elem), i);
-                }
 
                 return arr;
             }
@@ -1346,10 +1234,7 @@ public static class BinaryDeltaCodec
 
         private static object CreateList(Type t, int capacity)
         {
-            if (t == typeof(object))
-            {
-                return new List<object?>(capacity);
-            }
+            if (t == typeof(object)) return new List<object?>(capacity);
 
             try
             {
@@ -1376,15 +1261,9 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static object? ConvertValueForElement(object? val, Type target)
         {
-            if (val is null || target == typeof(object))
-            {
-                return val;
-            }
+            if (val is null || target == typeof(object)) return val;
 
-            if (target.IsInstanceOfType(val))
-            {
-                return val;
-            }
+            if (target.IsInstanceOfType(val)) return val;
 
             return Convert.ChangeType(val, target);
         }
@@ -1422,17 +1301,11 @@ public static class BinaryDeltaCodec
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var n = asm.GetName();
-                if (!string.Equals(n.Name, asmSimple, StringComparison.Ordinal))
-                {
-                    continue;
-                }
+                if (!string.Equals(n.Name, asmSimple, StringComparison.Ordinal)) continue;
 
                 try
                 {
-                    if (asm.ManifestModule.ModuleVersionId == mvid)
-                    {
-                        return asm.GetType(full, false, false);
-                    }
+                    if (asm.ManifestModule.ModuleVersionId == mvid) return asm.GetType(full, false, false);
                 }
                 catch
                 {
@@ -1579,10 +1452,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteByte(byte b)
         {
-            if (_pos >= _span.Length)
-            {
-                Grow(1);
-            }
+            if (_pos >= _span.Length) Grow(1);
 
             _span[_pos++] = b;
         }
@@ -1591,10 +1461,7 @@ public static class BinaryDeltaCodec
         public void WriteBytes(ReadOnlySpan<byte> src)
         {
             var needed = src.Length;
-            if (_pos + needed > _span.Length)
-            {
-                Grow(needed);
-            }
+            if (_pos + needed > _span.Length) Grow(needed);
 
             src.CopyTo(_span.Slice(_pos));
             _pos += needed;
@@ -1603,10 +1470,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteUInt16(ushort v)
         {
-            if (_pos + 2 > _span.Length)
-            {
-                Grow(2);
-            }
+            if (_pos + 2 > _span.Length) Grow(2);
 
             BinaryPrimitives.WriteUInt16LittleEndian(_span.Slice(_pos), v);
             _pos += 2;
@@ -1615,10 +1479,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteUInt32(uint v)
         {
-            if (_pos + 4 > _span.Length)
-            {
-                Grow(4);
-            }
+            if (_pos + 4 > _span.Length) Grow(4);
 
             BinaryPrimitives.WriteUInt32LittleEndian(_span.Slice(_pos), v);
             _pos += 4;
@@ -1627,10 +1488,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteUInt64(ulong v)
         {
-            if (_pos + 8 > _span.Length)
-            {
-                Grow(8);
-            }
+            if (_pos + 8 > _span.Length) Grow(8);
 
             BinaryPrimitives.WriteUInt64LittleEndian(_span.Slice(_pos), v);
             _pos += 8;
@@ -1672,10 +1530,7 @@ public static class BinaryDeltaCodec
         {
             var byteCount = Encoding.UTF8.GetByteCount(s);
             WriteVarUInt((uint)byteCount);
-            if (_pos + byteCount > _span.Length)
-            {
-                Grow(byteCount);
-            }
+            if (_pos + byteCount > _span.Length) Grow(byteCount);
 
             _ = Encoding.UTF8.GetBytes(s.AsSpan(), _span.Slice(_pos));
             _pos += byteCount;
@@ -1751,10 +1606,7 @@ public static class BinaryDeltaCodec
             {
                 var b = ReadByte();
                 result |= (ulong)(b & 0x7F) << shift;
-                if ((b & 0x80) == 0)
-                {
-                    break;
-                }
+                if ((b & 0x80) == 0) break;
 
                 shift += 7;
             }
@@ -1774,10 +1626,7 @@ public static class BinaryDeltaCodec
         public uint ReadVarUIntChecked(int max)
         {
             var v = ReadVarUInt();
-            if (v > (ulong)max)
-            {
-                throw new InvalidOperationException("Bound exceeded.");
-            }
+            if (v > (ulong)max) throw new InvalidOperationException("Bound exceeded.");
 
             return (uint)v;
         }
@@ -1795,10 +1644,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void RequireBytes(int n)
         {
-            if (_data.Length < n)
-            {
-                throw new InvalidOperationException("Unexpected EOF");
-            }
+            if (_data.Length < n) throw new InvalidOperationException("Unexpected EOF");
         }
     }
 }

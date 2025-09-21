@@ -10,20 +10,24 @@ public class CrazyCycleTests
     {
         var a1 = new PolyCycleNode { Id = 1, Animal = new Cat { Age = 2, Name = "C" } };
         var a2 = new PolyCycleNode { Id = 2, Animal = new Dog { Age = 5, Name = "D" } };
-        a1.Next = a2; a2.Next = a1;
+        a1.Next = a2;
+        a2.Next = a1;
 
         var b1 = new PolyCycleNode { Id = 1, Animal = new Cat { Age = 2, Name = "C" } };
         var b2 = new PolyCycleNode { Id = 2, Animal = new Dog { Age = 5, Name = "D" } };
-        b1.Next = b2; b2.Next = b1;
+        b1.Next = b2;
+        b2.Next = b1;
 
         Assert.True(PolyCycleNodeDeepEqual.AreDeepEqual(a1, b1));
 
         var b2diff = new PolyCycleNode { Id = 2, Animal = new Dog { Age = 6, Name = "D" } };
-        b1.Next = b2diff; b2diff.Next = b1;
+        b1.Next = b2diff;
+        b2diff.Next = b1;
         Assert.False(PolyCycleNodeDeepEqual.AreDeepEqual(a1, b1));
 
         var b2Type = new PolyCycleNode { Id = 2, Animal = new Cat { Age = 5, Name = "D" } };
-        b1.Next = b2Type; b2Type.Next = b1;
+        b1.Next = b2Type;
+        b2Type.Next = b1;
         Assert.False(PolyCycleNodeDeepEqual.AreDeepEqual(a1, b1));
     }
 

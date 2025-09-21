@@ -2,4 +2,8 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepComparable] public sealed class FloatHolder { public float F { get; init; } }
+[DeepComparable]
+public sealed class FloatHolder
+{
+    public float F { get; init; }
+}

@@ -2,4 +2,8 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepComparable] public sealed class ZooRoList { public IReadOnlyList<IAnimal> Animals { get; init; } = new List<IAnimal>(); }
+[DeepComparable]
+public sealed class ZooRoList
+{
+    public IReadOnlyList<IAnimal> Animals { get; init; } = new List<IAnimal>();
+}

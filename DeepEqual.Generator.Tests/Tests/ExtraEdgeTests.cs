@@ -61,34 +61,25 @@ public class ExtraEdgeTests
         Assert.False(ZooListDeepEqual.AreDeepEqual(a, c));
     }
 
-    [DeepComparable] public sealed class BucketItem { public string K { get; init; } = ""; public int V { get; init; } }
-    [DeepComparable]
-    public sealed class Bucketed
-    {
-        [DeepCompare(OrderInsensitive = true, KeyMembers = [nameof(BucketItem.K)])]
-        public List<BucketItem> Items { get; init; } = [];
-    }
-
     [Fact]
     public void Keyed_Unordered_SameCounts_But_DeepValue_Diff_Is_False()
     {
-        var a = new Bucketed { Items = [new() { K = "a", V = 1 }, new() { K = "a", V = 2 }] };
-        var b = new Bucketed { Items = [new() { K = "a", V = 2 }, new() { K = "a", V = 1 }] };
-        var c = new Bucketed { Items = [new() { K = "a", V = 1 }, new() { K = "a", V = 99 }] };
+        var a = new Bucketed { Items = [new BucketItem { K = "a", V = 1 }, new BucketItem { K = "a", V = 2 }] };
+        var b = new Bucketed { Items = [new BucketItem { K = "a", V = 2 }, new BucketItem { K = "a", V = 1 }] };
+        var c = new Bucketed { Items = [new BucketItem { K = "a", V = 1 }, new BucketItem { K = "a", V = 99 }] };
         Assert.True(BucketedDeepEqual.AreDeepEqual(a, b));
         Assert.False(BucketedDeepEqual.AreDeepEqual(a, c));
     }
 
-    [DeepComparable] public sealed class DictShapeA { public Dictionary<string, int> Map { get; init; } = new(); }
-    public sealed class CustomDict : Dictionary<string, int> { }     [DeepComparable] public sealed class DictShapeB { public CustomDict Map { get; init; } = new(); }
-
     [Fact]
     public void Dictionary_Fallback_Mixed_Shapes_Work()
     {
-        var a = new DictShapeA { Map = new() { ["x"] = 1, ["y"] = 2 } };
+        var a = new DictShapeA { Map = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 } };
         var b = new DictShapeB { Map = new CustomDict { ["y"] = 2, ["x"] = 1 } };
-        Assert.True(DictShapeADeepEqual.AreDeepEqual(a, new DictShapeA { Map = new() { ["x"] = 1, ["y"] = 2 } }));
-        Assert.True(DictShapeBDeepEqual.AreDeepEqual(b, new DictShapeB { Map = new CustomDict { ["x"] = 1, ["y"] = 2 } }));
+        Assert.True(DictShapeADeepEqual.AreDeepEqual(a,
+            new DictShapeA { Map = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 } }));
+        Assert.True(DictShapeBDeepEqual.AreDeepEqual(b,
+            new DictShapeB { Map = new CustomDict { ["x"] = 1, ["y"] = 2 } }));
     }
 
     [Fact]
@@ -98,5 +89,36 @@ public class ExtraEdgeTests
         var b = new ObjList { Items = ["a", "b"] };
         Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
         Assert.True(ObjListDeepEqual.AreDeepEqual(b, a));
-        Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));     }
+        Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
+    }
+
+    [DeepComparable]
+    public sealed class BucketItem
+    {
+        public string K { get; init; } = "";
+        public int V { get; init; }
+    }
+
+    [DeepComparable]
+    public sealed class Bucketed
+    {
+        [DeepCompare(OrderInsensitive = true, KeyMembers = [nameof(BucketItem.K)])]
+        public List<BucketItem> Items { get; init; } = [];
+    }
+
+    [DeepComparable]
+    public sealed class DictShapeA
+    {
+        public Dictionary<string, int> Map { get; init; } = new();
+    }
+
+    public sealed class CustomDict : Dictionary<string, int>
+    {
+    }
+
+    [DeepComparable]
+    public sealed class DictShapeB
+    {
+        public CustomDict Map { get; init; } = new();
+    }
 }

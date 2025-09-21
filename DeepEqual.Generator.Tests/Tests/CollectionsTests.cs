@@ -30,13 +30,13 @@ public class CollectionsTests
         var a = new RootOrderInsensitiveCollections
         {
             Names = ["x", "y", "y"],
-            People = [new() { Name = "p1", Age = 1 }, new() { Name = "p2", Age = 2 }],
+            People = [new Person { Name = "p1", Age = 1 }, new Person { Name = "p2", Age = 2 }],
             ForcedOrdered = [1, 2, 3]
         };
         var b = new RootOrderInsensitiveCollections
         {
             Names = ["y", "x", "y"],
-            People = [new() { Name = "p2", Age = 2 }, new() { Name = "p1", Age = 1 }],
+            People = [new Person { Name = "p2", Age = 2 }, new Person { Name = "p1", Age = 1 }],
             ForcedOrdered = [1, 2, 3]
         };
         Assert.True(RootOrderInsensitiveCollectionsDeepEqual.AreDeepEqual(a, b));
@@ -53,16 +53,16 @@ public class CollectionsTests
         {
             Tags =
             [
-                new() { Label = "A" },
-                new() { Label = "B" }
+                new TagAsElementDefaultUnordered { Label = "A" },
+                new TagAsElementDefaultUnordered { Label = "B" }
             ]
         };
         var b = new RootWithElementTypeDefaultUnordered
         {
             Tags =
             [
-                new() { Label = "B" },
-                new() { Label = "A" }
+                new TagAsElementDefaultUnordered { Label = "B" },
+                new TagAsElementDefaultUnordered { Label = "A" }
             ]
         };
         Assert.True(RootWithElementTypeDefaultUnorderedDeepEqual.AreDeepEqual(a, b));
@@ -118,16 +118,16 @@ public class CollectionsTests
         {
             People =
             [
-                new() { Name = "p1", Age = 1 },
-                new() { Name = "p2", Age = 2 }
+                new Person { Name = "p1", Age = 1 },
+                new Person { Name = "p2", Age = 2 }
             ]
         };
         var b = new CustomersUnkeyed
         {
             People =
             [
-                new() { Name = "p2", Age = 2 },
-                new() { Name = "p1", Age = 1 }
+                new Person { Name = "p2", Age = 2 },
+                new Person { Name = "p1", Age = 1 }
             ]
         };
         Assert.True(CustomersUnkeyedDeepEqual.AreDeepEqual(a, b));
@@ -140,16 +140,16 @@ public class CollectionsTests
         {
             Customers =
             [
-                new() { Id = "a", Name = "alice" },
-                new() { Id = "b", Name = "bob" }
+                new CustomerK { Id = "a", Name = "alice" },
+                new CustomerK { Id = "b", Name = "bob" }
             ]
         };
         var b = new CustomersKeyed
         {
             Customers =
             [
-                new() { Id = "b", Name = "bob" },
-                new() { Id = "a", Name = "alice" }
+                new CustomerK { Id = "b", Name = "bob" },
+                new CustomerK { Id = "a", Name = "alice" }
             ]
         };
         Assert.True(CustomersKeyedDeepEqual.AreDeepEqual(a, b));
@@ -158,15 +158,15 @@ public class CollectionsTests
         {
             Customers =
             [
-                new() { Id = "a", Name = "alice" },
-                new() { Id = "b", Name = "BOB!" }
+                new CustomerK { Id = "a", Name = "alice" },
+                new CustomerK { Id = "b", Name = "BOB!" }
             ]
         };
         Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, c));
 
         var d = new CustomersKeyed
         {
-            Customers = [new() { Id = "a", Name = "alice" }]
+            Customers = [new CustomerK { Id = "a", Name = "alice" }]
         };
         Assert.False(CustomersKeyedDeepEqual.AreDeepEqual(a, d));
     }
@@ -205,13 +205,18 @@ public class CollectionsTests
     [Fact]
     public void Unordered_Keyed_With_Duplicates_Must_Match_PerBucket_Count_And_Values()
     {
-        var a = new KeyedBag { Items =
-            [new() { Name = "x", X = 1 }, new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }]
+        var a = new KeyedBag
+        {
+            Items =
+                [new Item { Name = "x", X = 1 }, new Item { Name = "x", X = 2 }, new Item { Name = "y", X = 9 }]
         };
-        var b = new KeyedBag { Items =
-            [new() { Name = "x", X = 2 }, new() { Name = "y", X = 9 }, new() { Name = "x", X = 1 }]
+        var b = new KeyedBag
+        {
+            Items =
+                [new Item { Name = "x", X = 2 }, new Item { Name = "y", X = 9 }, new Item { Name = "x", X = 1 }]
         };
-        var c = new KeyedBag { Items = [new() { Name = "x", X = 1 }, new() { Name = "y", X = 9 }] }; Assert.True(KeyedBagDeepEqual.AreDeepEqual(a, b));
+        var c = new KeyedBag { Items = [new Item { Name = "x", X = 1 }, new Item { Name = "y", X = 9 }] };
+        Assert.True(KeyedBagDeepEqual.AreDeepEqual(a, b));
         Assert.False(KeyedBagDeepEqual.AreDeepEqual(a, c));
     }
 
@@ -238,8 +243,6 @@ public class CollectionsTests
         Assert.False(OptsHolderDeepEqual.AreDeepEqual(a, b, strict));
     }
 
-    [DeepComparable] public sealed class OptsHolder { public string? S { get; init; } public double D { get; init; } public decimal M { get; init; } }
-
     [Fact]
     public void Polymorphism_In_Array_And_ReadOnlyList()
     {
@@ -249,9 +252,12 @@ public class CollectionsTests
         Assert.True(ZooArrayDeepEqual.AreDeepEqual(arrA, arrB));
         Assert.False(ZooArrayDeepEqual.AreDeepEqual(arrA, arrC));
 
-        var roA = new ZooRoList { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 3, Name = "Mog" } } };
-        var roB = new ZooRoList { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 3, Name = "Mog" } } };
-        var roC = new ZooRoList { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 2, Name = "Mog" } } };
+        var roA = new ZooRoList
+            { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 3, Name = "Mog" } } };
+        var roB = new ZooRoList
+            { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 3, Name = "Mog" } } };
+        var roC = new ZooRoList
+            { Animals = new List<IAnimal> { new Cat { Age = 1, Name = "Kit" }, new Cat { Age = 2, Name = "Mog" } } };
         Assert.True(ZooRoListDeepEqual.AreDeepEqual(roA, roB));
         Assert.False(ZooRoListDeepEqual.AreDeepEqual(roA, roC));
     }
@@ -269,13 +275,29 @@ public class CollectionsTests
     [Fact]
     public void Dictionary_Value_Polymorphism_And_Type_Mismatch()
     {
-        var a = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 5, Name = "D" } } };
-        var b = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 5, Name = "D" } } };
-        var c = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 6, Name = "D" } } };
+        var a = new ZooDict
+        {
+            Pets = new Dictionary<string, IAnimal>
+                { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 5, Name = "D" } }
+        };
+        var b = new ZooDict
+        {
+            Pets = new Dictionary<string, IAnimal>
+                { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 5, Name = "D" } }
+        };
+        var c = new ZooDict
+        {
+            Pets = new Dictionary<string, IAnimal>
+                { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Cat { Age = 6, Name = "D" } }
+        };
         Assert.True(ZooDictDeepEqual.AreDeepEqual(a, b));
         Assert.False(ZooDictDeepEqual.AreDeepEqual(a, c));
 
-        var d = new ZooDict { Pets = new() { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Dog { Age = 5, Name = "D" } } };
+        var d = new ZooDict
+        {
+            Pets = new Dictionary<string, IAnimal>
+                { ["a"] = new Cat { Age = 2, Name = "C" }, ["b"] = new Dog { Age = 5, Name = "D" } }
+        };
         Assert.False(ZooDictDeepEqual.AreDeepEqual(a, d));
     }
 
@@ -284,7 +306,8 @@ public class CollectionsTests
     {
         var baseMap = new Dictionary<string, IAnimal> { ["x"] = new Cat { Age = 1, Name = "A" } };
         var r1 = new ZooRoDict { Pets = new ReadOnlyDictionary<string, IAnimal>(baseMap) };
-        var r2 = new ZooRoDict { Pets = new ReadOnlyDictionary<string, IAnimal>(new Dictionary<string, IAnimal>(baseMap)) };
+        var r2 = new ZooRoDict
+            { Pets = new ReadOnlyDictionary<string, IAnimal>(new Dictionary<string, IAnimal>(baseMap)) };
         Assert.True(ZooRoDictDeepEqual.AreDeepEqual(r1, r2));
     }
 
@@ -293,8 +316,10 @@ public class CollectionsTests
     {
         var a1 = new Dictionary<string, IAnimal>(StringComparer.Ordinal) { ["a"] = new Cat { Age = 1, Name = "X" } };
         var a2 = new Dictionary<string, IAnimal>(StringComparer.Ordinal) { ["A"] = new Cat { Age = 1, Name = "X" } };
-        var b1 = new Dictionary<string, IAnimal>(StringComparer.OrdinalIgnoreCase) { ["a"] = new Cat { Age = 1, Name = "X" } };
-        var b2 = new Dictionary<string, IAnimal>(StringComparer.OrdinalIgnoreCase) { ["A"] = new Cat { Age = 1, Name = "X" } };
+        var b1 = new Dictionary<string, IAnimal>(StringComparer.OrdinalIgnoreCase)
+            { ["a"] = new Cat { Age = 1, Name = "X" } };
+        var b2 = new Dictionary<string, IAnimal>(StringComparer.OrdinalIgnoreCase)
+            { ["A"] = new Cat { Age = 1, Name = "X" } };
 
         Assert.False(ZooDictDeepEqual.AreDeepEqual(new ZooDict { Pets = a1 }, new ZooDict { Pets = a2 }));
         Assert.True(ZooDictDeepEqual.AreDeepEqual(new ZooDict { Pets = b1 }, new ZooDict { Pets = b2 }));
@@ -318,5 +343,13 @@ public class CollectionsTests
         var a = new EnumerableHolder { Seq = list };
         var b = new EnumerableHolder { Seq = arr };
         Assert.True(EnumerableHolderDeepEqual.AreDeepEqual(a, b));
+    }
+
+    [DeepComparable]
+    public sealed class OptsHolder
+    {
+        public string? S { get; init; }
+        public double D { get; init; }
+        public decimal M { get; init; }
     }
 }

@@ -13,7 +13,7 @@ public static class DynamicDeepComparer
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-               if (left is string sa && right is string sb) return ComparisonHelpers.AreEqualStrings(sa, sb, context);
+        if (left is string sa && right is string sb) return ComparisonHelpers.AreEqualStrings(sa, sb, context);
         if (left is double da && right is double db) return ComparisonHelpers.AreEqualDouble(da, db, context);
         if (left is float fa && right is float fb) return ComparisonHelpers.AreEqualSingle(fa, fb, context);
         if (left is decimal m1 && right is decimal m2) return ComparisonHelpers.AreEqualDecimal(m1, m2, context);
@@ -23,7 +23,7 @@ public static class DynamicDeepComparer
         var typeRight = right.GetType();
         if (!ReferenceEquals(typeLeft, typeRight)) return false;
 
-               if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
+        if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
             return EqualStringObjectDictionary(sdictA, sdictB, context);
 
         if (left is IDictionary dictA && right is IDictionary dictB)
@@ -33,8 +33,9 @@ public static class DynamicDeepComparer
         {
             var len = arrA.Length;
             if (len != arrB.Length) return false;
-            for (int i = 0; i < len; i++)
-                if (!AreEqualDynamic(arrA.GetValue(i), arrB.GetValue(i), context)) return false;
+            for (var i = 0; i < len; i++)
+                if (!AreEqualDynamic(arrA.GetValue(i), arrB.GetValue(i), context))
+                    return false;
             return true;
         }
 
@@ -44,21 +45,22 @@ public static class DynamicDeepComparer
         if (left is IEnumerable seqA && right is IEnumerable seqB)
             return EqualNonGenericSequence(seqA, seqB, context);
 
-               if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
+        if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
             return eqFromRegistry;
 
-               if (IsPrimitiveLike(left)) return left.Equals(right);
+        if (IsPrimitiveLike(left)) return left.Equals(right);
 
         return left.Equals(right);
     }
- 
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool EqualNonGenericList(IList a, IList b, ComparisonContext context)
     {
         var n = a.Count;
         if (n != b.Count) return false;
-        for (int i = 0; i < n; i++)
-            if (!AreEqualDynamic(a[i], b[i], context)) return false;
+        for (var i = 0; i < n; i++)
+            if (!AreEqualDynamic(a[i], b[i], context))
+                return false;
         return true;
     }
 
@@ -75,6 +77,7 @@ public static class DynamicDeepComparer
             if (!b.TryGetValue(kvp.Key, out var rb)) return false;
             if (!AreEqualDynamic(kvp.Value, rb, context)) return false;
         }
+
         return true;
     }
 
@@ -89,9 +92,10 @@ public static class DynamicDeepComparer
             var rv = b[de.Key];
             if (!AreEqualDynamic(de.Value, rv, context)) return false;
         }
+
         return true;
     }
- 
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool EqualNonGenericSequence(IEnumerable a, IEnumerable b, ComparisonContext context)
     {
@@ -114,23 +118,27 @@ public static class DynamicDeepComparer
             (eb as IDisposable)?.Dispose();
         }
     }
-  
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsPrimitiveLike(object v)
-        => v is bool
-           || v is byte or sbyte
-           || v is short or ushort
-           || v is int or uint
-           || v is long or ulong
-           || v is char
-           || v is Guid
-           || v is DateTime or DateTimeOffset or TimeSpan
-           || v.GetType().IsEnum;
+    {
+        return v is bool
+               || v is byte or sbyte
+               || v is short or ushort
+               || v is int or uint
+               || v is long or ulong
+               || v is char
+               || v is Guid
+               || v is DateTime or DateTimeOffset or TimeSpan
+               || v.GetType().IsEnum;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsNumeric(object o)
-        => o is byte or sbyte or short or ushort or int or uint or long or ulong
+    {
+        return o is byte or sbyte or short or ushort or int or uint or long or ulong
             or float or double or decimal;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool NumericEqual(object a, object b, ComparisonContext context)
@@ -141,6 +149,7 @@ public static class DynamicDeepComparer
             var db = b is decimal mbd ? (double)mbd : Convert.ToDouble(b);
             return ComparisonHelpers.AreEqualDouble(da, db, context);
         }
+
         var va = Convert.ToDecimal(a);
         var vb = Convert.ToDecimal(b);
         return va == vb;

@@ -181,7 +181,8 @@ public class RefTypeTests
         var bytes3 = Enumerable.Range(0, 32).Select(i => (byte)(i + 1)).ToArray();
 
         var a = new MemoryHolder { Buf = new Memory<byte>(bytes1), RBuf = new ReadOnlyMemory<byte>(bytes2) };
-        var b = new MemoryHolder { Buf = new Memory<byte>(bytes1.ToArray()), RBuf = new ReadOnlyMemory<byte>(bytes2.ToArray()) };
+        var b = new MemoryHolder
+            { Buf = new Memory<byte>(bytes1.ToArray()), RBuf = new ReadOnlyMemory<byte>(bytes2.ToArray()) };
         var c = new MemoryHolder { Buf = new Memory<byte>(bytes3), RBuf = new ReadOnlyMemory<byte>(bytes2) };
 
         Assert.True(MemoryHolderDeepEqual.AreDeepEqual(a, b));
@@ -195,9 +196,12 @@ public class RefTypeTests
         var base2 = new byte[] { 0, 1, 2, 3, 4, 5 };
         var base3 = new byte[] { 0, 1, 9, 3, 4, 5 };
 
-        var a = new MemoryHolder { Buf = new Memory<byte>(base1).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base1).Slice(1, 3) };
-        var b = new MemoryHolder { Buf = new Memory<byte>(base2).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base2).Slice(1, 3) };
-        var c = new MemoryHolder { Buf = new Memory<byte>(base3).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base3).Slice(1, 3) };
+        var a = new MemoryHolder
+            { Buf = new Memory<byte>(base1).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base1).Slice(1, 3) };
+        var b = new MemoryHolder
+            { Buf = new Memory<byte>(base2).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base2).Slice(1, 3) };
+        var c = new MemoryHolder
+            { Buf = new Memory<byte>(base3).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base3).Slice(1, 3) };
 
         Assert.True(MemoryHolderDeepEqual.AreDeepEqual(a, b));
         Assert.False(MemoryHolderDeepEqual.AreDeepEqual(a, c));
