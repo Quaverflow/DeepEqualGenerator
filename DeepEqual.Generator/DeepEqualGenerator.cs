@@ -334,8 +334,7 @@ internal sealed class EqualityEmitter
         {
             w.Open("namespace " + ns);
         }
-     
-        w.Line("[System.Runtime.CompilerServices.SkipLocalsInit]");
+
         w.Open(accessibility + " static class " + helperClass + typeParams);
 
 
@@ -596,7 +595,7 @@ internal sealed class EqualityEmitter
             w.Line();
             return;
         }
-    
+
         var isString = equalityMember.Type.SpecialType == SpecialType.System_String;
         if (!equalityMember.Type.IsValueType && !isString)
         {
@@ -2637,6 +2636,9 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
     }
+    private static bool IsArray(ITypeSymbol t) => t is Microsoft.CodeAnalysis.IArrayTypeSymbol;
+    private static bool IsExpando(ITypeSymbol t) =>
+        t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Dynamic.ExpandoObject";
 
     private void EmitDeltaTrackPart(SourceProductionContext spc, INamedTypeSymbol type, DiffDeltaTarget root)
     {
@@ -3058,8 +3060,75 @@ internal sealed class DiffDeltaEmitter
         if (root.GenerateDelta)
         {
             w.Open($"private static void ApplyDelta__{id}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader)");
+            w.Line("var __ops = reader.AsSpan();");
 
-            w.Open("foreach (var op in reader.EnumerateAll())");
+            // build the ordered member list once
+            var __preByOrdinal = OrderMembers(
+                EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema))
+                .Select(m => (ms: m, idx: GetStableMemberIndex(type, m)))
+                .ToArray();
+
+            // decide if this type even needs a pre-pass
+            var __hasPresizableMembers =
+                __preByOrdinal.Any(t =>
+                    (TryGetListInterface(t.ms.Type, out _) && !(t.ms.Type is IArrayTypeSymbol)) ||
+                    (TryGetDictionaryTypes(t.ms.Type, out _, out _) && !IsExpando(t.ms.Type)));
+
+            w.Open("if (" + (__hasPresizableMembers ? "true" : "false") + ")");  // we’ll let the generator fold this to 'if (true/false)'
+            {
+                // 1) declare counters
+                foreach (var t2 in __preByOrdinal)
+                {
+                    var m = t2.ms;
+                    var idx = t2.idx;
+
+                    if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
+                        w.Line($"int __adds_m{idx} = 0;");
+                    else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
+                        w.Line($"int __dictSets_m{idx} = 0;");
+                }
+
+                // 2) counting loop (once)
+                w.Open("for (int __i=0; __i<__ops.Length; __i++)");
+                w.Line("ref readonly var __o = ref __ops[__i];");
+                w.Open("switch (__o.MemberIndex)");
+                foreach (var t2 in __preByOrdinal)
+                {
+                    var m = t2.ms;
+                    var idx = t2.idx;
+
+                    if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
+                        w.Line($"case {idx}: if (__o.Kind==DeepEqual.Generator.Shared.DeltaKind.SeqAddAt) __adds_m{idx}++; break;");
+                    else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
+                        w.Line($"case {idx}: if (__o.Kind==DeepEqual.Generator.Shared.DeltaKind.DictSet) __dictSets_m{idx}++; break;");
+                }
+                w.Close(); // switch
+                w.Close(); // for
+
+                // 3) presize once per member
+                foreach (var t2 in __preByOrdinal)
+                {
+                    var m = t2.ms;
+                    var idx = t2.idx;
+                    var propAccess = "target." + m.Name;
+
+                    if (TryGetListInterface(m.Type, out var elTypeForPresize) && m.Type is not IArrayTypeSymbol)
+                    {
+                        var elFqnPS = elTypeForPresize.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        w.Line($"{{ var __obj = {propAccess}; if (__adds_m{idx} > 0 && __obj is System.Collections.Generic.List<{elFqnPS}> __l) __l.EnsureCapacity(__l.Count + __adds_m{idx}); }}");
+                    }
+                    else if (TryGetDictionaryTypes(m.Type, out var preKType, out var preVType) && !IsExpando(m.Type))
+                    {
+                        var kFqnPS = preKType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        var vFqnPS = preVType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        w.Line($"{{ var __obj = {propAccess}; if (__dictSets_m{idx} > 0 && __obj is System.Collections.Generic.Dictionary<{kFqnPS}, {vFqnPS}> __d) __d.EnsureCapacity(__d.Count + __dictSets_m{idx}); }}");
+                    }
+                }
+            }
+            w.Close(); // end if(hasPresizableMembers)
+
+            w.Open("for (int __ai=0; __ai<__ops.Length; __ai++)");
+            w.Line("ref readonly var op = ref __ops[__ai];");
             w.Open("switch (op.MemberIndex)");
 
             // ReplaceObject
@@ -3084,31 +3153,6 @@ internal sealed class DiffDeltaEmitter
                 var nullableQ = member.Type.IsReferenceType ? "?" : "";
 
                 w.Open($"case {memberIdx}:");
-
-                // ----------- optional: pre-size for lists/dicts (keep your existing logic) -----------
-                if (TryGetListInterface(member.Type, out var elTypeForPresize))
-                {
-                    var elFqnPS = elTypeForPresize.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    w.Line("{ int __adds=0, __removes=0;");
-                    w.Line("  reader.ForEachMember(op.MemberIndex, o => {");
-                    w.Line("    if (o.Kind==DeepEqual.Generator.Shared.DeltaKind.SeqAddAt) __adds++;");
-                    w.Line("    else if (o.Kind==DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt) __removes++;");
-                    w.Line("  });");
-                    w.Line($"  object? __obj = {propAccess};");
-                    w.Line($"  if (__obj is System.Collections.Generic.List<{elFqnPS}> __l)");
-                    w.Line("  { int __net = __adds - __removes; if (__net>0) __l.EnsureCapacity(__l.Count+__net); } }");
-                }
-                else if (TryGetDictionaryTypes(member.Type, out var preKType, out var preVType))
-                {
-                    var kFqnPS = preKType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var vFqnPS = preVType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    w.Line("{ int __potAdds=0;");
-                    w.Line("  reader.ForEachMember(op.MemberIndex, o => { if (o.Kind==DeepEqual.Generator.Shared.DeltaKind.DictSet) __potAdds++; });");
-                    w.Line($"  object? __obj = {propAccess};");
-                    w.Line($"  if (__obj is System.Collections.Generic.Dictionary<{kFqnPS}, {vFqnPS}> __d && __potAdds>0)");
-                    w.Line("  { __d.EnsureCapacity(__d.Count+__potAdds); } }");
-                }
-                // --------------------------------------------------------------------------------------
 
                 // single inner switch for all kinds (no dupes)
                 w.Open("switch (op.Kind)");
@@ -3273,7 +3317,6 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
     }
-
     private void EmitMemberDiff(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member, DiffDeltaTarget root)
     {
         var idx = GetStableMemberIndex(owner, member);

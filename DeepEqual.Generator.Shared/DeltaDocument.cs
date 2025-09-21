@@ -279,6 +279,8 @@ public struct DeltaReader(DeltaDocument? doc)
 {
     private readonly DeltaDocument _doc = doc ?? DeltaDocument.Empty;
     private int _pos = 0;
+    public ReadOnlySpan<DeltaOp> AsSpan()
+        => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_doc.Ops);
 
     public bool TryRead(out DeltaOp op)
     {
@@ -323,6 +325,7 @@ public struct DeltaReader(DeltaDocument? doc)
 /// </summary>
 public static class DeltaHelpers
 {
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static void ApplyListOpCloneIfNeeded<T>(ref object? target, in DeltaOp op)
     {
         // Fast path: concrete List<T>
@@ -857,6 +860,7 @@ public static class DeltaHelpers
         }
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static void ApplyDictOpCloneIfNeeded<TKey, TValue>(ref object? target, in DeltaOp op)
         where TKey : notnull
     {
