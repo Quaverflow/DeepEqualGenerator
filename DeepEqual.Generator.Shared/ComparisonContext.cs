@@ -28,7 +28,12 @@ public sealed class ComparisonContext
     /// Thread-local, reset-per-call context with cycle tracking disabled and default options.
     /// Safe from parallel races (no shared mutable state across threads or calls).
     /// </summary>
-    public static ComparisonContext NoTracking => new(false, null);
+    [ThreadStatic] private static ComparisonContext? _cachedNoTracking;
+    public static ComparisonContext NoTracking
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _cachedNoTracking ??= new(false, null);
+    }
 
     /// <summary>Creates a context with cycle tracking enabled and default options.</summary>
     public ComparisonContext() : this(true, new ComparisonOptions()) { }

@@ -33,11 +33,7 @@ public static class DynamicDeepComparer
         var typeRight = right.GetType();
         if (!ReferenceEquals(typeLeft, typeRight)) return false;
 
-        // Generated comparer if available (avoids reflection in hot path)
-        if (GeneratedHelperRegistry.TryCompare(left, right, context, out var eqFromRegistry))
-            return eqFromRegistry;
-
-        // Dictionaries & arrays & sequences
+        // Collections first (avoid interface scanning/alloc in registry lookup)
         if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
             return EqualStringObjectDictionary(sdictA, sdictB, context);
 
@@ -52,14 +48,28 @@ public static class DynamicDeepComparer
             return true;
         }
 
+        // Non-generic IList<T> and List<T> still implement non-generic IList
+        if (left is IList listA && right is IList listB)
+            return EqualNonGenericList(listA, listB, context);
+
         if (left is IEnumerable seqA && right is IEnumerable seqB)
             return EqualNonGenericSequence(seqA, seqB, context);
+
+        if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
+            return eqFromRegistry;
 
         // Primitives & enums & other value-like stuff
         if (IsPrimitiveLike(left)) return left.Equals(right);
 
         // Fallback
         return left.Equals(right);
+    }
+    private static bool EqualNonGenericList(IList a, IList b, ComparisonContext context)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+            if (!AreEqualDynamic(a[i], b[i], context)) return false;
+        return true;
     }
 
     private static bool EqualStringObjectDictionary(
