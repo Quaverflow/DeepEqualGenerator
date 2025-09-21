@@ -487,67 +487,64 @@ public static class ComparisonHelpers
         return true;
     }
 
-    public static bool AreEqualDictionariesAny<TKey, TValue, TValueComparer>(object? a, object? b,
-        TValueComparer comparer, ComparisonContext context)
+    public static bool AreEqualDictionariesAny<TKey, TValue, TValueComparer>(
+        object? a, object? b, TValueComparer comparer, ComparisonContext context)
         where TValueComparer : IElementComparer<TValue>
         where TKey : notnull
     {
-        if (ReferenceEquals(a, b))
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        // 1) Concrete fast-paths — avoid interface enumeration boxing
+        if (a is Dictionary<TKey, TValue> da && b is Dictionary<TKey, TValue> db)
         {
+            if (da.Count != db.Count) return false;
+            foreach (KeyValuePair<TKey, TValue> kv in da)
+            {
+                if (!db.TryGetValue(kv.Key, out var bv)) return false;
+                if (!comparer.Invoke(kv.Value, bv, context)) return false;
+            }
             return true;
         }
 
-        if (a is null || b is null)
+        // Optional: if you use ReadOnlyDictionary<TKey,TValue>
+        if (a is System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue> rda &&
+            b is System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue> rdb)
         {
-            return false;
+            if (rda.Count != rdb.Count) return false;
+            foreach (KeyValuePair<TKey, TValue> kv in rda)
+            {
+                if (!rdb.TryGetValue(kv.Key, out var bv)) return false;
+                if (!comparer.Invoke(kv.Value, bv, context)) return false;
+            }
+            return true;
         }
 
+        // 2) Interface fast-paths
         if (a is IReadOnlyDictionary<TKey, TValue> roa && b is IReadOnlyDictionary<TKey, TValue> rob)
         {
-            if (roa.Count != rob.Count)
-            {
-                return false;
-            }
-
+            if (roa.Count != rob.Count) return false;
+            // IMPORTANT: iterate 'roa' via the interface, but avoid LINQ and do TryGetValue on 'rob'
             foreach (var kv in roa)
             {
-                if (!rob.TryGetValue(kv.Key, out var bv))
-                {
-                    return false;
-                }
-
-                if (!comparer.Invoke(kv.Value, bv, context))
-                {
-                    return false;
-                }
+                if (!rob.TryGetValue(kv.Key, out var bv)) return false;
+                if (!comparer.Invoke(kv.Value, bv, context)) return false;
             }
-
             return true;
         }
 
         if (a is IDictionary<TKey, TValue> rwa && b is IDictionary<TKey, TValue> rwb)
         {
-            if (rwa.Count != rwb.Count)
-            {
-                return false;
-            }
-
+            if (rwa.Count != rwb.Count) return false;
             foreach (var kv in rwa)
             {
-                if (!rwb.TryGetValue(kv.Key, out var bv))
-                {
-                    return false;
-                }
-
-                if (!comparer.Invoke(kv.Value, bv, context))
-                {
-                    return false;
-                }
+                if (!rwb.TryGetValue(kv.Key, out var bv)) return false;
+                if (!comparer.Invoke(kv.Value, bv, context)) return false;
             }
-
             return true;
         }
 
+        // 3) Last resort: if either side is not a compatible dictionary type, fall back
         return Equals(a, b);
     }
 
