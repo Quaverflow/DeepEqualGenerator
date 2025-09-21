@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace DeepEqual.Generator.Shared;
 
 public static class ComparisonHelpers
 {
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualStrings(string? a, string? b, ComparisonContext? context)
     {
         var comp = context?.Options.StringComparison ?? StringComparison.Ordinal;
@@ -38,11 +40,13 @@ public static class ComparisonHelpers
         return EqualityComparer<T>.Default.Equals(a, b);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualDateTime(DateTime a, DateTime b)
     {
         return a.Kind == b.Kind && a.Ticks == b.Ticks;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualDateTimeOffset(DateTimeOffset a, DateTimeOffset b)
     {
         return a.Offset == b.Offset && a.UtcTicks == b.UtcTicks;
@@ -58,6 +62,7 @@ public static class ComparisonHelpers
         return a.Ticks == b.Ticks;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualSingle(float a, float b, ComparisonContext? context)
     {
         if (float.IsNaN(a) || float.IsNaN(b))
@@ -73,7 +78,8 @@ public static class ComparisonHelpers
 
         return Math.Abs(a - b) <= eps;
     }
-
+ 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualDouble(double a, double b, ComparisonContext? context)
     {
         if (double.IsNaN(a) || double.IsNaN(b))
@@ -90,6 +96,7 @@ public static class ComparisonHelpers
         return Math.Abs(a - b) <= eps;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool AreEqualDecimal(decimal a, decimal b, ComparisonContext? context)
     {
         var eps = context?.Options.DecimalEpsilon ?? 0m;

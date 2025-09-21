@@ -334,8 +334,10 @@ internal sealed class EqualityEmitter
         {
             w.Open("namespace " + ns);
         }
-
+     
+        w.Line("[System.Runtime.CompilerServices.SkipLocalsInit]");
         w.Open(accessibility + " static class " + helperClass + typeParams);
+
 
         w.Open("static " + helperClass + "()");
         foreach (var t in reachable.Where(t => IsTypeAccessibleFromRoot(t, root))
@@ -1076,7 +1078,8 @@ internal sealed class EqualityEmitter
                     w.Line("return false;");
                     w.Close();
                     w.Line("var __cmp = new " + cmpName + "(" + (elemCustomVar ?? "") + ");");
-                    w.Open("for (int __i = 0; __i < " + roListA + ".Count; __i++)");
+                    w.Line("var __n = " + roListA + ".Count;");
+                    w.Open("for (int __i = 0; __i < __n; __i++)");
                     w.Open("if (!__cmp.Invoke(" + roListA + "[__i], " + roListB + "[__i], context))");
                     w.Line("return false;");
                     w.Close();
@@ -1309,19 +1312,13 @@ internal sealed class EqualityEmitter
         string ctxVar = "c", string? customEqVar = null)
     {
         if (customEqVar is not null)
-        {
             return customEqVar + ".Equals(" + l + ", " + r + ")";
-        }
 
         if (kind == EffectiveKind.Reference)
-        {
             return "object.ReferenceEquals(" + l + ", " + r + ")";
-        }
 
         if (kind == EffectiveKind.Shallow)
-        {
             return "object.Equals(" + l + ", " + r + ")";
-        }
 
         if (type is INamedTypeSymbol nt && nt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
         {
@@ -1330,85 +1327,68 @@ internal sealed class EqualityEmitter
             return "(" + l + ".HasValue == " + r + ".HasValue) && (!" + l + ".HasValue || (" + inner + "))";
         }
 
+        // value-like fast paths
         if (type.SpecialType == SpecialType.System_String)
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + l + ", " + r + ", " + ctxVar + ")";
-        }
-
         if (type.TypeKind == TypeKind.Enum)
         {
             var enumFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<" + enumFqn + ">(" + l + ", " + r + ")";
         }
-
         if (type.SpecialType == SpecialType.System_DateTime)
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + l + ", " + r + ")";
-        }
 
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (fqn == "global::System.DateTimeOffset")
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + l + ", " + r + ")";
-        }
-
         if (fqn == "global::System.TimeSpan")
-        {
             return l + ".Ticks == " + r + ".Ticks";
-        }
-
         if (fqn == "global::System.Guid")
-        {
             return l + ".Equals(" + r + ")";
-        }
-
         if (fqn == "global::System.DateOnly")
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + l + ", " + r + ")";
-        }
-
         if (fqn == "global::System.TimeOnly")
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + l + ", " + r + ")";
-        }
 
+        // tolerant numerics
         if (type.SpecialType == SpecialType.System_Double)
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble(" + l + ", " + r + ", " + ctxVar + ")";
-        }
-
         if (type.SpecialType == SpecialType.System_Single)
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle(" + l + ", " + r + ", " + ctxVar + ")";
-        }
-
         if (type.SpecialType == SpecialType.System_Decimal)
-        {
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal(" + l + ", " + r + ", " + ctxVar + ")";
-        }
 
+        // object/dynamic
         if (type.SpecialType == SpecialType.System_Object)
-        {
             return "DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic(" + l + ", " + r + ", " + ctxVar + ")";
-        }
 
+        // primitive non-floating (fast == instead of .Equals)
         if (type.IsValueType && type.SpecialType != SpecialType.None)
         {
-            return l + ".Equals(" + r + ")";
+            return type.SpecialType switch
+            {
+                SpecialType.System_Int32 or SpecialType.System_UInt32 or
+                SpecialType.System_Int16 or SpecialType.System_UInt16 or
+                SpecialType.System_Byte or SpecialType.System_SByte or
+                SpecialType.System_Int64 or SpecialType.System_UInt64 or
+                SpecialType.System_Boolean or SpecialType.System_Char
+                    => l + "==" + r,
+                _ => l + ".Equals(" + r + ")"
+            };
         }
 
+        // interfaces/abstract → polymorphic
         if (type.TypeKind == TypeKind.Interface || type is INamedTypeSymbol { IsAbstract: true })
         {
             var ts = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + ts + ">(" + l + ", " + r +
-                   ", " + ctxVar + ")";
+            return "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + ts + ">(" + l + ", " + r + ", " + ctxVar + ")";
         }
 
+        // user object → generated helper
         if (type is INamedTypeSymbol nts && IsUserObjectType(nts))
-        {
             return GetHelperMethodName(nts) + "(" + l + ", " + r + ", " + ctxVar + ")";
-        }
 
+        // fallback
         return "object.Equals(" + l + ", " + r + ")";
     }
 
