@@ -52,23 +52,23 @@ public sealed class ComparisonContext
     public bool Enter(object left, object right)
     {
         if (!_tracking) return true;
+
         _visited ??= new HashSet<RefPair>(RefPair.Comparer.Instance);
         _stack ??= new Stack<RefPair>();
+
         var pair = new RefPair(left, right);
         if (!_visited.Add(pair)) return false;
+
         _stack.Push(pair);
         return true;
     }
 
-
-    /// <summary>
-    /// Exit the most recent (left,right) pair scope. No-op when tracking is disabled.
-    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Exit(object left, object right)
     {
         if (!_tracking || _stack is null || _visited is null) return;
         if (_stack.Count == 0) return;
+
         var last = _stack.Pop();
         _visited.Remove(last);
     }
