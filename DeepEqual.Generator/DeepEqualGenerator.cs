@@ -594,8 +594,9 @@ internal sealed class EqualityEmitter
             w.Line();
             return;
         }
-
-        if (!equalityMember.Type.IsValueType)
+    
+        var isString = equalityMember.Type.SpecialType == SpecialType.System_String;
+        if (!equalityMember.Type.IsValueType && !isString)
         {
             w.Open("if (!object.ReferenceEquals(" + leftExpr + ", " + rightExpr + "))");
             w.Open("if (" + leftExpr + " is null || " + rightExpr + " is null)");
@@ -1161,8 +1162,7 @@ internal sealed class EqualityEmitter
 
         if (valueType.SpecialType == SpecialType.System_String)
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + leftExpr + ".Value, " +
-                   rightExpr + ".Value, context))");
+            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + leftExpr + ".Value, " + rightExpr + ".Value, context))");
             w.Line("return false;");
             w.Close();
             return;

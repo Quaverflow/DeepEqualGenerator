@@ -9,7 +9,7 @@ public static class ComparisonHelpers
     public static bool AreEqualStrings(string? a, string? b, ComparisonContext? context)
     {
         var comp = context?.Options.StringComparison ?? StringComparison.Ordinal;
-        if (comp == StringComparison.Ordinal) return a == b; // null-safe & fastest
+        if (comp == StringComparison.Ordinal) return a == b;
         return string.Equals(a, b, comp);
     }
 

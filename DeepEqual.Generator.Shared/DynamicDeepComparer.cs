@@ -6,8 +6,6 @@ namespace DeepEqual.Generator.Shared;
 
 public static class DynamicDeepComparer
 {
-    // FILE: DeepEqual.Generator.Shared/DynamicDeepComparer.cs
-
     public static bool AreEqualDynamic(object? left, object? right, ComparisonContext context)
     {
         if (ReferenceEquals(left, right)) return true;
@@ -16,16 +14,12 @@ public static class DynamicDeepComparer
         // Value-like fast paths with options-aware comparison
         if (left is string sa && right is string sb)
             return ComparisonHelpers.AreEqualStrings(sa, sb, context);
-
         if (left is double da && right is double db)
             return ComparisonHelpers.AreEqualDouble(da, db, context);
-
         if (left is float fa && right is float fb)
-            return ComparisonHelpers.AreEqualSingle(fa, fb, context); // <-- bugfix: use Single overload
-
+            return ComparisonHelpers.AreEqualSingle(fa, fb, context);
         if (left is decimal m1 && right is decimal m2)
             return ComparisonHelpers.AreEqualDecimal(m1, m2, context);
-
         if (IsNumeric(left) && IsNumeric(right))
             return NumericEqual(left, right, context);
 
@@ -33,7 +27,7 @@ public static class DynamicDeepComparer
         var typeRight = right.GetType();
         if (!ReferenceEquals(typeLeft, typeRight)) return false;
 
-        // Collections first (avoid interface scanning/alloc in registry lookup)
+        // Handle collections FIRST to avoid interface scans/allocations
         if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
             return EqualStringObjectDictionary(sdictA, sdictB, context);
 
@@ -48,13 +42,13 @@ public static class DynamicDeepComparer
             return true;
         }
 
-        // Non-generic IList<T> and List<T> still implement non-generic IList
         if (left is IList listA && right is IList listB)
             return EqualNonGenericList(listA, listB, context);
 
         if (left is IEnumerable seqA && right is IEnumerable seqB)
             return EqualNonGenericSequence(seqA, seqB, context);
 
+        // Generated comparer for user types (quick dictionary hit; no alloc)
         if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
             return eqFromRegistry;
 
@@ -64,6 +58,7 @@ public static class DynamicDeepComparer
         // Fallback
         return left.Equals(right);
     }
+
     private static bool EqualNonGenericList(IList a, IList b, ComparisonContext context)
     {
         if (a.Count != b.Count) return false;

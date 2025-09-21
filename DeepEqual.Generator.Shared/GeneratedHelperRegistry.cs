@@ -37,6 +37,7 @@ public static class GeneratedHelperRegistry
     /// </summary>
     public delegate bool DiffFunc(object left, object right, ComparisonContext context, out IDiff diff);
 
+    private static readonly ConcurrentDictionary<Type, bool> _eqMiss = new();
     private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _eqMap = new();
     private static readonly ConcurrentDictionary<Type, DiffFunc> _diffMap = new();
 
@@ -58,19 +59,23 @@ public static class GeneratedHelperRegistry
     public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context,
         out bool equal)
     {
-        // Direct hit
+        // Fast negative: if we already know there's no comparer, skip scanning
+        if (_eqMiss.TryGetValue(runtimeType, out _))
+        {
+            equal = false;
+            return false;
+        }
+
         if (_eqMap.TryGetValue(runtimeType, out var fn))
         {
             equal = fn(left, right, context);
             return true;
         }
 
-        // Cache a delegate discovered on a base type or interface under the derived runtime type
         for (var bt = runtimeType.BaseType; bt is not null; bt = bt.BaseType)
         {
             if (_eqMap.TryGetValue(bt, out var cmp))
             {
-                // Cache for next time; safe because (derived -> base) cast is valid in the closure
                 _eqMap.TryAdd(runtimeType, cmp);
                 equal = cmp(left, right, context);
                 return true;
@@ -87,9 +92,12 @@ public static class GeneratedHelperRegistry
             }
         }
 
+        // Memorize the miss (types won’t gain comparers later in a given process once module initializers ran)
+        _eqMiss.TryAdd(runtimeType, true);
         equal = false;
         return false;
     }
+
 
     /// <summary>
     ///     Attempts to compare two objects; succeeds when both are null, reference-equal, or share the same runtime type with
