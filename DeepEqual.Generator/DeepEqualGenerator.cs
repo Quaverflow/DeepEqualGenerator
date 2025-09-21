@@ -1047,16 +1047,57 @@ internal sealed class EqualityEmitter
             }
             else
             {
-                var cmpName = EnsureComparerStruct(emittedComparers, comparerDeclarations, elT, elKind,
+                var cmpName = EnsureComparerStruct(
+                    emittedComparers, comparerDeclarations, elT, elKind,
                     "M_" + GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) + "_" +
-                    equalityMember.Name, elemCustomVar);
-                var api = unordered ? "AreEqualSequencesUnordered" : "AreEqualSequencesOrdered";
-                w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers." + api + "<" + elFqn + ", " + cmpName +
-                       ">(" + leftExpr + " as IEnumerable<" + elFqn + ">, " + rightExpr + " as IEnumerable<" + elFqn +
-                       ">, new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
-                w.Line("return false;");
-                w.Close();
+                    equalityMember.Name,
+                    elemCustomVar);
+
+                if (unordered)
+                {
+                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnordered<" + elFqn + ", " + cmpName + ">("
+                           + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
+                           + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
+                           + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                    w.Line("return false;");
+                    w.Close();
+                }
+                else
+                {
+                    // Ordered: zero-alloc fast-path via IReadOnlyList<T>, with fallback for non-lists
+                    var roListA = "__roA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
+                    var roListB = "__roB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
+
+                    w.Line("var " + roListA + " = " + leftExpr + " as System.Collections.Generic.IReadOnlyList<" + elFqn + ">;");
+                    w.Line("var " + roListB + " = " + rightExpr + " as System.Collections.Generic.IReadOnlyList<" + elFqn + ">;");
+                    w.Open("if (" + roListA + " is not null && " + roListB + " is not null)");
+                    w.Open("if (" + roListA + ".Count != " + roListB + ".Count)");
+                    w.Line("return false;");
+                    w.Close();
+                    w.Line("var __cmp = new " + cmpName + "(" + (elemCustomVar ?? "") + ");");
+                    w.Open("for (int __i = 0; __i < " + roListA + ".Count; __i++)");
+                    w.Open("if (!__cmp.Invoke(" + roListA + "[__i], " + roListB + "[__i], context))");
+                    w.Line("return false;");
+                    w.Close();
+                    w.Close();
+                    w.Line("goto __SEQ_OK_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name) + ";");
+                    w.Close(); // end IReadOnlyList fast-path
+
+                    // Fallback for non-list enumerables
+                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesOrdered<" + elFqn + ", " + cmpName + ">("
+                           + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
+                           + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
+                           + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                    w.Line("return false;");
+                    w.Close();
+
+                    w.Line("__SEQ_OK_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name) + ":;");
+                }
+
+                w.Line();
+                return;
             }
+
 
             w.Line();
             return;
