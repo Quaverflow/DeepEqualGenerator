@@ -59,8 +59,7 @@ public static class GeneratedHelperRegistry
     public static bool TryCompareSameType(Type runtimeType, object left, object right, ComparisonContext context,
         out bool equal)
     {
-        // Fast negative: if we already know there's no comparer, skip scanning
-        if (_eqMiss.TryGetValue(runtimeType, out _))
+               if (_eqMiss.TryGetValue(runtimeType, out _))
         {
             equal = false;
             return false;
@@ -92,8 +91,7 @@ public static class GeneratedHelperRegistry
             }
         }
 
-        // Memorize the miss (types won’t gain comparers later in a given process once module initializers ran)
-        _eqMiss.TryAdd(runtimeType, true);
+               _eqMiss.TryAdd(runtimeType, true);
         equal = false;
         return false;
     }

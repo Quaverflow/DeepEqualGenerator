@@ -96,12 +96,10 @@ namespace DeepEqual.Generator.Tests.NewTests
         [Fact]
         public void AreEqual_Object_Typed_Dynamic_Fallback_Works()
         {
-            // Force dynamic reflection-based equality by using an object-typed payload
-            var a = new S_DynamicBox { Value = new { X = 1, Y = "a" } };
+                       var a = new S_DynamicBox { Value = new { X = 1, Y = "a" } };
             var b = new S_DynamicBox { Value = new { X = 1, Y = "a" } };
 
-            Assert.True(S_DynamicBoxDeepEqual.AreDeepEqual(a, b)); // dynamic path
-        }
+            Assert.True(S_DynamicBoxDeepEqual.AreDeepEqual(a, b));        }
 
 
         [Fact]

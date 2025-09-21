@@ -13,8 +13,7 @@ public static class DynamicDeepComparer
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-        // value-like fast paths
-        if (left is string sa && right is string sb) return ComparisonHelpers.AreEqualStrings(sa, sb, context);
+               if (left is string sa && right is string sb) return ComparisonHelpers.AreEqualStrings(sa, sb, context);
         if (left is double da && right is double db) return ComparisonHelpers.AreEqualDouble(da, db, context);
         if (left is float fa && right is float fb) return ComparisonHelpers.AreEqualSingle(fa, fb, context);
         if (left is decimal m1 && right is decimal m2) return ComparisonHelpers.AreEqualDecimal(m1, m2, context);
@@ -24,8 +23,7 @@ public static class DynamicDeepComparer
         var typeRight = right.GetType();
         if (!ReferenceEquals(typeLeft, typeRight)) return false;
 
-        // Collections first to avoid interface scans/allocations
-        if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
+               if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
             return EqualStringObjectDictionary(sdictA, sdictB, context);
 
         if (left is IDictionary dictA && right is IDictionary dictB)
@@ -46,12 +44,10 @@ public static class DynamicDeepComparer
         if (left is IEnumerable seqA && right is IEnumerable seqB)
             return EqualNonGenericSequence(seqA, seqB, context);
 
-        // Generated comparer
-        if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
+               if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
             return eqFromRegistry;
 
-        // Primitives & enum & other value-like
-        if (IsPrimitiveLike(left)) return left.Equals(right);
+               if (IsPrimitiveLike(left)) return left.Equals(right);
 
         return left.Equals(right);
     }

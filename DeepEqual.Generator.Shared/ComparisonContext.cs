@@ -16,12 +16,10 @@ namespace DeepEqual.Generator.Shared;
 /// </summary>
 public sealed class ComparisonContext
 {
-    // Cycle-tracking state (only used when _tracking == true)
-    private Stack<RefPair>? _stack;
+       private Stack<RefPair>? _stack;
     private HashSet<RefPair>? _visited;
 
-    // Configuration for this context instance
-    private readonly bool _tracking;
+       private readonly bool _tracking;
     public ComparisonOptions Options { get; private set; }
 
     /// <summary>
@@ -48,8 +46,7 @@ public sealed class ComparisonContext
         Options = options ?? new ComparisonOptions();
     }
 
-    // ---- Cycle bookkeeping API used by generated code ----
-
+   
     /// <summary>
     /// Enter a (left,right) object pair. Returns false if we've already visited the pair (cycle).
     /// When cycle tracking is disabled, returns true and performs no bookkeeping.
@@ -79,8 +76,7 @@ public sealed class ComparisonContext
         _visited.Remove(last);
     }
 
-    // ---- Pair identity for cycle tracking ----
-
+   
     private readonly struct RefPair
     {
         private readonly object _left;
@@ -103,8 +99,7 @@ public sealed class ComparisonContext
             {
                 unchecked
                 {
-                    // Identity-based hash; order matters (L,R) vs (R,L)
-                    int a = RuntimeHelpers.GetHashCode(obj._left);
+                                       int a = RuntimeHelpers.GetHashCode(obj._left);
                     int b = RuntimeHelpers.GetHashCode(obj._right);
                     return (a * 397) ^ b;
                 }
@@ -1128,8 +1123,7 @@ public static class BinaryDeltaCodec
                 if (version != 1)
                     throw new NotSupportedException($"Unsupported BinaryDelta version {version}.");
 
-                _ = sr.ReadVarUInt(); // stable fingerprint (optional)
-                var flags = sr.ReadByte();
+                _ = sr.ReadVarUInt();                var flags = sr.ReadByte();
                 var hasStrings = (flags & 0b01) != 0;
                 var hasTypes = (flags & 0b10) != 0;
 
@@ -1152,8 +1146,7 @@ public static class BinaryDeltaCodec
 
             var opCount = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
 
-            // Preallocate list capacity to avoid growth/copies
-            var doc = new DeltaDocument();
+                       var doc = new DeltaDocument();
             doc.Ops.Capacity = Math.Max(doc.Ops.Capacity, opCount);
 
             var ops = doc.Ops;
@@ -1171,8 +1164,7 @@ public static class BinaryDeltaCodec
 
             var count = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxOps);
 
-            // Preallocate nested doc capacity as well
-            var doc = new DeltaDocument();
+                       var doc = new DeltaDocument();
             doc.Ops.Capacity = Math.Max(doc.Ops.Capacity, count);
 
             var list = doc.Ops;

@@ -342,16 +342,14 @@ public class MidGraphBenchmarks
     [Params(3)] public int OrdersPerCustomer;
     [Params(4)] public int LinesPerOrder;
 
-    // Equality inputs
-    private MidGraph _eqA = null!;
+       private MidGraph _eqA = null!;
     private MidGraph _eqB = null!;
     private MidGraph _neqShallowA = null!;
     private MidGraph _neqShallowB = null!;
     private MidGraph _neqDeepA = null!;
     private MidGraph _neqDeepB = null!;
 
-    // Delta inputs
-    private BinaryDeltaOptions _bin = null!;
+       private BinaryDeltaOptions _bin = null!;
     private DeltaDocument _deltaShallow = null!;
     private DeltaDocument _deltaDeep = null!;
     private byte[] _deltaShallowBin = null!;
@@ -359,14 +357,12 @@ public class MidGraphBenchmarks
     private DeltaDocument _deltaShallowDecoded = null!;
     private DeltaDocument _deltaDeepDecoded = null!;
 
-    // Apply targets (one per iteration)
-    private MidGraph _shallowTarget = null!;
+       private MidGraph _shallowTarget = null!;
     private MidGraph _deepTarget = null!;
     private MidGraph _shallowTargetBin = null!;
     private MidGraph _deepTargetBin = null!;
 
-    // Encode buffers (reset per iteration)
-    private ArrayBufferWriter<byte> _bufShallow = null!;
+       private ArrayBufferWriter<byte> _bufShallow = null!;
     private ArrayBufferWriter<byte> _bufDeep = null!;
 
     [GlobalSetup]
@@ -387,8 +383,7 @@ public class MidGraphBenchmarks
 
         _bin = new BinaryDeltaOptions { IncludeHeader = false };
 
-        // Precompute deltas and binary
-        {
+               {
             var ctx = new ComparisonContext();
             _deltaShallow = MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB, ctx);
             var tmp = new ArrayBufferWriter<byte>();
@@ -406,19 +401,16 @@ public class MidGraphBenchmarks
             _deltaDeepDecoded = BinaryDeltaCodec.Read(_deltaDeepBin, _bin);
         }
 
-        // Initial targets for apply benches (reset per iteration)
-        _shallowTarget = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
+               _shallowTarget = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
         _deepTarget = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
         _shallowTargetBin = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
         _deepTargetBin = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 33);
 
-        // Initial encode buffers (capacity hint)
-        _bufShallow = new ArrayBufferWriter<byte>(_deltaShallowBin.Length + 64);
+               _bufShallow = new ArrayBufferWriter<byte>(_deltaShallowBin.Length + 64);
         _bufDeep = new ArrayBufferWriter<byte>(_deltaDeepBin.Length + 64);
     }
 
-    // ---------- Per-target resets outside measurement ----------
-
+   
     [IterationSetup(Target = nameof(Apply_InMemory_Shallow_Delta))]
     public void Reset_ShallowTarget_ForInMemoryApply()
         => _shallowTarget = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, seed: 22);
@@ -441,8 +433,7 @@ public class MidGraphBenchmarks
     [IterationSetup(Targets = new[] { nameof(Binary_Encode_Deep_Delta_Size) })]
     public void Reset_Deep_Buffer() => _bufDeep = new ArrayBufferWriter<byte>(_deltaDeepBin.Length + 64);
 
-    // -------------------- Equality --------------------
-
+   
     [Benchmark] public bool Generated_NotEqual_Deep() => MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Generated_NotEqual_Shallow() => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
     [Benchmark(Baseline = true)] public bool Generated_Equal() => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
@@ -453,8 +444,7 @@ public class MidGraphBenchmarks
     [Benchmark] public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
     [Benchmark] public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
 
-    // -------------------- Delta compute / diff --------------------
-
+   
     [Benchmark]
     public (bool hasDiff, Diff<MidGraph> diff) Generated_Diff_NoChange_HasDiff()
         => MidGraphDeepOps.GetDiff(_eqA, _eqB);
@@ -471,8 +461,7 @@ public class MidGraphBenchmarks
     public DeltaDocument Generated_ComputeDelta_Deep_OpCount()
         => MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB);
 
-    // -------------------- In-memory apply (document already built) --------------------
-
+   
     [Benchmark]
     public bool Apply_InMemory_Shallow_Delta()
     {
@@ -487,8 +476,7 @@ public class MidGraphBenchmarks
         return true;
     }
 
-    // -------------------- Binary encode/decode/apply --------------------
-
+   
     [Benchmark]
     public int Binary_Encode_Shallow_Delta_Size()
     {

@@ -1066,8 +1066,7 @@ internal sealed class EqualityEmitter
                 }
                 else
                 {
-                    // Ordered: zero-alloc fast-path via IReadOnlyList<T>, with fallback for non-lists
-                    var roListA = "__roA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
+                                       var roListA = "__roA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
                     var roListB = "__roB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
 
                     w.Line("var " + roListA + " = " + leftExpr + " as System.Collections.Generic.IReadOnlyList<" + elFqn + ">;");
@@ -1084,10 +1083,8 @@ internal sealed class EqualityEmitter
                     w.Close();
                     w.Close();
                     w.Line("goto __SEQ_OK_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name) + ";");
-                    w.Close(); // end IReadOnlyList fast-path
-
-                    // Fallback for non-list enumerables
-                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesOrdered<" + elFqn + ", " + cmpName + ">("
+                    w.Close();
+                                       w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesOrdered<" + elFqn + ", " + cmpName + ">("
                            + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
                            + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
                            + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
@@ -1326,8 +1323,7 @@ internal sealed class EqualityEmitter
             return "(" + l + ".HasValue == " + r + ".HasValue) && (!" + l + ".HasValue || (" + inner + "))";
         }
 
-        // value-like fast paths
-        if (type.SpecialType == SpecialType.System_String)
+               if (type.SpecialType == SpecialType.System_String)
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + l + ", " + r + ", " + ctxVar + ")";
         if (type.TypeKind == TypeKind.Enum)
         {
@@ -1349,20 +1345,17 @@ internal sealed class EqualityEmitter
         if (fqn == "global::System.TimeOnly")
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + l + ", " + r + ")";
 
-        // tolerant numerics
-        if (type.SpecialType == SpecialType.System_Double)
+               if (type.SpecialType == SpecialType.System_Double)
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble(" + l + ", " + r + ", " + ctxVar + ")";
         if (type.SpecialType == SpecialType.System_Single)
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle(" + l + ", " + r + ", " + ctxVar + ")";
         if (type.SpecialType == SpecialType.System_Decimal)
             return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal(" + l + ", " + r + ", " + ctxVar + ")";
 
-        // object/dynamic
-        if (type.SpecialType == SpecialType.System_Object)
+               if (type.SpecialType == SpecialType.System_Object)
             return "DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic(" + l + ", " + r + ", " + ctxVar + ")";
 
-        // primitive non-floating (fast == instead of .Equals)
-        if (type.IsValueType && type.SpecialType != SpecialType.None)
+               if (type.IsValueType && type.SpecialType != SpecialType.None)
         {
             return type.SpecialType switch
             {
@@ -1376,19 +1369,16 @@ internal sealed class EqualityEmitter
             };
         }
 
-        // interfaces/abstract → polymorphic
-        if (type.TypeKind == TypeKind.Interface || type is INamedTypeSymbol { IsAbstract: true })
+               if (type.TypeKind == TypeKind.Interface || type is INamedTypeSymbol { IsAbstract: true })
         {
             var ts = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             return "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + ts + ">(" + l + ", " + r + ", " + ctxVar + ")";
         }
 
-        // user object → generated helper
-        if (type is INamedTypeSymbol nts && IsUserObjectType(nts))
+               if (type is INamedTypeSymbol nts && IsUserObjectType(nts))
             return GetHelperMethodName(nts) + "(" + l + ", " + r + ", " + ctxVar + ")";
 
-        // fallback
-        return "object.Equals(" + l + ", " + r + ")";
+               return "object.Equals(" + l + ", " + r + ")";
     }
 
     private bool TryGetReadOnlyMemory(ITypeSymbol type, out ITypeSymbol? elementType)
@@ -2846,8 +2836,7 @@ internal sealed class DiffDeltaEmitter
             _stableIndexTables[type] = map;
         }
 
-        // ----------------------------- DIFF ---------------------------------
-        if (root.GenerateDiff)
+               if (root.GenerateDiff)
         {
             w.Open($"private static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) TryGetDiff__{id}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
             if (!type.IsValueType)
@@ -2890,8 +2879,7 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
 
-        // -------------------------- COMPUTE DELTA ----------------------------
-        if (root.GenerateDelta)
+               if (root.GenerateDelta)
         {
             w.Open($"private static void ComputeDelta__{id}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
 
@@ -2977,8 +2965,7 @@ internal sealed class DiffDeltaEmitter
                         }
                         else
                         {
-                            // Non-value-like element → emit nested per-element deltas (fixes binary codec limitation)
-                            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDeltaNested<{elFqn}>({leftExpr}, {rightExpr}, {stable}, ref writer, context);");
+                                                       w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDeltaNested<{elFqn}>({leftExpr}, {rightExpr}, {stable}, ref writer, context);");
                         }
 
                         w.Line("break;");
@@ -3032,10 +3019,7 @@ internal sealed class DiffDeltaEmitter
                     w.Close();
                 }
 
-                w.Close(); // switch (__bit)
-                w.Close(); // while
-                w.Close(); // if (__r.__HasAnyDirty())
-                w.Open("else");
+                w.Close();                w.Close();                w.Close();                w.Open("else");
                 foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
                 w.Close();
             }
@@ -3056,28 +3040,23 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
 
-        // --------------------------- APPLY DELTA -----------------------------
-        if (root.GenerateDelta)
+               if (root.GenerateDelta)
         {
             w.Open($"private static void ApplyDelta__{id}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader)");
             w.Line("var __ops = reader.AsSpan();");
 
-            // build the ordered member list once
-            var __preByOrdinal = OrderMembers(
+                       var __preByOrdinal = OrderMembers(
                 EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema))
                 .Select(m => (ms: m, idx: GetStableMemberIndex(type, m)))
                 .ToArray();
 
-            // decide if this type even needs a pre-pass
-            var __hasPresizableMembers =
+                       var __hasPresizableMembers =
                 __preByOrdinal.Any(t =>
                     (TryGetListInterface(t.ms.Type, out _) && !(t.ms.Type is IArrayTypeSymbol)) ||
                     (TryGetDictionaryTypes(t.ms.Type, out _, out _) && !IsExpando(t.ms.Type)));
 
-            w.Open("if (" + (__hasPresizableMembers ? "true" : "false") + ")");  // we’ll let the generator fold this to 'if (true/false)'
-            {
-                // 1) declare counters
-                foreach (var t2 in __preByOrdinal)
+            w.Open("if (" + (__hasPresizableMembers ? "true" : "false") + ")");             {
+                               foreach (var t2 in __preByOrdinal)
                 {
                     var m = t2.ms;
                     var idx = t2.idx;
@@ -3088,8 +3067,7 @@ internal sealed class DiffDeltaEmitter
                         w.Line($"int __dictSets_m{idx} = 0;");
                 }
 
-                // 2) counting loop (once)
-                w.Open("for (int __i=0; __i<__ops.Length; __i++)");
+                               w.Open("for (int __i=0; __i<__ops.Length; __i++)");
                 w.Line("ref readonly var __o = ref __ops[__i];");
                 w.Open("switch (__o.MemberIndex)");
                 foreach (var t2 in __preByOrdinal)
@@ -3102,11 +3080,8 @@ internal sealed class DiffDeltaEmitter
                     else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
                         w.Line($"case {idx}: if (__o.Kind==DeepEqual.Generator.Shared.DeltaKind.DictSet) __dictSets_m{idx}++; break;");
                 }
-                w.Close(); // switch
-                w.Close(); // for
-
-                // 3) presize once per member
-                foreach (var t2 in __preByOrdinal)
+                w.Close();                w.Close();
+                               foreach (var t2 in __preByOrdinal)
                 {
                     var m = t2.ms;
                     var idx = t2.idx;
@@ -3125,14 +3100,12 @@ internal sealed class DiffDeltaEmitter
                     }
                 }
             }
-            w.Close(); // end if(hasPresizableMembers)
-
+            w.Close();
             w.Open("for (int __ai=0; __ai<__ops.Length; __ai++)");
             w.Line("ref readonly var op = ref __ops[__ai];");
             w.Open("switch (op.MemberIndex)");
 
-            // ReplaceObject
-            w.Open("case -1:");
+                       w.Open("case -1:");
             w.Open("if (op.Kind == DeepEqual.Generator.Shared.DeltaKind.ReplaceObject)");
             w.Line($"target = ({fqn}{nullSuffix})op.Value;");
             w.Line("return;");
@@ -3154,19 +3127,16 @@ internal sealed class DiffDeltaEmitter
 
                 w.Open($"case {memberIdx}:");
 
-                // single inner switch for all kinds (no dupes)
-                w.Open("switch (op.Kind)");
+                               w.Open("switch (op.Kind)");
 
-                // SetMember
-                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SetMember:");
+                               w.Open("case DeepEqual.Generator.Shared.DeltaKind.SetMember:");
                 w.Line($"{propAccess} = ({typeFqn}{nullableQ})op.Value;");
                 if (!type.IsValueType && deltaTracked)
                     w.Line($"target.__ClearDirtyBit({ordinal});");
                 w.Line("break;");
                 w.Close();
 
-                // NestedMember
-                if (!IsValueLike(member.Type) && !TryGetEnumerableElement(member.Type, out _) &&
+                               if (!IsValueLike(member.Type) && !TryGetEnumerableElement(member.Type, out _) &&
                     !TryGetDictionaryTypes(member.Type, out _, out _))
                 {
                     var isSealedRef = member.Type is INamedTypeSymbol sn && sn.IsSealed && sn.IsReferenceType && !sn.IsAbstract;
@@ -3209,8 +3179,7 @@ internal sealed class DiffDeltaEmitter
                     w.Close();
                 }
 
-                // Sequence ops (all four cases; if not a list, they just break)
-                if (TryGetListInterface(member.Type, out var elType))
+                               if (TryGetListInterface(member.Type, out var elType))
                 {
                     var elFqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
@@ -3258,8 +3227,7 @@ internal sealed class DiffDeltaEmitter
                     w.Open("case DeepEqual.Generator.Shared.DeltaKind.SeqNestedAt:"); w.Line("break;"); w.Close();
                 }
 
-                // Dictionary ops
-                if (TryGetDictionaryTypes(member.Type, out var kType2, out var vType2))
+                               if (TryGetDictionaryTypes(member.Type, out var kType2, out var vType2))
                 {
                     var kFqn = kType2.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     var vFqn = vType2.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -3302,19 +3270,14 @@ internal sealed class DiffDeltaEmitter
                 w.Line("break;");
                 w.Close();
 
-                w.Close(); // switch (op.Kind)
-                w.Line("break;");
-                w.Close(); // case memberIdx
-            }
+                w.Close();                w.Line("break;");
+                w.Close();            }
 
             w.Open("default:");
             w.Line("break;");
             w.Close();
 
-            w.Close(); // switch memberIndex
-            w.Close(); // foreach
-            w.Close(); // method
-            w.Line();
+            w.Close();            w.Close();            w.Close();            w.Line();
         }
     }
     private void EmitMemberDiff(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member, DiffDeltaTarget root)
@@ -3410,8 +3373,7 @@ internal sealed class DiffDeltaEmitter
         var (effKind, _, _, deltaShallow, deltaSkip) = ResolveEffectiveSettings(member);
         if (effKind == CompareKind.Skip || deltaSkip) return;
 
-        // Value-like fast path (primitives/enums/strings/DateTime/etc.)
-        if (IsValueLike(member.Type))
+               if (IsValueLike(member.Type))
         {
             var cmp = GetValueLikeEqualsInvocation(member.Type, left, right);
             w.Open($"if (!({cmp}))");
@@ -3420,8 +3382,7 @@ internal sealed class DiffDeltaEmitter
             return;
         }
 
-        // Reference-equality compare
-        if (effKind == CompareKind.Reference && member.Type.IsReferenceType)
+               if (effKind == CompareKind.Reference && member.Type.IsReferenceType)
         {
             w.Open($"if (!object.ReferenceEquals({left}, {right}))");
             w.Line($"writer.WriteSetMember({idx}, {right});");
@@ -3429,8 +3390,7 @@ internal sealed class DiffDeltaEmitter
             return;
         }
 
-        // Shallow compare
-        if (effKind == CompareKind.Shallow)
+               if (effKind == CompareKind.Shallow)
         {
             var tfqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             w.Open($"if (!System.Collections.Generic.EqualityComparer<{tfqn}>.Default.Equals({left}, {right}))");
@@ -3439,8 +3399,7 @@ internal sealed class DiffDeltaEmitter
             return;
         }
 
-        // Force shallow delta if requested
-        if (deltaShallow)
+               if (deltaShallow)
         {
             w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic({left}, {right}, context))");
             w.Line($"writer.WriteSetMember({idx}, {right});");
@@ -3448,8 +3407,7 @@ internal sealed class DiffDeltaEmitter
             return;
         }
 
-        // Dictionaries
-        if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
+               if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
         {
             var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var vFqn = vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -3496,12 +3454,10 @@ internal sealed class DiffDeltaEmitter
                 w.Close();
             }
 
-            w.Close(); // !ReferenceEquals
-            return;
+            w.Close();            return;
         }
 
-        // Arrays
-        if (member.Type is IArrayTypeSymbol arrT)
+               if (member.Type is IArrayTypeSymbol arrT)
         {
             var el = arrT.ElementType;
             var elFqn = el.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -3528,17 +3484,13 @@ internal sealed class DiffDeltaEmitter
             }
             else
             {
-                // For non-value-like array elements, fall back to shallow replace
-                w.Line($"writer.WriteSetMember({idx}, {right});");
+                               w.Line($"writer.WriteSetMember({idx}, {right});");
             }
-            w.Close(); // else same length
-            w.Close(); // !ReferenceEquals
-            w.Close();
+            w.Close();            w.Close();            w.Close();
             return;
         }
 
-        // Lists / sequences (special handling for non-value-like element type)
-        if (TryGetEnumerableElement(member.Type, out var elemType) && TryGetListInterface(member.Type, out _))
+               if (TryGetEnumerableElement(member.Type, out var elemType) && TryGetListInterface(member.Type, out _))
         {
             var elFqn = elemType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var deepAttr = GetDeepCompareAttribute(member.Symbol);
@@ -3557,14 +3509,12 @@ internal sealed class DiffDeltaEmitter
             }
             else
             {
-                // *** CHANGE: for non-value-like elements, emit nested per-element deltas (SeqNestedAt) ***
-                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDeltaNested<{elFqn}>({left}, {right}, {idx}, ref writer, context);");
+                               w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDeltaNested<{elFqn}>({left}, {right}, {idx}, ref writer, context);");
             }
             return;
         }
 
-        // Fallback: deep compare + nested member
-        if (TryGetEnumerableElement(member.Type, out _))
+               if (TryGetEnumerableElement(member.Type, out _))
         {
             w.Open($"if (!object.ReferenceEquals({left}, {right}))");
             w.Line($"writer.WriteSetMember({idx}, {right});");

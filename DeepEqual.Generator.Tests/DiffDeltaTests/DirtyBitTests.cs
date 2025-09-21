@@ -301,18 +301,15 @@ public sealed class DirtyFeatureTests
         Assert.False(doc.IsEmpty);
 
         var looksGranular =
-            // direct granular list op on Items
-            doc.Operations.Any(o =>
+                       doc.Operations.Any(o =>
                 (o.Kind == DeltaKind.SeqNestedAt || o.Kind == DeltaKind.SeqReplaceAt) &&
                 o.Index == 1)
-            // OR container-level nested doc that contains a granular list op inside
-            || doc.Operations.Any(o =>
+                       || doc.Operations.Any(o =>
                 o.Kind == DeltaKind.NestedMember &&
                 o.Nested is { } nd &&
                 nd.Operations.Any(p =>
                     p.Kind == DeltaKind.SeqNestedAt || p.Kind == DeltaKind.SeqReplaceAt))
-            // OR legacy whole-list replacement fallback
-            || doc.Operations.Any(o =>
+                       || doc.Operations.Any(o =>
                 o.Kind == DeltaKind.SetMember &&
                 (o.Value is System.Collections.Generic.IList<DItem> ||
                  o.Value is System.Collections.Generic.IReadOnlyList<DItem>));

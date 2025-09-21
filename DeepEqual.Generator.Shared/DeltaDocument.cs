@@ -60,8 +60,7 @@ public enum DeltaKind
     SeqReplaceAt = 10,
     SeqAddAt = 11,
     SeqRemoveAt = 12,
-    SeqNestedAt = 13,   // NEW: nested delta for an element at index
-
+    SeqNestedAt = 13,  
     DictSet = 20,
     DictRemove = 21,
     DictNested = 22
@@ -328,8 +327,7 @@ public static class DeltaHelpers
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static void ApplyListOpCloneIfNeeded<T>(ref object? target, in DeltaOp op)
     {
-        // Fast path: concrete List<T>
-        if (target is List<T> list)
+               if (target is List<T> list)
         {
             switch (op.Kind)
             {
@@ -367,8 +365,7 @@ public static class DeltaHelpers
             return;
         }
 
-        // Fast path: mutable IList<T> (but not read-only)
-        if (target is IList<T> ilist && !IsReadOnly(ilist))
+               if (target is IList<T> ilist && !IsReadOnly(ilist))
         {
             switch (op.Kind)
             {
@@ -404,8 +401,7 @@ public static class DeltaHelpers
             return;
         }
 
-        // Slow path: clone to List<T> (supports IReadOnlyList<T> and everything else)
-        List<T> clone;
+               List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
             clone = new List<T>(ro.Count);
@@ -467,8 +463,7 @@ public static class DeltaHelpers
         if (ReferenceEquals(left, right))
             return;
 
-        // Best-perf policy: null/new => shallow SetMember
-        if (left is null || right is null)
+               if (left is null || right is null)
         {
             writer.WriteSetMember(memberIndex, right);
             return;
@@ -477,14 +472,12 @@ public static class DeltaHelpers
         var la = left.Count;
         var lb = right.Count;
 
-        // 1) Trim common prefix
-        var prefix = 0;
+               var prefix = 0;
         var maxPrefix = Math.Min(la, lb);
         while (prefix < maxPrefix && ComparisonHelpers.DeepComparePolymorphic(left[prefix], right[prefix], context))
             prefix++;
 
-        // 2) Trim common suffix (after prefix)
-        var suffix = 0;
+               var suffix = 0;
         var maxSuffix = Math.Min(la - prefix, lb - prefix);
         while (suffix < maxSuffix &&
                ComparisonHelpers.DeepComparePolymorphic(
@@ -493,28 +486,16 @@ public static class DeltaHelpers
                    context))
             suffix++;
 
-        var ra = la - prefix - suffix; // remaining (left)
-        var rb = lb - prefix - suffix; // remaining (right)
-
-        // Early-out if nothing remains
-        if (ra == 0 && rb == 0)
+        var ra = la - prefix - suffix;        var rb = lb - prefix - suffix;
+               if (ra == 0 && rb == 0)
             return;
 
-        // -----------------------------
-        // SHIFT-ALIGNMENT FOR INSERTS
-        // -----------------------------
-        // If right has strictly more items in the middle window, try to align by a small left-shift `k`
-        // so that left[prefix..prefix+ra-1] == right[prefix+k..prefix+k+ra-1], with 0 <= k <= (rb - ra).
-        // When found, we can model the difference purely as:
-        //   - k head inserts at indices prefix..prefix+k-1
-        //   - (rb - ra - k) tail inserts after the aligned block
-        if (rb >= ra && ra > 0)
+                                                                if (rb >= ra && ra > 0)
         {
             var addBudget = rb - ra;
             int chosenK = -1;
 
-            // Try the smallest k that yields a perfect alignment
-            for (var k = 0; k <= addBudget; k++)
+                       for (var k = 0; k <= addBudget; k++)
             {
                 bool match = true;
                 for (var i = 0; i < ra; i++)
@@ -533,12 +514,10 @@ public static class DeltaHelpers
 
             if (chosenK >= 0)
             {
-                // Emit HEAD adds (prefix..prefix+chosenK-1)
-                for (var i = 0; i < chosenK; i++)
+                               for (var i = 0; i < chosenK; i++)
                     writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
 
-                // Emit TAIL adds for remaining budget (after the aligned block)
-                var alignedLen = ra;
+                               var alignedLen = ra;
                 var tailAdds = addBudget - chosenK;
                 for (var i = 0; i < tailAdds; i++)
                 {
@@ -546,19 +525,14 @@ public static class DeltaHelpers
                     writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
                 }
 
-                // All aligned; no replacements needed in the middle region
-                return;
+                               return;
             }
         }
 
-        // -----------------------------
-        // GENERAL CASE: per-index nested/replace + adds/removes for length diffs
-        // -----------------------------
-
+                     
         var common = Math.Min(ra, rb);
 
-        // Handle common overlap
-        for (var i = 0; i < common; i++)
+               for (var i = 0; i < common; i++)
         {
             var ai = prefix + i;
             if (!ComparisonHelpers.DeepComparePolymorphic(left[ai], right[ai], context))
@@ -575,26 +549,22 @@ public static class DeltaHelpers
 
                     if (!had)
                     {
-                        // Ultra-rare: no nested changes detected—fallback to replace
-                        writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+                                               writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
                     }
                 }
                 else
                 {
-                    // Null/new/type-change => shallow element replacement
-                    writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+                                       writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
                 }
             }
         }
 
-        // Removes (from the end of the middle block)
-        if (ra > rb)
+               if (ra > rb)
         {
             for (var i = ra - 1; i >= rb; i--)
                 writer.WriteSeqRemoveAt(memberIndex, prefix + i);
         }
-        // Adds (at the end of the middle block)
-        else if (rb > ra)
+               else if (rb > ra)
         {
             for (var i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);

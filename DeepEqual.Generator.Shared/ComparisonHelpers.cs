@@ -198,8 +198,7 @@ public static class ComparisonHelpers
         return true;
     }
 
-    // FILE: DeepEqual.Generator.Shared/ComparisonHelpers.cs
-
+   
     public static bool AreEqualSequencesOrdered<T, TComparer>(
         IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
@@ -207,8 +206,7 @@ public static class ComparisonHelpers
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
 
-        // Fast paths: avoid interface enumeration/boxing
-        if (a is T[] aa && b is T[] bb)
+               if (a is T[] aa && b is T[] bb)
             return AreEqualArrayRank1<T, TComparer>(aa, bb, comparer, context);
 
         if (a is IList<T> la && b is IList<T> lb)
@@ -227,8 +225,7 @@ public static class ComparisonHelpers
             return true;
         }
 
-        // Fallback: general enumerators
-        using var ea = a.GetEnumerator();
+               using var ea = a.GetEnumerator();
         using var eb = b.GetEnumerator();
         while (true)
         {
@@ -240,8 +237,7 @@ public static class ComparisonHelpers
         }
     }
 
-    // FILE: DeepEqual.Generator.Shared/ComparisonHelpers.cs
-
+   
     public static bool AreEqualSequencesUnordered<T, TComparer>(
         IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
@@ -249,28 +245,24 @@ public static class ComparisonHelpers
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
 
-        // If both have a count, short‑circuit unequal sizes
-        if (a is ICollection<T> ca && b is ICollection<T> cb)
+               if (a is ICollection<T> ca && b is ICollection<T> cb)
         {
             if (ca.Count != cb.Count) return false;
             if (ca.Count == 0) return true;
 
-            // No‑copy list fast paths
-            if (a is IList<T> la && b is IList<T> lb)
+                       if (a is IList<T> la && b is IList<T> lb)
                 return AreEqualUnorderedIList(la, lb, comparer, context);
 
             if (a is IReadOnlyList<T> ra && b is IReadOnlyList<T> rb)
                 return AreEqualUnorderedOrList(ra, rb, comparer, context);
         }
 
-        // Fallback: previous list copy behavior (preserves semantics)
-        var listA = a as List<T> ?? new List<T>(a);
+               var listA = a as List<T> ?? new List<T>(a);
         var listB = b as List<T> ?? new List<T>(b);
         return AreEqualUnordered(listA, listB, comparer, context);
     }
 
-    // No‑copy unordered matcher for IList<T>
-    private static bool AreEqualUnorderedIList<T, TComparer>(
+       private static bool AreEqualUnorderedIList<T, TComparer>(
         IList<T> a, IList<T> b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
@@ -297,8 +289,7 @@ public static class ComparisonHelpers
         return true;
     }
 
-    // No‑copy unordered matcher for IReadOnlyList<T>
-    private static bool AreEqualUnorderedOrList<T, TComparer>(
+       private static bool AreEqualUnorderedOrList<T, TComparer>(
         IReadOnlyList<T> a, IReadOnlyList<T> b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
     {
@@ -325,8 +316,7 @@ public static class ComparisonHelpers
         return true;
     }
 
-    // FILE: DeepEqual.Generator.Shared/ComparisonHelpers.cs
-
+   
     public static bool AreEqualArrayUnordered<TElement, TComparer>(
         Array? a, Array? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<TElement>
@@ -335,8 +325,7 @@ public static class ComparisonHelpers
         if (a is null || b is null) return false;
         if (a.Length != b.Length) return false;
 
-        // Rank‑1 no‑copy fast path
-        if (a.Rank == 1 && b.Rank == 1)
+               if (a.Rank == 1 && b.Rank == 1)
         {
             var len = a.Length;
             var matched = new bool[len];
@@ -360,8 +349,7 @@ public static class ComparisonHelpers
             return true;
         }
 
-        // Fallback for multi‑dimensional arrays: preserve previous behavior
-        var listA = new List<TElement>(a.Length);
+               var listA = new List<TElement>(a.Length);
         var listB = new List<TElement>(b.Length);
         foreach (var o in a) listA.Add((TElement)o!);
         foreach (var o in b) listB.Add((TElement)o!);
@@ -503,8 +491,7 @@ public static class ComparisonHelpers
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
 
-        // 1) Concrete fast-paths — avoid interface enumeration boxing
-        if (a is Dictionary<TKey, TValue> da && b is Dictionary<TKey, TValue> db)
+               if (a is Dictionary<TKey, TValue> da && b is Dictionary<TKey, TValue> db)
         {
             if (da.Count != db.Count) return false;
             foreach (KeyValuePair<TKey, TValue> kv in da)
@@ -515,8 +502,7 @@ public static class ComparisonHelpers
             return true;
         }
 
-        // Optional: if you use ReadOnlyDictionary<TKey,TValue>
-        if (a is System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue> rda &&
+               if (a is System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue> rda &&
             b is System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue> rdb)
         {
             if (rda.Count != rdb.Count) return false;
@@ -528,12 +514,10 @@ public static class ComparisonHelpers
             return true;
         }
 
-        // 2) Interface fast-paths
-        if (a is IReadOnlyDictionary<TKey, TValue> roa && b is IReadOnlyDictionary<TKey, TValue> rob)
+               if (a is IReadOnlyDictionary<TKey, TValue> roa && b is IReadOnlyDictionary<TKey, TValue> rob)
         {
             if (roa.Count != rob.Count) return false;
-            // IMPORTANT: iterate 'roa' via the interface, but avoid LINQ and do TryGetValue on 'rob'
-            foreach (var kv in roa)
+                       foreach (var kv in roa)
             {
                 if (!rob.TryGetValue(kv.Key, out var bv)) return false;
                 if (!comparer.Invoke(kv.Value, bv, context)) return false;
@@ -552,8 +536,7 @@ public static class ComparisonHelpers
             return true;
         }
 
-        // 3) Last resort: if either side is not a compatible dictionary type, fall back
-        return Equals(a, b);
+               return Equals(a, b);
     }
 
     public static bool DeepComparePolymorphic<T>(T left, T right, ComparisonContext context)

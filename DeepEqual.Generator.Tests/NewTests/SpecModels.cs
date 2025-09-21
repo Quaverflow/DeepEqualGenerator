@@ -33,8 +33,7 @@ namespace DeepEqual.Generator.Tests.NewTests
     [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
     public sealed class S_Cat : IAnimal { public string? Name { get; set; } public int Mice { get; set; } }
 
-    // Intentionally not annotated to exercise dynamic/runtime fallback.
-    public sealed class S_Parrot : IAnimal { public string? Name { get; set; } public int Seeds { get; set; } }
+       public sealed class S_Parrot : IAnimal { public string? Name { get; set; } public int Seeds { get; set; } }
 
     [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
     public sealed class S_Zoo { public IAnimal? Pet { get; set; } }

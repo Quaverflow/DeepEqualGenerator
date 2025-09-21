@@ -16,8 +16,7 @@ namespace DeepEqual.Generator.Tests.NewTests
             var b = new S_Order { Items = SpecFactories.MakeItems(("A", 1), ("B", 9)) };
             var doc = S_OrderDeepOps.ComputeDelta(a, b);
 
-            // NEW: include SeqNestedAt (element-level nested delta)
-            var seq = doc.Operations.FirstOrDefault(op =>
+                       var seq = doc.Operations.FirstOrDefault(op =>
                 op.Kind is DeltaKind.SeqReplaceAt
                     or DeltaKind.SeqAddAt
                     or DeltaKind.SeqRemoveAt
@@ -31,8 +30,7 @@ namespace DeepEqual.Generator.Tests.NewTests
                 return seq.MemberIndex;
             }
 
-            // Legacy fallback: SetMember of the whole list
-            var set = doc.Operations.First(op => op is { Kind: DeltaKind.SetMember, Value: List<S_OrderItem> });
+                       var set = doc.Operations.First(op => op is { Kind: DeltaKind.SetMember, Value: List<S_OrderItem> });
             return set.MemberIndex;
         }
 
