@@ -15,7 +15,10 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 	</PropertyGroup>
 	<ItemGroup>
-		<PackageReference Include="BenchmarkDotNet" Version="0.15.2" />
+		<PackageReference Include="BenchmarkDotNet" Version="0.15.3" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+		<PackageReference Include="CompareNETObjects" Version="4.84.0" />
+		<PackageReference Include="FastDeepCloner" Version="1.3.6" />
 	</ItemGroup>
 
 	<ItemGroup>

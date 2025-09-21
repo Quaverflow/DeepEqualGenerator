@@ -1,12 +1,19 @@
-﻿using System.Buffers;
-using System.Dynamic;
-using System.Text;
-using BenchmarkDotNet.Attributes;
+﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Exporters.Csv;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using DeepEqual.Generator.Shared;
+// Cloning (kept in its own benchmark group)
+using FastDeepCloner;
+using KellermanSoftware.CompareNetObjects;
+using Newtonsoft.Json.Linq;
 using Perfolizer.Horology;
+using System.Buffers;
+using System.Dynamic;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace DeepEqual.Generator.Benchmarking;
 
@@ -91,25 +98,21 @@ public static class MidGraphFactory
         var ex = (IDictionary<string, object?>)g.Extra;
         ex["build"] = seed;
         ex["flags"] = new[] { "x", "y", "z" };
-        ex["meta"] = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["channel"] = "web",
-            ["ab"] = new[] { "A", "B" }
-        };
 
+        var rnd = new Random(seed);
         for (var c = 0; c < customers; c++)
         {
-            var cust = new Customer
+            var customer = new Customer
             {
-                Id = GuidFrom($"C{seed}-{c}"),
+                Id = Guid.NewGuid(),
                 FullName = $"Customer {c}",
                 Region = (Region)(c % 3),
                 ShipTo = new Address
                 {
-                    Line1 = $"{c} Road",
-                    City = c % 2 == 0 ? "London" : "Paris",
-                    Postcode = $"PC{c:000}",
-                    Country = c % 2 == 0 ? "UK" : "FR"
+                    Line1 = $"{c} Any St",
+                    City = "London",
+                    Postcode = $"E1 {c % 10}AA",
+                    Country = "UK"
                 }
             };
 
@@ -117,164 +120,48 @@ public static class MidGraphFactory
             {
                 var order = new Order
                 {
-                    Id = GuidFrom($"C{c}-O{o}-{seed}"),
-                    Created = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(o)
+                    Id = Guid.NewGuid(),
+                    Created = DateTimeOffset.UtcNow.AddDays(-o),
                 };
+                order.Meta["channel"] = (o % 2 == 0) ? "web" : "app";
 
                 for (var l = 0; l < linesPerOrder; l++)
                 {
-                    var sku = $"SKU-{(c + o + l) % 50:D4}";
-                    var price = g.PriceIndex[sku];
+                    var skuIndex = rnd.Next(0, 50);
                     order.Lines.Add(new OrderLine
                     {
-                        Sku = sku,
-                        Qty = 1 + l % 3,
-                        LineTotal = price * (1 + l % 3)
+                        Sku = $"SKU-{skuIndex:D4}",
+                        Qty = 1 + (l % 3),
+                        LineTotal = 9.99m + skuIndex % 7
                     });
                 }
 
-                order.Meta["channel"] = o % 2 == 0 ? "web" : "app";
-                order.Meta["bucket"] = ((c + o) % 5).ToString();
-                cust.Orders.Add(order);
+                customer.Orders.Add(order);
             }
 
-            g.Customers.Add(cust);
+            g.Customers.Add(customer);
         }
 
         return g;
-
-        static Guid GuidFrom(string s)
-        {
-            var bytes = Encoding.UTF8.GetBytes(s);
-            Span<byte> g = stackalloc byte[16];
-            for (var i = 0; i < 16; i++) g[i] = (byte)(bytes[i % bytes.Length] + i * 31);
-            return new Guid(g);
-        }
     }
 }
 
-// ------------------ Manual comparers (unchanged) ------------------
+// ------------------ Manual comparers used in existing baselines ------------------
 
 public static class ManualNonLinq
 {
-    public static bool AreEqual(MidGraph? a, MidGraph? b)
+    public static bool AreEqual(MidGraph a, MidGraph b)
     {
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
-
-        if (!string.Equals(a.Title, b.Title, StringComparison.Ordinal)) return false;
+        if (a.Title != b.Title) return false;
         if (!DictEqual(a.PriceIndex, b.PriceIndex)) return false;
-        if (!ObjectEqual(a.Polymorph, b.Polymorph)) return false;
-        if (!DynamicEqual(a.Extra, b.Extra)) return false;
-
         if (a.Customers.Count != b.Customers.Count) return false;
-        for (var i = 0; i < a.Customers.Count; i++)
-            if (!CustomerEqual(a.Customers[i], b.Customers[i]))
-                return false;
 
-        return true;
-    }
+        for (int i = 0; i < a.Customers.Count; i++)
+            if (!new CustomerEq().Equals(a.Customers[i], b.Customers[i])) return false;
 
-    private static bool CustomerEqual(Customer? a, Customer? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-
-        if (!string.Equals(a.FullName, b.FullName, StringComparison.Ordinal)) return false;
-        if (a.Region != b.Region) return false;
-        if (!AddressEqual(a.ShipTo, b.ShipTo)) return false;
-
-        if (a.Orders.Count != b.Orders.Count) return false;
-        for (var i = 0; i < a.Orders.Count; i++)
-            if (!OrderEqual(a.Orders[i], b.Orders[i]))
-                return false;
-
-        return true;
-    }
-
-    private static bool OrderEqual(Order? a, Order? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-
-        if (a.Id != b.Id) return false;
-        if (a.Created != b.Created) return false;
-        if (!DictEqual(a.Meta, b.Meta)) return false;
-
-        if (a.Lines.Count != b.Lines.Count) return false;
-        for (var i = 0; i < a.Lines.Count; i++)
-            if (!LineEqual(a.Lines[i], b.Lines[i]))
-                return false;
-
-        return true;
-    }
-
-    private static bool LineEqual(OrderLine? a, OrderLine? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-        return a.Sku == b.Sku && a.Qty == b.Qty && a.LineTotal == b.LineTotal;
-    }
-
-    private static bool AddressEqual(Address? a, Address? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-        return a.Line1 == b.Line1 && a.City == b.City && a.Postcode == b.Postcode && a.Country == b.Country;
-    }
-
-    private static bool DictEqual<TKey, TValue>(Dictionary<TKey, TValue>? a, Dictionary<TKey, TValue>? b)
-        where TKey : notnull
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-        if (a.Count != b.Count) return false;
-
-        foreach (var kv in a)
-        {
-            if (!b.TryGetValue(kv.Key, out var bv)) return false;
-            if (!Equals(kv.Value, bv)) return false;
-        }
-
-        return true;
-    }
-
-    private static bool ObjectEqual(object? a, object? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-        if (a.GetType() != b.GetType()) return false;
-
-        if (a is string sa) return string.Equals(sa, (string)b, StringComparison.Ordinal);
-        if (a is Address aa) return AddressEqual(aa, (Address)b);
-        return a.Equals(b);
-    }
-
-    private static bool DynamicEqual(IDictionary<string, object?> a, IDictionary<string, object?> b)
-    {
-        if (a.Count != b.Count) return false;
-        foreach (var kv in a)
-        {
-            if (!b.TryGetValue(kv.Key, out var bv)) return false;
-            if (!ObjectEqual(kv.Value, bv)) return false;
-        }
-
-        return true;
-    }
-}
-
-public static class ManualLinqy
-{
-    public static bool AreEqual(MidGraph? a, MidGraph? b)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (a is null || b is null) return false;
-
-        return a.Title == b.Title
-               && DictEqual(a.PriceIndex, b.PriceIndex)
-               && ObjectEqual(a.Polymorph, b.Polymorph)
-               && DynamicEqual(a.Extra, b.Extra)
-               && a.Customers.SequenceEqual(b.Customers, new CustomerEq());
+        return DynamicEqual((IDictionary<string, object?>)a.Extra, (IDictionary<string, object?>)b.Extra);
     }
 
     private static bool AddressEqual(Address? a, Address? b)
@@ -298,8 +185,8 @@ public static class ManualLinqy
 
         return a switch
         {
-            string sa => sa == (string)b,
-            Address aa => AddressEqual(aa, (Address)b),
+            string sa => sa == (string)b!,
+            Address aa => AddressEqual(aa, (Address)b!),
             _ => a.Equals(b)
         };
     }
@@ -318,14 +205,23 @@ public static class ManualLinqy
 
             return x.FullName == y.FullName
                    && x.Region == y.Region
-                   && AddressEqual(x.ShipTo, y.ShipTo)
+                   && new AddressEq().Equals(x.ShipTo, y.ShipTo)
                    && x.Orders.SequenceEqual(y.Orders, new OrderEq());
         }
 
-        public int GetHashCode(Customer obj)
+        public int GetHashCode(Customer obj) => 0;
+    }
+
+    private sealed class AddressEq : IEqualityComparer<Address>
+    {
+        public bool Equals(Address? x, Address? y)
         {
-            return 0;
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
+            return x.Line1 == y.Line1 && x.City == y.City && x.Postcode == y.Postcode && x.Country == y.Country;
         }
+
+        public int GetHashCode(Address obj) => 0;
     }
 
     private sealed class OrderEq : IEqualityComparer<Order>
@@ -341,10 +237,7 @@ public static class ManualLinqy
                    && x.Lines.SequenceEqual(y.Lines, new LineEq());
         }
 
-        public int GetHashCode(Order obj)
-        {
-            return 0;
-        }
+        public int GetHashCode(Order obj) => 0;
     }
 
     private sealed class LineEq : IEqualityComparer<OrderLine>
@@ -354,10 +247,82 @@ public static class ManualLinqy
             return x!.Sku == y!.Sku && x.Qty == y!.Qty && x.LineTotal == y!.LineTotal;
         }
 
-        public int GetHashCode(OrderLine obj)
+        public int GetHashCode(OrderLine obj) => 0;
+    }
+}
+
+public static class ManualLinqy
+{
+    public static bool AreEqual(MidGraph a, MidGraph b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+
+        return a.Title == b.Title
+            && a.PriceIndex.Count == b.PriceIndex.Count
+            && a.PriceIndex.All(kv => b.PriceIndex.TryGetValue(kv.Key, out var v) && v == kv.Value)
+            && a.Customers.SequenceEqual(b.Customers, new CustomerEq())
+            && ((IDictionary<string, object?>)a.Extra).OrderBy(kv => kv.Key)
+                 .SequenceEqual(((IDictionary<string, object?>)b.Extra).OrderBy(kv => kv.Key), new DynEq());
+    }
+
+    private sealed class DynEq : IEqualityComparer<KeyValuePair<string, object?>>
+    {
+        public bool Equals(KeyValuePair<string, object?> x, KeyValuePair<string, object?> y)
+            => x.Key == y.Key && Equals(x.Value, y.Value);
+        public int GetHashCode(KeyValuePair<string, object?> obj) => 0;
+    }
+
+    private sealed class CustomerEq : IEqualityComparer<Customer>
+    {
+        public bool Equals(Customer? x, Customer? y)
         {
-            return 0;
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
+
+            return x.FullName == y.FullName
+                   && x.Region == y.Region
+                   && new AddressEq().Equals(x.ShipTo, y.ShipTo)
+                   && x.Orders.SequenceEqual(y.Orders, new OrderEq());
         }
+
+        public int GetHashCode(Customer obj) => 0;
+    }
+
+    private sealed class AddressEq : IEqualityComparer<Address>
+    {
+        public bool Equals(Address? x, Address? y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
+            return x.Line1 == y.Line1 && x.City == y.City && x.Postcode == y.Postcode && x.Country == y.Country;
+        }
+
+        public int GetHashCode(Address obj) => 0;
+    }
+
+    private sealed class OrderEq : IEqualityComparer<Order>
+    {
+        public bool Equals(Order? x, Order? y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
+
+            return x.Id == y.Id
+                   && x.Created.Equals(y.Created)
+                   && x.Meta.Count == y.Meta.Count
+                   && x.Meta.All(kv => y.Meta.TryGetValue(kv.Key, out var v) && v == kv.Value)
+                   && x.Lines.SequenceEqual(y.Lines, new LineEq());
+        }
+
+        public int GetHashCode(Order obj) => 0;
+    }
+
+    private sealed class LineEq : IEqualityComparer<OrderLine>
+    {
+        public bool Equals(OrderLine? x, OrderLine? y)
+            => x!.Sku == y!.Sku && x.Qty == y!.Qty && x.LineTotal == y!.LineTotal;
+        public int GetHashCode(OrderLine obj) => 0;
     }
 }
 
@@ -365,12 +330,14 @@ public static class ManualLinqy
 
 [MemoryDiagnoser]
 [PlainExporter]
+[MarkdownExporterAttribute.GitHub]
+[CsvExporter(CsvSeparator.Comma)]
 [Config(typeof(DefaultJobConfig))]
 public class MidGraphBenchmarks
 {
+    // binary delta setup (existing)
     private BinaryDeltaOptions _bin = null!;
     private ArrayBufferWriter<byte> _bufDeep = null!;
-
     private ArrayBufferWriter<byte> _bufShallow = null!;
     private MidGraph _deepTarget = null!;
     private MidGraph _deepTargetBin = null!;
@@ -381,6 +348,7 @@ public class MidGraphBenchmarks
     private byte[] _deltaShallowBin = null!;
     private DeltaDocument _deltaShallowDecoded = null!;
 
+    // datasets
     private MidGraph _eqA = null!;
     private MidGraph _eqB = null!;
     private MidGraph _neqDeepA = null!;
@@ -390,6 +358,14 @@ public class MidGraphBenchmarks
 
     private MidGraph _shallowTarget = null!;
     private MidGraph _shallowTargetBin = null!;
+
+    // -------- Precomputed JSON DOMs for equality-only baselines --------
+    private JToken _eqA_J = null!, _eqB_J = null!, _neqShallowA_J = null!, _neqShallowB_J = null!, _neqDeepA_J = null!, _neqDeepB_J = null!;
+    private JsonNode _eqA_N = null!, _eqB_N = null!, _neqShallowA_N = null!, _neqShallowB_N = null!, _neqDeepA_N = null!, _neqDeepB_N = null!;
+    private JsonSerializerOptions _stjOpts = null!;
+
+    // -------- Compare-NET-Objects --------
+    private CompareLogic _compareLogic = null!;
 
     [Params(500)] public int Customers;
     [Params(4)] public int LinesPerOrder;
@@ -438,19 +414,33 @@ public class MidGraphBenchmarks
 
         _bufShallow = new ArrayBufferWriter<byte>(_deltaShallowBin.Length + 64);
         _bufDeep = new ArrayBufferWriter<byte>(_deltaDeepBin.Length + 64);
-    }
 
+        // ---------- Baselines set-up ----------
+        _stjOpts = new JsonSerializerOptions { PropertyNamingPolicy = null, WriteIndented = false };
 
-    [IterationSetup(Target = nameof(Apply_InMemory_Shallow_Delta))]
-    public void Reset_ShallowTarget_ForInMemoryApply()
-    {
-        _shallowTarget = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, 22);
-    }
+        // Newtonsoft.Json (JToken) — precomputed DOMs for "Equality" group
+        _eqA_J = JToken.FromObject(_eqA);
+        _eqB_J = JToken.FromObject(_eqB);
+        _neqShallowA_J = JToken.FromObject(_neqShallowA);
+        _neqShallowB_J = JToken.FromObject(_neqShallowB);
+        _neqDeepA_J = JToken.FromObject(_neqDeepA);
+        _neqDeepB_J = JToken.FromObject(_neqDeepB);
 
-    [IterationSetup(Target = nameof(Apply_InMemory_Deep_Delta))]
-    public void Reset_DeepTarget_ForInMemoryApply()
-    {
-        _deepTarget = MidGraphFactory.Create(Customers, OrdersPerCustomer, LinesPerOrder, 33);
+        // System.Text.Json (JsonNode) — precomputed DOMs for "Equality" group
+        _eqA_N = JsonSerializer.SerializeToNode(_eqA, _stjOpts)!;
+        _eqB_N = JsonSerializer.SerializeToNode(_eqB, _stjOpts)!;
+        _neqShallowA_N = JsonSerializer.SerializeToNode(_neqShallowA, _stjOpts)!;
+        _neqShallowB_N = JsonSerializer.SerializeToNode(_neqShallowB, _stjOpts)!;
+        _neqDeepA_N = JsonSerializer.SerializeToNode(_neqDeepA, _stjOpts)!;
+        _neqDeepB_N = JsonSerializer.SerializeToNode(_neqDeepB, _stjOpts)!;
+
+        // Compare-NET-Objects
+        _compareLogic = new CompareLogic(new ComparisonConfig
+        {
+            CaseSensitive = true,
+            IgnoreObjectTypes = false,
+            MaxDifferences = 1
+        });
     }
 
     [IterationSetup(Target = nameof(Binary_Apply_Shallow_Delta))]
@@ -477,88 +467,174 @@ public class MidGraphBenchmarks
         _bufDeep = new ArrayBufferWriter<byte>(_deltaDeepBin.Length + 64);
     }
 
-
-    [Benchmark]
-    public bool Generated_NotEqual_Deep()
-    {
-        return MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
-    }
-
-    [Benchmark]
-    public bool Generated_NotEqual_Shallow()
-    {
-        return MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
-    }
+    // ----------------- Your generated equality (baseline=true) -----------------
 
     [Benchmark(Baseline = true)]
+    [BenchmarkCategory("Equality")]
     public bool Generated_Equal()
+        => MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Generated_NotEqual_Shallow()
+        => MidGraphDeepEqual.AreDeepEqual(_neqShallowA, _neqShallowB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Generated_NotEqual_Deep()
+        => MidGraphDeepEqual.AreDeepEqual(_neqDeepA, _neqDeepB);
+
+    // ----------------- Manual baselines -----------------
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Manual_NonLinq_Equal() => ManualNonLinq.AreEqual(_eqA, _eqB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Manual_Linqy_Equal() => ManualLinqy.AreEqual(_eqA, _eqB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Manual_NonLinq_NotEqual_Shallow() => ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Manual_Linqy_NotEqual_Shallow() => ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Manual_NonLinq_NotEqual_Deep() => ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool Manual_Linqy_NotEqual_Deep() => ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
+
+    // ----------------- Equality only: Newtonsoft JToken.DeepEquals -----------------
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool NewtonsoftJToken_Equal() => JToken.DeepEquals(_eqA_J, _eqB_J);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool NewtonsoftJToken_NotEqual_Shallow() => JToken.DeepEquals(_neqShallowA_J, _neqShallowB_J);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool NewtonsoftJToken_NotEqual_Deep() => JToken.DeepEquals(_neqDeepA_J, _neqDeepB_J);
+
+    // ----------------- Equality only: STJ JsonNode.DeepEquals -----------------
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool STJ_JsonNode_Equal() => JsonNode.DeepEquals(_eqA_N, _eqB_N);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool STJ_JsonNode_NotEqual_Shallow() => JsonNode.DeepEquals(_neqShallowA_N, _neqShallowB_N);
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool STJ_JsonNode_NotEqual_Deep() => JsonNode.DeepEquals(_neqDeepA_N, _neqDeepB_N);
+
+    // ----------------- Compare-NET-Objects -----------------
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool CompareNetObjects_Equal() => _compareLogic.Compare(_eqA, _eqB).AreEqual;
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool CompareNetObjects_NotEqual_Shallow() => _compareLogic.Compare(_neqShallowA, _neqShallowB).AreEqual;
+
+    [Benchmark]
+    [BenchmarkCategory("Equality")]
+    public bool CompareNetObjects_NotEqual_Deep() => _compareLogic.Compare(_neqDeepA, _neqDeepB).AreEqual;
+
+    // ================= NEW GROUP: Equality + Serialization =================
+    // These benchmarks serialize to a JSON DOM inside each iteration, then DeepEquals.
+
+    // --- Newtonsoft (serialize then compare) ---
+    [Benchmark]
+    [BenchmarkCategory("Equality+Serialization")]
+    public bool NewtonsoftJToken_Equal_WithSerialization()
     {
-        return MidGraphDeepEqual.AreDeepEqual(_eqA, _eqB);
+        var a = JToken.FromObject(_eqA);
+        var b = JToken.FromObject(_eqB);
+        return JToken.DeepEquals(a, b);
     }
 
     [Benchmark]
-    public bool Manual_NonLinq_Equal()
+    [BenchmarkCategory("Equality+Serialization")]
+    public bool NewtonsoftJToken_NotEqual_Shallow_WithSerialization()
     {
-        return ManualNonLinq.AreEqual(_eqA, _eqB);
+        var a = JToken.FromObject(_neqShallowA);
+        var b = JToken.FromObject(_neqShallowB);
+        return JToken.DeepEquals(a, b);
     }
 
     [Benchmark]
-    public bool Manual_Linqy_Equal()
+    [BenchmarkCategory("Equality+Serialization")]
+    public bool NewtonsoftJToken_NotEqual_Deep_WithSerialization()
     {
-        return ManualLinqy.AreEqual(_eqA, _eqB);
+        var a = JToken.FromObject(_neqDeepA);
+        var b = JToken.FromObject(_neqDeepB);
+        return JToken.DeepEquals(a, b);
+    }
+
+    // --- System.Text.Json (serialize then compare) ---
+    [Benchmark]
+    [BenchmarkCategory("Equality+Serialization")]
+    public bool STJ_JsonNode_Equal_WithSerialization()
+    {
+        var a = JsonSerializer.SerializeToNode(_eqA, _stjOpts)!;
+        var b = JsonSerializer.SerializeToNode(_eqB, _stjOpts)!;
+        return JsonNode.DeepEquals(a, b);
     }
 
     [Benchmark]
-    public bool Manual_NonLinq_NotEqual_Shallow()
+    [BenchmarkCategory("Equality+Serialization")]
+    public bool STJ_JsonNode_NotEqual_Shallow_WithSerialization()
     {
-        return ManualNonLinq.AreEqual(_neqShallowA, _neqShallowB);
+        var a = JsonSerializer.SerializeToNode(_neqShallowA, _stjOpts)!;
+        var b = JsonSerializer.SerializeToNode(_neqShallowB, _stjOpts)!;
+        return JsonNode.DeepEquals(a, b);
     }
 
     [Benchmark]
-    public bool Manual_Linqy_NotEqual_Shallow()
+    [BenchmarkCategory("Equality+Serialization")]
+    public bool STJ_JsonNode_NotEqual_Deep_WithSerialization()
     {
-        return ManualLinqy.AreEqual(_neqShallowA, _neqShallowB);
+        var a = JsonSerializer.SerializeToNode(_neqDeepA, _stjOpts)!;
+        var b = JsonSerializer.SerializeToNode(_neqDeepB, _stjOpts)!;
+        return JsonNode.DeepEquals(a, b);
     }
 
-    [Benchmark]
-    public bool Manual_NonLinq_NotEqual_Deep()
-    {
-        return ManualNonLinq.AreEqual(_neqDeepA, _neqDeepB);
-    }
+    // ----------------- Generated diff & delta (existing) -----------------
 
     [Benchmark]
-    public bool Manual_Linqy_NotEqual_Deep()
-    {
-        return ManualLinqy.AreEqual(_neqDeepA, _neqDeepB);
-    }
-
-
-    [Benchmark]
+    [BenchmarkCategory("Diff")]
     public (bool hasDiff, Diff<MidGraph> diff) Generated_Diff_NoChange_HasDiff()
-    {
-        return MidGraphDeepOps.GetDiff(_eqA, _eqB);
-    }
+        => MidGraphDeepOps.GetDiff(_eqA, _eqB);
 
     [Benchmark]
+    [BenchmarkCategory("Diff")]
     public (bool hasDiff, Diff<MidGraph> diff) Generated_Diff_Deep_Change_MemberCount()
-    {
-        return MidGraphDeepOps.GetDiff(_neqDeepA, _neqDeepB);
-    }
+        => MidGraphDeepOps.GetDiff(_neqDeepA, _neqDeepB);
 
     [Benchmark]
+    [BenchmarkCategory("Delta")]
     public DeltaDocument Generated_ComputeDelta_Shallow_OpCount()
-    {
-        return MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB);
-    }
+        => MidGraphDeepOps.ComputeDelta(_neqShallowA, _neqShallowB);
 
     [Benchmark]
+    [BenchmarkCategory("Delta")]
     public DeltaDocument Generated_ComputeDelta_Deep_OpCount()
-    {
-        return MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB);
-    }
-
+        => MidGraphDeepOps.ComputeDelta(_neqDeepA, _neqDeepB);
 
     [Benchmark]
+    [BenchmarkCategory("Delta")]
     public bool Apply_InMemory_Shallow_Delta()
     {
         MidGraphDeepOps.ApplyDelta(ref _shallowTarget, _deltaShallow);
@@ -566,14 +642,15 @@ public class MidGraphBenchmarks
     }
 
     [Benchmark]
+    [BenchmarkCategory("Delta")]
     public bool Apply_InMemory_Deep_Delta()
     {
         MidGraphDeepOps.ApplyDelta(ref _deepTarget, _deltaDeep);
         return true;
     }
 
-
     [Benchmark]
+    [BenchmarkCategory("Delta-Binary")]
     public int Binary_Encode_Shallow_Delta_Size()
     {
         BinaryDeltaCodec.Write(_deltaShallow, _bufShallow, _bin);
@@ -581,6 +658,7 @@ public class MidGraphBenchmarks
     }
 
     [Benchmark]
+    [BenchmarkCategory("Delta-Binary")]
     public int Binary_Encode_Deep_Delta_Size()
     {
         BinaryDeltaCodec.Write(_deltaDeep, _bufDeep, _bin);
@@ -588,18 +666,17 @@ public class MidGraphBenchmarks
     }
 
     [Benchmark]
+    [BenchmarkCategory("Delta-Binary")]
     public DeltaDocument Binary_Decode_Shallow_Delta_OpCount()
-    {
-        return BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
-    }
+        => BinaryDeltaCodec.Read(_deltaShallowBin, _bin);
 
     [Benchmark]
+    [BenchmarkCategory("Delta-Binary")]
     public int Binary_Decode_Deep_Delta_OpCount()
-    {
-        return BinaryDeltaCodec.Read(_deltaDeepBin, _bin).Operations.Count;
-    }
+        => BinaryDeltaCodec.Read(_deltaDeepBin, _bin).Operations.Count;
 
     [Benchmark]
+    [BenchmarkCategory("Delta-Binary")]
     public bool Binary_Apply_Shallow_Delta()
     {
         MidGraphDeepOps.ApplyDelta(ref _shallowTargetBin, _deltaShallowDecoded);
@@ -607,11 +684,19 @@ public class MidGraphBenchmarks
     }
 
     [Benchmark]
+    [BenchmarkCategory("Delta-Binary")]
     public bool Binary_Apply_Deep_Delta()
     {
         MidGraphDeepOps.ApplyDelta(ref _deepTargetBin, _deltaDeepDecoded);
         return true;
     }
+
+    // ----------------- Optional: cloning group (NOT equality) -----------------
+
+    [Benchmark]
+    [BenchmarkCategory("Clone")]
+    public MidGraph FastDeepCloner_Clone_EqA()
+        => (MidGraph)DeepCloner.Clone(_eqA);
 
     private class DefaultJobConfig : ManualConfig
     {
@@ -621,6 +706,11 @@ public class MidGraphBenchmarks
                 .WithId("DefaultJob")
                 .WithUnrollFactor(16)
                 .WithIterationTime(TimeInterval.FromMilliseconds(100)));
+
+            WithOptions(ConfigOptions.DisableOptimizationsValidator);
+
+            // tip: set artifacts path if you want fixed output location
+            // WithArtifactsPath(@"C:\Users\mirko\Downloads");
         }
     }
 }
