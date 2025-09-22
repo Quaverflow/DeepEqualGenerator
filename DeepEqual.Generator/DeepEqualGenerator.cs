@@ -48,6 +48,9 @@ internal static class GenCommon
     internal static string SanitizeFileName(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
+        if (value.StartsWith("global::", StringComparison.Ordinal))
+            value = value["global::".Length..];
+
         var arr = value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
         return new string(arr);
     }
@@ -440,6 +443,8 @@ internal sealed class EqualityEmitter
 
         if (ns is not null) w.Close();
         var text = w.ToString();
+
+
         spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
     }
 

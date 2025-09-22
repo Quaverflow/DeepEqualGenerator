@@ -22,7 +22,7 @@ public sealed class DeltaDocument
         Ops.Clear();
     }
 
-    internal static DeltaDocument Rent(int initialCapacity)
+    public static DeltaDocument Rent(int initialCapacity)
     {
         var d = Rent();
         if (d.Ops.Capacity < initialCapacity) d.Ops.Capacity = initialCapacity;
