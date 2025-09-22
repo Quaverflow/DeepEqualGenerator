@@ -33,11 +33,9 @@ public class RefTypeTests
 
         var shallowLeft = new Item { X = 2, Name = "y" };
         var shallowRightSameValues = new Item { X = 2, Name = "y" };
-        var shallowSameRef = shallowLeft;
 
         var refLeft = new Item { X = 3, Name = "z" };
         var refRightDifferentRefSameValues = new Item { X = 3, Name = "z" };
-        var refSameRef = refLeft;
 
         var skipLeft = new Item { X = 9, Name = "q" };
         var skipRightDifferent = new Item { X = 123, Name = "QQ" };
@@ -59,10 +57,10 @@ public class RefTypeTests
 
         Assert.False(MemberKindContainerDeepEqual.AreDeepEqual(a, b));
 
-        b.ValShallow = shallowSameRef;
+        b.ValShallow = shallowLeft;
         Assert.False(MemberKindContainerDeepEqual.AreDeepEqual(a, b));
 
-        b.ValReference = refSameRef;
+        b.ValReference = refLeft;
         Assert.True(MemberKindContainerDeepEqual.AreDeepEqual(a, b));
     }
 
@@ -72,8 +70,7 @@ public class RefTypeTests
         var a = new ContainerWithTypeLevelShallow { Child = new TypeLevelShallowChild { V = 5 } };
         var b = new ContainerWithTypeLevelShallow { Child = new TypeLevelShallowChild { V = 5 } };
         Assert.False(ContainerWithTypeLevelShallowDeepEqual.AreDeepEqual(a, b));
-        var same = a;
-        Assert.True(ContainerWithTypeLevelShallowDeepEqual.AreDeepEqual(a, same));
+        Assert.True(ContainerWithTypeLevelShallowDeepEqual.AreDeepEqual(a, a));
     }
 
     [Fact]
@@ -184,7 +181,8 @@ public class RefTypeTests
         var bytes3 = Enumerable.Range(0, 32).Select(i => (byte)(i + 1)).ToArray();
 
         var a = new MemoryHolder { Buf = new Memory<byte>(bytes1), RBuf = new ReadOnlyMemory<byte>(bytes2) };
-        var b = new MemoryHolder { Buf = new Memory<byte>(bytes1.ToArray()), RBuf = new ReadOnlyMemory<byte>(bytes2.ToArray()) };
+        var b = new MemoryHolder
+            { Buf = new Memory<byte>(bytes1.ToArray()), RBuf = new ReadOnlyMemory<byte>(bytes2.ToArray()) };
         var c = new MemoryHolder { Buf = new Memory<byte>(bytes3), RBuf = new ReadOnlyMemory<byte>(bytes2) };
 
         Assert.True(MemoryHolderDeepEqual.AreDeepEqual(a, b));
@@ -198,9 +196,12 @@ public class RefTypeTests
         var base2 = new byte[] { 0, 1, 2, 3, 4, 5 };
         var base3 = new byte[] { 0, 1, 9, 3, 4, 5 };
 
-        var a = new MemoryHolder { Buf = new Memory<byte>(base1).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base1).Slice(1, 3) };
-        var b = new MemoryHolder { Buf = new Memory<byte>(base2).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base2).Slice(1, 3) };
-        var c = new MemoryHolder { Buf = new Memory<byte>(base3).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base3).Slice(1, 3) };
+        var a = new MemoryHolder
+            { Buf = new Memory<byte>(base1).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base1).Slice(1, 3) };
+        var b = new MemoryHolder
+            { Buf = new Memory<byte>(base2).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base2).Slice(1, 3) };
+        var c = new MemoryHolder
+            { Buf = new Memory<byte>(base3).Slice(2, 2), RBuf = new ReadOnlyMemory<byte>(base3).Slice(1, 3) };
 
         Assert.True(MemoryHolderDeepEqual.AreDeepEqual(a, b));
         Assert.False(MemoryHolderDeepEqual.AreDeepEqual(a, c));

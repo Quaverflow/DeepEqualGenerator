@@ -44,9 +44,9 @@ public class ExtraEdgeTests
     [Fact]
     public void Collections_With_Nulls_Are_Handled()
     {
-        var a = new ObjList { Items = new() { 1, null, new[] { "x" } } };
-        var b = new ObjList { Items = new() { 1, null, new[] { "x" } } };
-        var c = new ObjList { Items = new() { 1, null, new[] { "y" } } };
+        var a = new ObjList { Items = [1, null, new[] { "x" }] };
+        var b = new ObjList { Items = [1, null, new[] { "x" }] };
+        var c = new ObjList { Items = [1, null, new[] { "y" }] };
         Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
         Assert.False(ObjListDeepEqual.AreDeepEqual(a, c));
     }
@@ -54,49 +54,71 @@ public class ExtraEdgeTests
     [Fact]
     public void Polymorphism_Inside_Collections()
     {
-        var a = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
-        var b = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" } } };
-        var c = new ZooList { Animals = new() { new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mewz" } } };
+        var a = new ZooList { Animals = [new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" }] };
+        var b = new ZooList { Animals = [new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mews" }] };
+        var c = new ZooList { Animals = [new Cat { Age = 2, Name = "Paws" }, new Cat { Age = 5, Name = "Mewz" }] };
         Assert.True(ZooListDeepEqual.AreDeepEqual(a, b));
         Assert.False(ZooListDeepEqual.AreDeepEqual(a, c));
-    }
-
-    [DeepComparable] public sealed class BucketItem { public string K { get; init; } = ""; public int V { get; init; } }
-    [DeepComparable]
-    public sealed class Bucketed
-    {
-        [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { nameof(BucketItem.K) })]
-        public List<BucketItem> Items { get; init; } = new();
     }
 
     [Fact]
     public void Keyed_Unordered_SameCounts_But_DeepValue_Diff_Is_False()
     {
-        var a = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 2 } } };
-        var b = new Bucketed { Items = new() { new() { K = "a", V = 2 }, new() { K = "a", V = 1 } } };
-        var c = new Bucketed { Items = new() { new() { K = "a", V = 1 }, new() { K = "a", V = 99 } } };
+        var a = new Bucketed { Items = [new BucketItem { K = "a", V = 1 }, new BucketItem { K = "a", V = 2 }] };
+        var b = new Bucketed { Items = [new BucketItem { K = "a", V = 2 }, new BucketItem { K = "a", V = 1 }] };
+        var c = new Bucketed { Items = [new BucketItem { K = "a", V = 1 }, new BucketItem { K = "a", V = 99 }] };
         Assert.True(BucketedDeepEqual.AreDeepEqual(a, b));
         Assert.False(BucketedDeepEqual.AreDeepEqual(a, c));
     }
 
-    [DeepComparable] public sealed class DictShapeA { public Dictionary<string, int> Map { get; init; } = new(); }
-    public sealed class CustomDict : Dictionary<string, int> { }     [DeepComparable] public sealed class DictShapeB { public CustomDict Map { get; init; } = new(); }
-
     [Fact]
     public void Dictionary_Fallback_Mixed_Shapes_Work()
     {
-        var a = new DictShapeA { Map = new() { ["x"] = 1, ["y"] = 2 } };
+        var a = new DictShapeA { Map = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 } };
         var b = new DictShapeB { Map = new CustomDict { ["y"] = 2, ["x"] = 1 } };
-        Assert.True(DictShapeADeepEqual.AreDeepEqual(a, new DictShapeA { Map = new() { ["x"] = 1, ["y"] = 2 } }));
-        Assert.True(DictShapeBDeepEqual.AreDeepEqual(b, new DictShapeB { Map = new CustomDict { ["x"] = 1, ["y"] = 2 } }));
+        Assert.True(DictShapeADeepEqual.AreDeepEqual(a,
+            new DictShapeA { Map = new Dictionary<string, int> { ["x"] = 1, ["y"] = 2 } }));
+        Assert.True(DictShapeBDeepEqual.AreDeepEqual(b,
+            new DictShapeB { Map = new CustomDict { ["x"] = 1, ["y"] = 2 } }));
     }
 
     [Fact]
     public void Symmetry_And_Repeatability()
     {
-        var a = new ObjList { Items = new() { "a", "b" } };
-        var b = new ObjList { Items = new() { "a", "b" } };
+        var a = new ObjList { Items = ["a", "b"] };
+        var b = new ObjList { Items = ["a", "b"] };
         Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
         Assert.True(ObjListDeepEqual.AreDeepEqual(b, a));
-        Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));     }
+        Assert.True(ObjListDeepEqual.AreDeepEqual(a, b));
+    }
+
+    [DeepComparable]
+    public sealed class BucketItem
+    {
+        public string K { get; init; } = "";
+        public int V { get; init; }
+    }
+
+    [DeepComparable]
+    public sealed class Bucketed
+    {
+        [DeepCompare(OrderInsensitive = true, KeyMembers = [nameof(BucketItem.K)])]
+        public List<BucketItem> Items { get; init; } = [];
+    }
+
+    [DeepComparable]
+    public sealed class DictShapeA
+    {
+        public Dictionary<string, int> Map { get; init; } = new();
+    }
+
+    public sealed class CustomDict : Dictionary<string, int>
+    {
+    }
+
+    [DeepComparable]
+    public sealed class DictShapeB
+    {
+        public CustomDict Map { get; init; } = new();
+    }
 }

@@ -14,7 +14,8 @@ public class CultureSensitiveStringTests
         {
             CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
 
-            var a = new StringHolder { Value = "I" };               var b = new StringHolder { Value = "ı" };   
+            var a = new StringHolder { Value = "I" };
+            var b = new StringHolder { Value = "ı" };
             var opts = new ComparisonOptions { StringComparison = StringComparison.CurrentCultureIgnoreCase };
             Assert.True(StringHolderDeepEqual.AreDeepEqual(a, b, opts));
 

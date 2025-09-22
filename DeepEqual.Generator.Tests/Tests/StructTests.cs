@@ -17,13 +17,16 @@ public class StructTests
     {
         var tU1 = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var tU2 = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-        Assert.True(DateTimeHolderDeepEqual.AreDeepEqual(new DateTimeHolder { When = tU1 }, new DateTimeHolder { When = tU2 }));
+        Assert.True(DateTimeHolderDeepEqual.AreDeepEqual(new DateTimeHolder { When = tU1 },
+            new DateTimeHolder { When = tU2 }));
 
         var tKindDiff = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Local);
-        Assert.False(DateTimeHolderDeepEqual.AreDeepEqual(new DateTimeHolder { When = tU1 }, new DateTimeHolder { When = tKindDiff }));
+        Assert.False(DateTimeHolderDeepEqual.AreDeepEqual(new DateTimeHolder { When = tU1 },
+            new DateTimeHolder { When = tKindDiff }));
 
         var tTickDiff = new DateTime(2025, 1, 1, 12, 0, 1, DateTimeKind.Utc);
-        Assert.False(DateTimeHolderDeepEqual.AreDeepEqual(new DateTimeHolder { When = tU1 }, new DateTimeHolder { When = tTickDiff }));
+        Assert.False(DateTimeHolderDeepEqual.AreDeepEqual(new DateTimeHolder { When = tU1 },
+            new DateTimeHolder { When = tTickDiff }));
     }
 
     [Fact]
@@ -31,18 +34,24 @@ public class StructTests
     {
         var dt1 = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.FromHours(1));
         var dt2 = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.FromHours(1));
-        Assert.True(DateTimeOffsetHolderDeepEqual.AreDeepEqual(new DateTimeOffsetHolder { When = dt1 }, new DateTimeOffsetHolder { When = dt2 }));
+        Assert.True(DateTimeOffsetHolderDeepEqual.AreDeepEqual(new DateTimeOffsetHolder { When = dt1 },
+            new DateTimeOffsetHolder { When = dt2 }));
 
         var dtoOff = dt1.ToOffset(TimeSpan.FromHours(2));
-        Assert.False(DateTimeOffsetHolderDeepEqual.AreDeepEqual(new DateTimeOffsetHolder { When = dt1 }, new DateTimeOffsetHolder { When = dtoOff }));
+        Assert.False(DateTimeOffsetHolderDeepEqual.AreDeepEqual(new DateTimeOffsetHolder { When = dt1 },
+            new DateTimeOffsetHolder { When = dtoOff }));
     }
 
     [Fact]
     public void Nullable_DateTime_Cases()
     {
-        Assert.True(NullableDateTimeHolderDeepEqual.AreDeepEqual(new NullableDateTimeHolder { When = null }, new NullableDateTimeHolder { When = null }));
-        Assert.False(NullableDateTimeHolderDeepEqual.AreDeepEqual(new NullableDateTimeHolder { When = null }, new NullableDateTimeHolder { When = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) }));
-        Assert.False(NullableDateTimeHolderDeepEqual.AreDeepEqual(new NullableDateTimeHolder { When = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) }, new NullableDateTimeHolder { When = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Local) }));
+        Assert.True(NullableDateTimeHolderDeepEqual.AreDeepEqual(new NullableDateTimeHolder { When = null },
+            new NullableDateTimeHolder { When = null }));
+        Assert.False(NullableDateTimeHolderDeepEqual.AreDeepEqual(new NullableDateTimeHolder { When = null },
+            new NullableDateTimeHolder { When = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) }));
+        Assert.False(NullableDateTimeHolderDeepEqual.AreDeepEqual(
+            new NullableDateTimeHolder { When = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new NullableDateTimeHolder { When = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Local) }));
     }
 
     [Fact]

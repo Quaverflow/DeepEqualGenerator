@@ -2,7 +2,7 @@
 
 namespace DeepEqual.Generator.Tests.Models;
 
-[DeepCompare(IgnoreMembers = new[] { "C" })]
+[DeepCompare(IgnoreMembers = ["C"])]
 [DeepComparable]
 public sealed class IgnoreSomeMembers
 {

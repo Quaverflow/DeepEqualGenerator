@@ -5,6 +5,6 @@ namespace DeepEqual.Generator.Tests.Models;
 [DeepComparable]
 public sealed class CompositeKeyBag
 {
-    [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { nameof(Item.Name), nameof(Item.X) })]
-    public List<Item> Items { get; init; } = new();
+    [DeepCompare(OrderInsensitive = true, KeyMembers = [nameof(Item.Name), nameof(Item.X)])]
+    public List<Item> Items { get; init; } = [];
 }
