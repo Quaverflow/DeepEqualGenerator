@@ -330,22 +330,22 @@ public static class DeltaHelpers
                     return;
 
                 case DeltaKind.SeqNestedAt:
-                {
-                    var idx = op.Index;
-                    if ((uint)idx < (uint)list.Count)
                     {
-                        var cur = list[idx];
-                        if (cur is not null)
+                        var idx = op.Index;
+                        if ((uint)idx < (uint)list.Count)
                         {
-                            object? obj = cur!;
-                            var subReader = new DeltaReader(op.Nested!);
-                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                            list[idx] = (T)obj!;
+                            var cur = list[idx];
+                            if (cur is not null)
+                            {
+                                object? obj = cur!;
+                                var subReader = new DeltaReader(op.Nested!);
+                                GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                                list[idx] = (T)obj!;
+                            }
                         }
-                    }
 
-                    return;
-                }
+                        return;
+                    }
             }
 
             return;
@@ -368,22 +368,22 @@ public static class DeltaHelpers
                     return;
 
                 case DeltaKind.SeqNestedAt:
-                {
-                    var idx = op.Index;
-                    if ((uint)idx < (uint)ilist.Count)
                     {
-                        var cur = ilist[idx];
-                        if (cur is not null)
+                        var idx = op.Index;
+                        if ((uint)idx < (uint)ilist.Count)
                         {
-                            object? obj = cur!;
-                            var subReader = new DeltaReader(op.Nested!);
-                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                            ilist[idx] = (T)obj!;
+                            var cur = ilist[idx];
+                            if (cur is not null)
+                            {
+                                object? obj = cur!;
+                                var subReader = new DeltaReader(op.Nested!);
+                                GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                                ilist[idx] = (T)obj!;
+                            }
                         }
-                    }
 
-                    return;
-                }
+                        return;
+                    }
             }
 
             return;
@@ -420,22 +420,22 @@ public static class DeltaHelpers
                 break;
 
             case DeltaKind.SeqNestedAt:
-            {
-                var idx = op.Index;
-                if ((uint)idx < (uint)clone.Count)
                 {
-                    var cur = clone[idx];
-                    if (cur is not null)
+                    var idx = op.Index;
+                    if ((uint)idx < (uint)clone.Count)
                     {
-                        object? obj = cur!;
-                        var subReader = new DeltaReader(op.Nested!);
-                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                        clone[idx] = (T)obj!;
+                        var cur = clone[idx];
+                        if (cur is not null)
+                        {
+                            object? obj = cur!;
+                            var subReader = new DeltaReader(op.Nested!);
+                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                            clone[idx] = (T)obj!;
+                        }
                     }
-                }
 
-                break;
-            }
+                    break;
+                }
         }
 
         target = clone;
@@ -670,8 +670,9 @@ public static class DeltaHelpers
             return;
         }
 
+        // Avoid double hashing: TryGetValue instead of ContainsKey+indexer
         foreach (var kv in left)
-            if (!right.ContainsKey(kv.Key))
+            if (!right.TryGetValue(kv.Key, out _))
                 writer.WriteDictRemove(memberIndex, kv.Key);
 
         foreach (var kv in right)
@@ -722,7 +723,7 @@ public static class DeltaHelpers
         }
 
         foreach (var kv in left)
-            if (!right.ContainsKey(kv.Key))
+            if (!right.TryGetValue(kv.Key, out _))
                 writer.WriteDictRemove(memberIndex, kv.Key);
 
         foreach (var kv in right)
@@ -780,30 +781,30 @@ public static class DeltaHelpers
             switch (op.Kind)
             {
                 case DeltaKind.DictSet:
-                {
-                    ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, (TKey)op.Key!, out _);
-                    slot = (TValue)op.Value!;
-                    return;
-                }
-                case DeltaKind.DictRemove:
-                {
-                    md.Remove((TKey)op.Key!);
-                    return;
-                }
-                case DeltaKind.DictNested:
-                {
-                    var k = (TKey)op.Key!;
-                    ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, k, out var existed);
-                    if (existed && slot is not null)
                     {
-                        object? obj = slot!;
-                        var subReader = new DeltaReader(op.Nested!);
-                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                        slot = (TValue)obj!;
+                        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, (TKey)op.Key!, out _);
+                        slot = (TValue)op.Value!;
+                        return;
                     }
+                case DeltaKind.DictRemove:
+                    {
+                        md.Remove((TKey)op.Key!);
+                        return;
+                    }
+                case DeltaKind.DictNested:
+                    {
+                        var k = (TKey)op.Key!;
+                        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, k, out var existed);
+                        if (existed && slot is not null)
+                        {
+                            object? obj = slot!;
+                            var subReader = new DeltaReader(op.Nested!);
+                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                            slot = (TValue)obj!;
+                        }
 
-                    return;
-                }
+                        return;
+                    }
             }
 
             return;
@@ -820,18 +821,18 @@ public static class DeltaHelpers
                     map.Remove((TKey)op.Key!);
                     return;
                 case DeltaKind.DictNested:
-                {
-                    var k = (TKey)op.Key!;
-                    if (map.TryGetValue(k, out var oldVal) && oldVal is not null)
                     {
-                        object? obj = oldVal;
-                        var subReader = new DeltaReader(op.Nested!);
-                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                        map[k] = (TValue)obj!;
-                    }
+                        var k = (TKey)op.Key!;
+                        if (map.TryGetValue(k, out var oldVal) && oldVal is not null)
+                        {
+                            object? obj = oldVal;
+                            var subReader = new DeltaReader(op.Nested!);
+                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                            map[k] = (TValue)obj!;
+                        }
 
-                    return;
-                }
+                        return;
+                    }
             }
 
             return;
@@ -851,18 +852,18 @@ public static class DeltaHelpers
                 break;
 
             case DeltaKind.DictNested:
-            {
-                var k = (TKey)op.Key!;
-                if (clone.TryGetValue(k, out var oldVal) && oldVal is not null)
                 {
-                    object? obj = oldVal;
-                    var subReader = new DeltaReader(op.Nested!);
-                    GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                    clone[k] = (TValue)obj!;
-                }
+                    var k = (TKey)op.Key!;
+                    if (clone.TryGetValue(k, out var oldVal) && oldVal is not null)
+                    {
+                        object? obj = oldVal;
+                        var subReader = new DeltaReader(op.Nested!);
+                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                        clone[k] = (TValue)obj!;
+                    }
 
-                break;
-            }
+                    break;
+                }
         }
 
         target = clone;

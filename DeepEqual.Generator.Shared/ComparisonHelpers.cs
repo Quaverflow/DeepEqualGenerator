@@ -143,6 +143,18 @@ public static class ComparisonHelpers
         return true;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsHashFriendlyType(Type t)
+    {
+        // Types with good EqualityComparer<T>.Default and stable GetHashCode
+        return t.IsPrimitive
+               || t.IsEnum
+               || t == typeof(Guid)
+               || t == typeof(DateTime)
+               || t == typeof(DateTimeOffset)
+               || t == typeof(TimeSpan)
+               || t == typeof(decimal);
+    }
 
     public static bool AreEqualSequencesOrdered<T, TComparer>(
         IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
@@ -184,7 +196,6 @@ public static class ComparisonHelpers
         }
     }
 
-
     public static bool AreEqualSequencesUnordered<T, TComparer>(
         IEnumerable<T>? a, IEnumerable<T>? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<T>
@@ -192,10 +203,24 @@ public static class ComparisonHelpers
         if (ReferenceEquals(a, b)) return true;
         if (a is null || b is null) return false;
 
+        // Cheap count checks when available
         if (a is ICollection<T> ca && b is ICollection<T> cb)
         {
             if (ca.Count != cb.Count) return false;
             if (ca.Count == 0) return true;
+
+            // Prefer O(n) multiset comparison when we can get a good hash-based comparer
+            if (typeof(T) == typeof(string))
+            {
+                var sc = ComparisonHelpers.GetStringComparer(context);
+                return AreEqualSequencesUnorderedHash((IEnumerable<string>)(object)a, (IEnumerable<string>)(object)b, (IEqualityComparer<string>)sc);
+            }
+
+            if (IsHashFriendlyType(typeof(T)))
+            {
+                // Use EqualityComparer<T>.Default which is fast for primitives/enums/guids/DateTime/decimal/etc.
+                return AreEqualSequencesUnorderedHash((IEnumerable<T>)a, (IEnumerable<T>)b, EqualityComparer<T>.Default);
+            }
 
             if (a is IList<T> la && b is IList<T> lb)
                 return AreEqualUnorderedIList(la, lb, comparer, context);
@@ -204,10 +229,13 @@ public static class ComparisonHelpers
                 return AreEqualUnorderedOrList(ra, rb, comparer, context);
         }
 
+        // Fallback: materialize to lists and do O(n^2) matching
         var listA = a as List<T> ?? new List<T>(a);
         var listB = b as List<T> ?? new List<T>(b);
         return AreEqualUnordered(listA, listB, comparer, context);
     }
+
+// Add inside public static class ComparisonHelpers
 
     private static bool AreEqualUnorderedIList<T, TComparer>(
         IList<T> a, IList<T> b, TComparer comparer, ComparisonContext context)
@@ -231,10 +259,8 @@ public static class ComparisonHelpers
                     break;
                 }
             }
-
             if (!found) return false;
         }
-
         return true;
     }
 
@@ -260,14 +286,10 @@ public static class ComparisonHelpers
                     break;
                 }
             }
-
             if (!found) return false;
         }
-
         return true;
     }
-
-
     public static bool AreEqualArrayUnordered<TElement, TComparer>(
         Array? a, Array? b, TComparer comparer, ComparisonContext context)
         where TComparer : IElementComparer<TElement>
@@ -278,6 +300,40 @@ public static class ComparisonHelpers
 
         if (a.Rank == 1 && b.Rank == 1)
         {
+            // Hash-based multiset when element type is hash-friendly (or string with context comparer)
+            var elemT = typeof(TElement);
+            if (elemT == typeof(string))
+            {
+                var ec = (IEqualityComparer<string>)GetStringComparer(context);
+                var ea = a as string[] ?? a.Cast<object?>().Select(o => (string?)o).ToArray()!;
+                var eb = b as string[] ?? b.Cast<object?>().Select(o => (string?)o).ToArray()!;
+                // null-aware: treat nulls as keys too
+                var counts = new Dictionary<string?, int>(new NullAwareStringComparer(ec));
+                foreach (var s in ea) counts[s] = counts.TryGetValue(s, out var n) ? n + 1 : 1;
+                foreach (var s in eb)
+                {
+                    if (!counts.TryGetValue(s, out var n)) return false;
+                    if (n == 1) counts.Remove(s); else counts[s] = n - 1;
+                }
+                return counts.Count == 0;
+            }
+
+            if (IsHashFriendlyType(elemT))
+            {
+                // Fast path using EqualityComparer<T>.Default
+                var counts = new Dictionary<TElement, int>(EqualityComparer<TElement>.Default);
+                for (var i = 0; i < a.Length; i++)
+                    counts[(TElement)a.GetValue(i)!] = counts.TryGetValue((TElement)a.GetValue(i)!, out var n) ? n + 1 : 1;
+                for (var i = 0; i < b.Length; i++)
+                {
+                    var v = (TElement)b.GetValue(i)!;
+                    if (!counts.TryGetValue(v, out var n)) return false;
+                    if (n == 1) counts.Remove(v); else counts[v] = n - 1;
+                }
+                return counts.Count == 0;
+            }
+
+            // Fallback O(n^2)
             var len = a.Length;
             var matched = new bool[len];
             for (var i = 0; i < len; i++)
@@ -302,6 +358,7 @@ public static class ComparisonHelpers
             return true;
         }
 
+        // Non-1D arrays: fall back to list conversion
         var listA = new List<TElement>(a.Length);
         var listB = new List<TElement>(b.Length);
         foreach (var o in a) listA.Add((TElement)o!);
@@ -528,6 +585,18 @@ public static class ComparisonHelpers
             default:
                 return a.Equals(b);
         }
+    }
+
+    private sealed class NullAwareStringComparer : IEqualityComparer<string?>
+    {
+        private readonly IEqualityComparer<string> _inner;
+        public NullAwareStringComparer(IEqualityComparer<string> inner) => _inner = inner;
+        public bool Equals(string? x, string? y)
+        {
+            if (x is null || y is null) return x is null && y is null;
+            return _inner.Equals(x, y);
+        }
+        public int GetHashCode(string? obj) => obj is null ? 0 : _inner.GetHashCode(obj);
     }
 
     public sealed class StrictDateTimeComparer : IEqualityComparer<DateTime>
