@@ -95,9 +95,17 @@ public sealed class ValueLine_Extra
 // ----- Polymorphic member -----
 
 public interface IPolymorph_Extra { int Tag { get; } }
-public sealed class PolyA_Extra : IPolymorph_Extra { public int Tag => 1; public string A = "a"; }
-public sealed class PolyB_Extra : IPolymorph_Extra { public int Tag => 2; public int B = 42; }
-public sealed class PolyC_Extra : IPolymorph_Extra { public int Tag => 3; public Guid C = Guid.NewGuid(); }
+[DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+[DeltaTrack] 
+public partial class PolyA_Extra : IPolymorph_Extra { public int Tag => 1; public string A = "a"; }
+
+[DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+[DeltaTrack] 
+public partial class PolyB_Extra : IPolymorph_Extra { public int Tag => 2; public int B = 42; }
+
+[DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+[DeltaTrack] 
+public partial class PolyC_Extra : IPolymorph_Extra { public int Tag => 3; public Guid C = Guid.NewGuid(); }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
 public sealed class WithPolymorph_Extra
@@ -510,6 +518,6 @@ public class Program
             typeof(ExtraDirtyBitBenches),
             typeof(ExtraEqualityBenches),
             typeof(ExtraPolymorphicBenches),
-        ]);
+        ], DefaultConfig.Instance.WithArtifactsPath(@"C:\Users\mirko\Downloads\benc"));
     }
 }
