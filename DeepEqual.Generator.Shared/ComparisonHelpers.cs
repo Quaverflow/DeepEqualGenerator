@@ -235,7 +235,7 @@ public static class ComparisonHelpers
         return AreEqualUnordered(listA, listB, comparer, context);
     }
 
-// Add inside public static class ComparisonHelpers
+    // Add inside public static class ComparisonHelpers
 
     private static bool AreEqualUnorderedIList<T, TComparer>(
         IList<T> a, IList<T> b, TComparer comparer, ComparisonContext context)

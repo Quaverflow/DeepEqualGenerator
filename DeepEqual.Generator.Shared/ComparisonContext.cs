@@ -1090,25 +1090,25 @@ public static class BinaryDeltaCodec
                 case VTag.Char16: return (char)sr.ReadUInt16();
 
                 case VTag.Single:
-                {
-                    var u = sr.ReadUInt32();
-                    return BitConverter.Int32BitsToSingle((int)u);
-                }
+                    {
+                        var u = sr.ReadUInt32();
+                        return BitConverter.Int32BitsToSingle((int)u);
+                    }
                 case VTag.Double:
-                {
-                    var u = sr.ReadUInt64();
-                    return BitConverter.Int64BitsToDouble((long)u);
-                }
+                    {
+                        var u = sr.ReadUInt64();
+                        return BitConverter.Int64BitsToDouble((long)u);
+                    }
                 case VTag.Decimal: return ReadDecimal(ref sr);
 
                 case VTag.StringInline: return sr.ReadUtf8StringInlineChecked(_opt.Safety.MaxStringBytes);
                 case VTag.StringRef:
-                {
-                    var sid = (int)sr.ReadVarUIntChecked(_strings?.Length ?? 0);
-                    if (_strings is null) throw new InvalidOperationException("No string table in stream.");
+                    {
+                        var sid = (int)sr.ReadVarUIntChecked(_strings?.Length ?? 0);
+                        if (_strings is null) throw new InvalidOperationException("No string table in stream.");
 
-                    return _strings[sid];
-                }
+                        return _strings[sid];
+                    }
 
                 case VTag.Guid16:
                     return ReadGuid16(ref sr);
@@ -1120,25 +1120,25 @@ public static class BinaryDeltaCodec
                     return new TimeSpan(sr.ReadVarInt());
 
                 case VTag.DateTimeOffset:
-                {
-                    var ticks = sr.ReadVarInt();
-                    var offMin = (int)sr.ReadVarInt();
-                    return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offMin));
-                }
+                    {
+                        var ticks = sr.ReadVarInt();
+                        var offMin = (int)sr.ReadVarInt();
+                        return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offMin));
+                    }
 
                 case VTag.Enum:
-                {
-                    var (enumT, underlying) = ReadEnumTypeIdentity(ref sr);
-                    return ReadEnumValue(ref sr, enumT, underlying);
-                }
+                    {
+                        var (enumT, underlying) = ReadEnumTypeIdentity(ref sr);
+                        return ReadEnumValue(ref sr, enumT, underlying);
+                    }
 
                 case VTag.ByteArray:
-                {
-                    var len = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxStringBytes);
-                    var bytes = new byte[len];
-                    sr.ReadBytes(bytes);
-                    return bytes;
-                }
+                    {
+                        var len = (int)sr.ReadVarUIntChecked(_opt.Safety.MaxStringBytes);
+                        var bytes = new byte[len];
+                        sr.ReadBytes(bytes);
+                        return bytes;
+                    }
 
                 case VTag.Array: return ReadArray(ref sr);
                 case VTag.List: return ReadList(ref sr);

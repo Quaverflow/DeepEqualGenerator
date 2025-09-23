@@ -417,8 +417,8 @@ internal sealed class EqualityEmitter
 
         if (comparerDeclarations.Count > 0)
             foreach (var block in comparerDeclarations)
-            foreach (var line in block)
-                w.Line(line);
+                foreach (var line in block)
+                    w.Line(line);
 
         w.Close();
 
