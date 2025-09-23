@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeepEqual.Generator.Shared"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeepEqual.Generator.Tests", "DeepEqual.Generator.Tests\DeepEqual.Generator.Tests.csproj", "{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeepOps.Validation", "DeepEqual.Validation\DeepOps.Validation.csproj", "{662214AF-538C-4E93-9A7B-E3E55CBB1A98}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,10 @@ Global
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9A064FC-381D-1C45-F37A-0B8CDB4FD0E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{662214AF-538C-4E93-9A7B-E3E55CBB1A98}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{662214AF-538C-4E93-9A7B-E3E55CBB1A98}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{662214AF-538C-4E93-9A7B-E3E55CBB1A98}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{662214AF-538C-4E93-9A7B-E3E55CBB1A98}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
