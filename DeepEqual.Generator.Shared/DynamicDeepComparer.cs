@@ -37,12 +37,15 @@ public static class DynamicDeepComparer
 
         if (left is Array arrA && right is Array arrB)
         {
-            var len = arrA.Length;
-            if (len != arrB.Length) return false;
-            for (var i = 0; i < len; i++)
-                if (!AreEqualDynamic(arrA.GetValue(i), arrB.GetValue(i), context))
-                    return false;
-            return true;
+            // Rank must match
+            if (arrA.Rank != arrB.Rank) return false;
+
+            return ComparisonHelpers.AreEqualArray<object?, DeepPolymorphicElementComparer<object?>>(
+                arrA,
+                arrB,
+                new DeepPolymorphicElementComparer<object?>(),
+                context
+            );
         }
 
         if (left is IList listA && right is IList listB)
