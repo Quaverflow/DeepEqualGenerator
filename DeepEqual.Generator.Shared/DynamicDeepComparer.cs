@@ -13,46 +13,64 @@ public static class DynamicDeepComparer
         if (ReferenceEquals(left, right)) return true;
         if (left is null || right is null) return false;
 
-        // Fast value-like cases first
+        // Fast value-like cases first (no cycles possible here)
         if (left is string sa && right is string sb) return ComparisonHelpers.AreEqualStrings(sa, sb, context);
         if (left is double da && right is double db) return ComparisonHelpers.AreEqualDouble(da, db, context);
         if (left is float fa && right is float fb) return ComparisonHelpers.AreEqualSingle(fa, fb, context);
         if (left is decimal m1 && right is decimal m2) return ComparisonHelpers.AreEqualDecimal(m1, m2, context);
+
+        // Cross-type numeric comparison (e.g., int vs long, int vs double)
         if (IsNumeric(left) && IsNumeric(right)) return NumericEqual(left, right, context);
 
         var typeLeft = left.GetType();
         var typeRight = right.GetType();
         if (!ReferenceEquals(typeLeft, typeRight)) return false;
 
-        // Prefer generated same-type comparers for user types (including those that implement IEnumerable)
+        // Prefer generated same-type comparers for user types (including those that implement IEnumerable).
+        // IMPORTANT: Do NOT Enter/Exit here to avoid interfering with the generated helper's own cycle tracking.
         if (GeneratedHelperRegistry.TryCompareSameType(typeLeft, left, right, context, out var eqFromRegistry))
             return eqFromRegistry;
 
-        // Known container shapes
+        // Known container shapes — cycles can happen here; guard with Enter/Exit.
         if (left is IDictionary<string, object?> sdictA && right is IDictionary<string, object?> sdictB)
-            return EqualStringObjectDictionary(sdictA, sdictB, context);
+        {
+            if (!context.Enter(left, right)) return true;
+            try { return EqualStringObjectDictionary(sdictA, sdictB, context); }
+            finally { context.Exit(left, right); }
+        }
 
         if (left is IDictionary dictA && right is IDictionary dictB)
-            return EqualNonGenericDictionary(dictA, dictB, context);
+        {
+            if (!context.Enter(left, right)) return true;
+            try { return EqualNonGenericDictionary(dictA, dictB, context); }
+            finally { context.Exit(left, right); }
+        }
 
         if (left is Array arrA && right is Array arrB)
         {
-            // Rank must match
             if (arrA.Rank != arrB.Rank) return false;
-
-            return ComparisonHelpers.AreEqualArray<object?, DeepPolymorphicElementComparer<object?>>(
-                arrA,
-                arrB,
-                new DeepPolymorphicElementComparer<object?>(),
-                context
-            );
+            if (!context.Enter(left, right)) return true;
+            try
+            {
+                return ComparisonHelpers.AreEqualArray<object?, DeepPolymorphicElementComparer<object?>>(arrA, arrB,
+                    new DeepPolymorphicElementComparer<object?>(), context);
+            }
+            finally { context.Exit(left, right); }
         }
 
         if (left is IList listA && right is IList listB)
-            return EqualNonGenericList(listA, listB, context);
+        {
+            if (!context.Enter(left, right)) return true;
+            try { return EqualNonGenericList(listA, listB, context); }
+            finally { context.Exit(left, right); }
+        }
 
         if (left is IEnumerable seqA && right is IEnumerable seqB)
-            return EqualNonGenericSequence(seqA, seqB, context);
+        {
+            if (!context.Enter(left, right)) return true;
+            try { return EqualNonGenericSequence(seqA, seqB, context); }
+            finally { context.Exit(left, right); }
+        }
 
         // Primitive-like fallback
         if (IsPrimitiveLike(left)) return left.Equals(right);

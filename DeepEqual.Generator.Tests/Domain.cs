@@ -57,7 +57,7 @@ public sealed class ExternalRoot
     public Dictionary<string, string> Meta { get; set; } = new();
 }
 
-[DeepComparable(GenerateDiff = true, GenerateDelta = true, IncludeInternals = true)]
+[DeepComparable(GenerateDiff = true, GenerateDelta = true, IncludeInternals = true, CycleTracking = true)]
 public sealed class Order
 {
     public string Id { get; set; } = "";

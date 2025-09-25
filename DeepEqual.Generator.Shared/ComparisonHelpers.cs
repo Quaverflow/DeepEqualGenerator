@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -523,27 +524,81 @@ public static class ComparisonHelpers
             object orr = right!;
             var tl = ol.GetType();
             var tr = orr.GetType();
-            if (tl == tr)
+            if (ReferenceEquals(tl, tr))
+            {
                 if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv))
                     return eqv;
-
+            }
+            // Value types: fall back to default equality (no cycles possible)
             return EqualityComparer<T>.Default.Equals(left, right);
         }
         else
         {
             if (ReferenceEquals(left, right)) return true;
-
             if (left is null || right is null) return false;
 
             object ol = left;
             object orr = right;
             var tl = ol.GetType();
             var tr = orr.GetType();
-            if (tl != tr) return false;
+            if (!ReferenceEquals(tl, tr))
+            {
+                // Cross-type numeric comparison (e.g., int vs long, int vs double) when both are numeric boxes.
+                if (IsNumericBox(ol) && IsNumericBox(orr))
+                {
+                    var da = ol is decimal mad ? (double)mad : Convert.ToDouble(ol);
+                    var db = orr is decimal mbd ? (double)mbd : Convert.ToDouble(orr);
+                    return AreEqualDouble(da, db, context);
+                }
+                return false;
+            }
 
+            // Prefer generated same-type comparers for user/domain types.
             if (GeneratedHelperRegistry.TryCompareSameType(tl, ol, orr, context, out var eqv)) return eqv;
 
-            return Equals(left, right);
+            // Known container shapes — cycles can occur; guard at this level.
+            // IDictionary<string, object?>
+            if (ol is IDictionary<string, object?> sdictA && orr is IDictionary<string, object?> sdictB)
+            {
+                if (!context.Enter(ol, orr)) return true;
+                try { return AreEqualStringObjectDictionaryPolymorphic(sdictA, sdictB, context); }
+                finally { context.Exit(ol, orr); }
+            }
+
+            // Non-generic IDictionary
+            if (ol is IDictionary dictA && orr is IDictionary dictB)
+            {
+                if (!context.Enter(ol, orr)) return true;
+                try { return AreEqualNonGenericDictionaryPolymorphic(dictA, dictB, context); }
+                finally { context.Exit(ol, orr); }
+            }
+
+            // Arrays
+            if (ol is Array arrA && orr is Array arrB)
+            {
+                if (arrA.Rank != arrB.Rank) return false;
+                if (!context.Enter(ol, orr)) return true;
+                try
+                {
+                    return AreEqualArray<object?, DeepPolymorphicElementComparer<object?>>(arrA, arrB,
+                        new DeepPolymorphicElementComparer<object?>(), context);
+                }
+                finally { context.Exit(ol, orr); }
+            }
+
+            // IEnumerable (ordered semantics by default)
+            if (ol is IEnumerable seqA && orr is IEnumerable seqB)
+            {
+                if (!context.Enter(ol, orr)) return true;
+                try { return AreEqualNonGenericSequenceOrderedPolymorphic(seqA, seqB, context); }
+                finally { context.Exit(ol, orr); }
+            }
+
+            // Value-like fallback with options (strings/float/double/decimal with tolerances, etc.)
+            if (EqualsValueLike(ol, orr, context)) return true;
+
+            // Last resort
+            return ol.Equals(orr);
         }
     }
 
@@ -627,5 +682,67 @@ public static class ComparisonHelpers
         {
             return HashCode.Combine(obj.Offset, obj.UtcTicks);
         }
+    }
+
+    // --- Helpers for polymorphic container comparison (cycle-aware via caller) ---
+    private static bool AreEqualStringObjectDictionaryPolymorphic(
+        IDictionary<string, object?> a,
+        IDictionary<string, object?> b,
+        ComparisonContext ctx)
+    {
+        if (a.Count != b.Count) return false;
+        foreach (var kv in a)
+        {
+            if (!b.TryGetValue(kv.Key, out var bv)) return false;
+            if (!DeepComparePolymorphic(kv.Value, bv, ctx)) return false;
+        }
+        return true;
+    }
+
+    private static bool AreEqualNonGenericDictionaryPolymorphic(
+        IDictionary a,
+        IDictionary b,
+        ComparisonContext ctx)
+    {
+        if (a.Count != b.Count) return false;
+        foreach (DictionaryEntry de in a)
+        {
+            if (!b.Contains(de.Key)) return false;
+            var rv = b[de.Key];
+            if (!DeepComparePolymorphic(de.Value, rv, ctx)) return false;
+        }
+        return true;
+    }
+
+    private static bool AreEqualNonGenericSequenceOrderedPolymorphic(
+        IEnumerable a,
+        IEnumerable b,
+        ComparisonContext ctx)
+    {
+        var ea = a.GetEnumerator();
+        var eb = b.GetEnumerator();
+        try
+        {
+            while (true)
+            {
+                var ma = ea.MoveNext();
+                var mb = eb.MoveNext();
+                if (ma != mb) return false;
+                if (!ma) return true;
+                if (!DeepComparePolymorphic(ea.Current, eb.Current, ctx)) return false;
+            }
+        }
+        finally
+        {
+            (ea as IDisposable)?.Dispose();
+            (eb as IDisposable)?.Dispose();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsNumericBox(object o)
+    {
+        return o is byte or sbyte or short or ushort or int or uint or long or ulong
+            or float or double or decimal;
     }
 }
