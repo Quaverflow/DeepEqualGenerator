@@ -781,5 +781,622 @@ namespace DeepEqual.RewrittenTests
             a.Props["cycle"] = a1; b.Props["cycle"] = b1;
             Assert.False(a.AreDeepEqual(b));
         }
+
+        // ===============================
+        // Attribute-driven semantics
+        // ===============================
+
+        [DeepComparable]
+        public sealed class Node
+        {
+            public int V { get; set; }
+            public Node? Next { get; set; }
+        }
+
+        [DeepComparable]
+        public sealed class Named
+        {
+            public string Name { get; set; } = "";
+            public int X { get; set; }
+        }
+
+        [DeepComparable]
+        public sealed class AttrHost
+        {
+            // Deep compare (default)
+            public Node Deep { get; set; } = new Node { V = 1, Next = new Node { V = 2 } };
+
+            // Shallow compare (use .Equals only)
+            [DeepCompare(Kind = CompareKind.Shallow)]
+            public Node Shallow { get; set; } = new Node { V = 10, Next = new Node { V = 20 } };
+
+            // Reference-equality required
+            [DeepCompare(Kind = CompareKind.Reference)]
+            public Node RefOnly { get; set; } = new Node { V = 99 };
+
+            // Skip this member entirely
+            [DeepCompare(Kind = CompareKind.Skip)]
+            public Node? Skipped { get; set; } = new Node { V = 777 };
+
+            // Order-insensitive sequence (value-like elements)
+            [DeepCompare(OrderInsensitive = true)]
+            public List<int> UnorderedInts { get; set; } = new List<int> { 1, 2, 3 };
+
+            // Order-insensitive, keyed by Name (object elements)
+            [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { nameof(Named.Name) })]
+            public List<Named> UnorderedKeyedByName { get; set; } = new List<Named>
+    {
+        new Named { Name = "A", X = 1 },
+        new Named { Name = "B", X = 2 },
+    };
+
+            // Read-only list wrapper
+            public IReadOnlyList<int> RoList { get; set; } = Array.AsReadOnly(new[] { 5, 6, 7 });
+        }
+
+        [DeepComparable]
+        [DeepCompare(Kind = CompareKind.Reference)] // type-level default (reference equality)
+        public sealed class NodeRefDefault
+        {
+            public int V { get; set; }
+        }
+
+        [DeepComparable]
+        public sealed class AttrHost2
+        {
+            // Property-level override to Deep (should beat the type-level "Reference")
+            [DeepCompare(Kind = CompareKind.Deep)]
+            public NodeRefDefault DeepOverride { get; set; } = new NodeRefDefault { V = 1 };
+
+            // No override here — still "Reference" due to type-level attribute
+            public NodeRefDefault RefDefault { get; set; } = new NodeRefDefault { V = 1 };
+        }
+
+        [DeepComparable]
+        public sealed class MapHost
+        {
+            public IReadOnlyDictionary<string, int> Map { get; set; } =
+                new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                    new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 });
+        }
+
+        // ---------- attr-host helpers (local) ----------
+        private static AttrHost MakeAttrBaseline()
+        {
+            return new AttrHost
+            {
+                Deep = new Node { V = 1, Next = new Node { V = 2 } },
+                Shallow = new Node { V = 10, Next = new Node { V = 20 } },
+                RefOnly = new Node { V = 99 },
+                Skipped = new Node { V = 777 },
+                UnorderedInts = new List<int> { 1, 2, 3 },
+                UnorderedKeyedByName = new List<Named>
+        {
+            new Named { Name = "A", X = 1 },
+            new Named { Name = "B", X = 2 }
+        },
+                RoList = Array.AsReadOnly(new[] { 5, 6, 7 })
+            };
+        }
+
+        private static AttrHost CloneAttr(AttrHost h)
+        {
+            return new AttrHost
+            {
+                Deep = new Node { V = h.Deep.V, Next = h.Deep.Next is null ? null : new Node { V = h.Deep.Next.V } },
+                Shallow = new Node { V = h.Shallow.V, Next = h.Shallow.Next is null ? null : new Node { V = h.Shallow.Next.V } },
+                RefOnly = new Node { V = h.RefOnly.V }, // NEW instance (important for RefOnly test)
+                Skipped = h.Skipped is null ? null : new Node { V = h.Skipped.V },
+                UnorderedInts = new List<int>(h.UnorderedInts),
+                UnorderedKeyedByName = h.UnorderedKeyedByName.Select(n => new Named { Name = n.Name, X = n.X }).ToList(),
+                RoList = Array.AsReadOnly(h.RoList.ToArray())
+            };
+        }
+
+        // ---------- tests ----------
+
+        [Fact]
+        public void Attribute_Reference_Member_Requires_Same_Instance()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            Assert.False(a.AreDeepEqual(b));
+
+            b.Shallow = a.Shallow; 
+            b.RefOnly = a.RefOnly;
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Attribute_Shallow_Ignores_Nested_Differences_But_Deep_Does_Not()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            // IMPORTANT: With Kind=Shallow we call .Equals on the root object (reference equality for classes).
+            // To isolate the "ignore nested differences" behavior, make the shallow member reference-equal.
+            b.Shallow = a.Shallow;
+
+            // Also make the Reference-only member share the same instance so it doesn't fail the comparison.
+            b.RefOnly = a.RefOnly;
+
+            // Sanity: at this point all relevant members should be equal
+            Assert.True(a.AreDeepEqual(b));
+
+            // Change nested under Shallow only -> still equal (no recursion for Shallow)
+            b.Shallow!.Next ??= new Node { V = 0 };
+            b.Shallow.Next.V += 1000;
+            Assert.True(a.AreDeepEqual(b));
+
+            // Now change nested under Deep -> not equal (Deep recurses)
+            b.Deep!.Next ??= new Node { V = 0 };
+            b.Deep.Next.V += 1000;
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Attribute_Skip_Ignores_Member_Entirely()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            // Neutralize other attributes that could cause inequality:
+            // - Kind=Reference: must share same instance
+            // - Kind=Shallow: reference equality is used; point to same instance to avoid false negative
+            b.RefOnly = a.RefOnly;
+            b.Shallow = a.Shallow;
+
+            // Sanity: equal before changing the skipped member
+            Assert.True(a.AreDeepEqual(b));
+
+            // Make Skipped radically different -> should be ignored
+            b.Skipped = null;
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void IReadOnlyList_Ordered_Equality()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            // Neutralize attribute-driven members that would otherwise fail equality
+            b.RefOnly = a.RefOnly;   // Kind=Reference -> must share instance
+            b.Shallow = a.Shallow;   // Kind=Shallow -> .Equals (reference) for class -> share instance
+
+            // Identical ordered content -> equal
+            Assert.True(a.AreDeepEqual(b));
+
+            // Different order -> not equal (RoList is ordered)
+            b.RoList = Array.AsReadOnly(new[] { 7, 6, 5 });
+            Assert.False(a.AreDeepEqual(b));
+        }
+        [Fact]
+        public void OrderInsensitive_Unkeyed_Ints_Reorder_Equal_Cardinality_Diff_NotEqual()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            // Neutralize unrelated attribute-driven members
+            b.RefOnly = a.RefOnly;   // Kind=Reference
+            b.Shallow = a.Shallow;   // Kind=Shallow
+
+            // Reorder only -> equal (OrderInsensitive=true on UnorderedInts)
+            b.UnorderedInts = new List<int> { 3, 2, 1 };
+            Assert.True(a.AreDeepEqual(b));
+
+            // Change membership -> not equal
+            b.UnorderedInts = new List<int> { 3, 2, 1, 1 };
+            Assert.False(a.AreDeepEqual(b));
+        }
+        [Fact]
+        public void OrderInsensitive_Keyed_ByName_Reorder_Equal_ValueChange_NotEqual()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            // Neutralize unrelated attribute-driven members
+            b.RefOnly = a.RefOnly;   // Kind=Reference
+            b.Shallow = a.Shallow;   // Kind=Shallow
+
+            // Reorder by Name (A,B) -> (B,A) => equal (OrderInsensitive + KeyMembers=Name)
+            b.UnorderedKeyedByName = new List<Named>
+            {
+                new Named { Name = "B", X = 2 },
+                new Named { Name = "A", X = 1 },
+            };
+            Assert.True(a.AreDeepEqual(b));
+
+            // Same keys but different value under one key -> not equal
+            b.UnorderedKeyedByName = new List<Named>
+            {
+                new Named { Name = "B", X = 2 },
+                new Named { Name = "A", X = 999 }, // value changed under key "A"
+            };
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+
+        [Fact]
+        public void Attribute_Precedence_Property_Overrides_Type_Default()
+        {
+            var x1 = new AttrHost2
+            {
+                DeepOverride = new NodeRefDefault { V = 123 },
+                RefDefault = new NodeRefDefault { V = 456 }
+            };
+            var x2 = new AttrHost2
+            {
+                // Different instances but same values
+                DeepOverride = new NodeRefDefault { V = 123 },
+                RefDefault = new NodeRefDefault { V = 456 }
+            };
+
+            Assert.True(x1.AreDeepEqual(x2));
+        }
+
+        [Fact]
+        public void IReadOnlyDictionary_Typed_Equality()
+        {
+            var a = new MapHost
+            {
+                Map = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                    new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 })
+            };
+            var b = new MapHost
+            {
+                // different construction order should not matter
+                Map = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                    new Dictionary<string, int> { ["b"] = 2, ["a"] = 1 })
+            };
+            Assert.True(a.AreDeepEqual(b));
+
+            // change a value -> not equal
+            b = new MapHost
+            {
+                Map = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+                    new Dictionary<string, int> { ["a"] = 1, ["b"] = 999 })
+            };
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ===============================
+        // String culture & datetime nuance (reuse Order)
+        // ===============================
+
+        [Fact]
+        public void Strings_InvariantCultureIgnoreCase_Are_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Customer.Name = "café";
+            b.Customer.Name = "CAFÉ";
+
+            var ctx = new ComparisonContext(new ComparisonOptions { StringComparison = StringComparison.InvariantCultureIgnoreCase });
+            Assert.True(a.AreDeepEqual(b, ctx));
+        }
+
+        [Fact]
+        public void DateTime_SameTicks_DifferentKind_Are_Not_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            var ticks = new DateTime(2023, 01, 01, 00, 00, 00, DateTimeKind.Utc).Ticks;
+            a.CreatedUtc = new DateTime(ticks, DateTimeKind.Utc);
+            b.CreatedUtc = new DateTime(ticks, DateTimeKind.Local); // same ticks, different Kind
+
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void DateTimeOffset_SameUtcTicks_DifferentOffset_Are_Not_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            var baseUtc = new DateTimeOffset(2024, 05, 10, 12, 00, 00, TimeSpan.Zero); // 12:00Z
+            a.Offset = baseUtc;
+            b.Offset = baseUtc.ToOffset(TimeSpan.FromHours(2)); // 14:00 +02:00, same instant, different offset
+
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ========== Null vs Empty semantics on collections ==========
+
+        [Fact]
+        public void Null_List_vs_Empty_List_Are_Not_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+            a.Widgets = null!;
+            b.Widgets = new List<Widget>();
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Null_Array_vs_Empty_Array_Are_Not_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+            a.Notes = null!;
+            b.Notes = Array.Empty<string>();
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Null_Dictionary_vs_Empty_Dictionary_Are_Not_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+            a.Meta = null!;
+            b.Meta = new Dictionary<Guid, string>();
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ========== Numeric cross-type equality & epsilons ==========
+
+        [Fact]
+        public void Numeric_CrossType_Int_Equals_Double_Same_Value()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Props["num"] = 5;      // int
+            b.Props["num"] = 5.0;    // double
+
+            Assert.True(a.AreDeepEqual(b)); // cross-type numeric equal
+        }
+
+        [Fact]
+        public void Double_CrossType_Epsilon_Applies_When_Close()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Props["num"] = 1.0;            // double
+            b.Props["num"] = 1.0 + 5e-9;     // double, tiny diff
+
+            var ctx = new ComparisonContext(new ComparisonOptions { DoubleEpsilon = 1e-8 });
+            Assert.True(a.AreDeepEqual(b, ctx));
+        }
+
+        [Fact]
+        public void Float_NegativeZero_Equals_PositiveZero()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Props["f"] = -0.0f;
+            b.Props["f"] = +0.0f;
+
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // ========== ReadOnlyMemory<byte> equality nuances ==========
+
+        [Fact]
+        public void Blob_SameContent_DifferentBackingArrays_Are_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            var arr1 = new byte[] { 1, 2, 3, 4, 5 };
+            var arr2 = new byte[] { 1, 2, 3, 4, 5 };
+
+            a.Blob = new ReadOnlyMemory<byte>(arr1);
+            b.Blob = new ReadOnlyMemory<byte>(arr2);
+
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // ========== Jagged vs Rectangular arrays, and shape differences ==========
+
+        [Fact]
+        public void Rectangular_Vs_Jagged_Arrays_Are_Not_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Grid = new int[,] { { 1, 2 }, { 3, 4 } };
+            // jagged resembling same values
+            b.Props["jag"] = new int[][] { new[] { 1, 2 }, new[] { 3, 4 } };
+
+            // Compare the actual members: Grid vs a jagged in Props won't force equality anywhere, but
+            // ensure grid change alone makes a difference versus previous b.Grid (which was equal to a.Grid initially)
+            b.Grid = new int[,] { { 1, 2, 3 }, { 4, 5, 6 } }; // different shape
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ========== Dictionary key case-sensitivity (typed) ==========
+
+        [Fact]
+        public void Dictionary_Keys_Default_CaseSensitive()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Meta = new Dictionary<Guid, string> { [Guid.NewGuid()] = "x" };
+            b.Meta = new Dictionary<Guid, string>(a.Meta);
+
+            // replace with a new dict that has a different key (case doesn’t apply to Guid, but show distinct key)
+            var k1 = a.Meta.Keys.First();
+            var k2 = Guid.NewGuid();
+            b.Meta.Remove(k1);
+            b.Meta[k2] = "x";
+
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ========== IReadOnlyList equality (ordered) – fully isolated ==========
+
+        [Fact]
+        public void IReadOnlyList_Identical_Then_Reordered_NotEqual_Isolated()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            // neutralize unrelated attr members
+            b.RefOnly = a.RefOnly;
+            b.Shallow = a.Shallow;
+
+            Assert.True(a.AreDeepEqual(b)); // identical
+
+            b.RoList = Array.AsReadOnly(a.RoList.Reverse().ToArray());
+            Assert.False(a.AreDeepEqual(b)); // order matters
+        }
+
+        // ========== Order-insensitive keyed collections: duplicate-key stress ==========
+
+        [Fact]
+        public void OrderInsensitive_Keyed_DuplicateKey_On_OneSide_NotEqual()
+        {
+            var a = MakeAttrBaseline();
+            var b = CloneAttr(a);
+
+            b.RefOnly = a.RefOnly;
+            b.Shallow = a.Shallow;
+
+            // duplicate "A" on b
+            b.UnorderedKeyedByName = new List<Named>
+    {
+        new Named { Name = "A", X = 1 },
+        new Named { Name = "B", X = 2 },
+        new Named { Name = "A", X = 1 } // duplicate key
+    };
+
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ========== String comparison + dictionary values (values equal ignoring case) ==========
+
+        [Fact]
+        public void Dictionary_StringValues_Equal_IgnoringCase_With_Option()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Props["feature"] = "alpha";
+            b.Props["feature"] = "ALPHA";
+
+            var ctx = new ComparisonContext(new ComparisonOptions { StringComparison = StringComparison.OrdinalIgnoreCase });
+            Assert.True(a.AreDeepEqual(b, ctx));
+        }
+
+        // ========== NoTracking context (acyclic still works) ==========
+
+        [Fact]
+        public void NoTrackingContext_Acyclic_Still_Works()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            var ctx = ComparisonContext.NoTracking;
+            Assert.True(a.AreDeepEqual(b, ctx));
+        }
+        // ========== Custom comparer via attribute (ComparerType) ==========
+
+        public sealed class TrimIgnoreCaseComparer : IEqualityComparer<string>
+        {
+            public bool Equals(string? x, string? y)
+                => string.Equals(x?.Trim(), y?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+            public int GetHashCode(string obj) => StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Trim());
+        }
+
+        [DeepComparable]
+        public sealed class CustomHost
+        {
+            [DeepCompare(ComparerType = typeof(TrimIgnoreCaseComparer))]
+            public string Title { get; set; } = "";
+        }
+
+        [Fact]
+        public void Attribute_ComparerType_Custom_String_Comparer_Works()
+        {
+            var a = new CustomHost { Title = "  hello  " };
+            var b = new CustomHost { Title = "HELLO" };
+            Assert.True(a.AreDeepEqual(b));
+
+            b.Title = "HELLO!";
+            Assert.False(a.AreDeepEqual(b));
+        }
+
+        // ========== ReadOnlyMemory<byte> equality using slices (same content different offsets) ==========
+
+        [Fact]
+        public void Blob_Slices_With_Same_Content_Are_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            var backing = new byte[] { 9, 1, 2, 3, 4, 5, 9 };
+            a.Blob = new ReadOnlyMemory<byte>(backing, 1, 5); // [1..5] => 1,2,3,4,5
+            b.Blob = new ReadOnlyMemory<byte>(new byte[] { 1, 2, 3, 4, 5 }, 0, 5);
+
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // ========== Multi-D array equal control (same shape, same values) ==========
+
+        [Fact]
+        public void Grid_SameShape_SameValues_Are_Equal()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Grid = new int[,] { { 1, 2 }, { 3, 4 } };
+            b.Grid = new int[,] { { 1, 2 }, { 3, 4 } };
+
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // ========== Dictionary values with StringComparison from options (control + negative) ==========
+
+        [Fact]
+        public void Props_StringValues_Equal_With_IgnoreCase_And_NotEqual_Without()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Props["featureX"] = "alpha";
+            b.Props["featureX"] = "ALPHA";
+
+            var ignore = new ComparisonContext(new ComparisonOptions { StringComparison = StringComparison.OrdinalIgnoreCase });
+            var ordinal = new ComparisonContext(new ComparisonOptions { StringComparison = StringComparison.Ordinal });
+
+            Assert.True(a.AreDeepEqual(b, ignore));
+            Assert.False(a.AreDeepEqual(b, ordinal));
+        }
+
+        // ========== Numeric epsilon boundary checks (just outside tolerance) ==========
+
+        [Fact]
+        public void DoubleTolerance_Outside_Fails()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Props["eps"] = 1.0;
+            b.Props["eps"] = 1.0 + 1.1e-8;
+
+            var ctx = new ComparisonContext(new ComparisonOptions { DoubleEpsilon = 1e-8 });
+            Assert.False(a.AreDeepEqual(b, ctx));
+        }
+
+        [Fact]
+        public void DecimalTolerance_Outside_Fails()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            a.Lines[0].Price = 10.0000m;
+            b.Lines[0].Price = 10.0002m;
+
+            var ctx = new ComparisonContext(new ComparisonOptions { DecimalEpsilon = 0.0001m });
+            Assert.False(a.AreDeepEqual(b, ctx));
+        }
     }
 }

@@ -312,8 +312,8 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                         var genDelta = HasNamedTrue(attr, "GenerateDelta");
 
                         var cycleSpecified = GetNamedBool(attr, "CycleTracking");
-                        var eqCycle = cycleSpecified ?? true;
-                        var ddCycle = cycleSpecified ?? true;
+                        var eqCycle = cycleSpecified ?? false;
+                        var ddCycle = cycleSpecified ?? false;
 
                         var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
                         var attrLoc = attr.ApplicationSyntaxReference?.GetSyntax(ct).GetLocation();
@@ -558,7 +558,10 @@ internal sealed class EqualityEmitter
             w.Close();
         }
 
-        w.Line("var context = new DeepEqual.Generator.Shared.ComparisonContext();");
+        w.Line("var context = " +
+               (trackCycles
+                   ? "new DeepEqual.Generator.Shared.ComparisonContext()"
+                   : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking") + ";");
         w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
         w.Close();
         w.Line();
@@ -646,47 +649,36 @@ internal sealed class EqualityEmitter
         spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
     }
 
-    private void EmitHelperForType(
-        CodeWriter w,
-        INamedTypeSymbol type,
-        EqualityTarget root,
-        bool trackCycles, // kept for signature compatibility; no longer gates Enter/Exit
-        HashSet<string> emittedComparers,
-        List<string[]> comparerDeclarations,
-        SourceProductionContext spc)
+    private void EmitHelperForType(CodeWriter w, INamedTypeSymbol type, EqualityTarget root, bool trackCycles,
+        HashSet<string> emittedComparers, List<string[]> comparerDeclarations, SourceProductionContext spc)
     {
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var helper = GenCommon.GetHelperMethodName(type);
-
-        w.Open("private static bool " + helper + "(" + fqn + " left, " + fqn + " right, DeepEqual.Generator.Shared.ComparisonContext context)");
+        w.Open("private static bool " + helper + "(" + fqn + " left, " + fqn +
+               " right, DeepEqual.Generator.Shared.ComparisonContext context)");
 
         if (!type.IsValueType)
         {
-            // Reference type prologue (ALWAYS emitted)
             w.Open("if (object.ReferenceEquals(left, right))");
             w.Line("return true;");
             w.Close();
-
             w.Open("if (left is null || right is null)");
             w.Line("return false;");
             w.Close();
 
-            // Unconditional cycle guard. Let the context decide whether tracking is enabled.
-            w.Open("if (!context.Enter(left, right))");
-            w.Line("return true;");
-            w.Close();
-
-            // Begin try { ... } finally { context.Exit(...); }
-            w.Open("try");
+            if (trackCycles)
+            {
+                w.Open("if (!context.Enter(left, right))");
+                w.Line("return true;");
+                w.Close();
+                w.Open("try");
+            }
         }
 
         var schema = GetTypeSchema(type);
         var inc = schema.IncludeMembers;
         var ign = schema.IgnoreMembers;
-
-        // NOTE: this block existed twice; keep ONLY one to avoid duplicate diagnostics.
         if (inc.Count > 0 && ign.Count > 0)
-        {
             for (var i = 0; i < inc.Count; i++)
             {
                 var name = inc[i];
@@ -694,35 +686,43 @@ internal sealed class EqualityEmitter
                 {
                     var attr = type.GetAttributes()
                         .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-                    var loc = attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken).GetLocation()
-                              ?? type.Locations.FirstOrDefault();
-                    if (loc is not null)
-                        spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EQ001, loc, name));
+                    var loc = attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken).GetLocation() ??
+                              type.Locations.FirstOrDefault();
+                    if (loc is not null) spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EQ001, loc, name));
+
                     break;
                 }
             }
-        }
 
-        foreach (var member in OrderMembers(
-                     EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
-        {
-            EmitMember(w, type, member, root, emittedComparers, comparerDeclarations, spc);
-        }
+        if (inc.Count > 0 && ign.Count > 0)
+            for (var i = 0; i < inc.Count; i++)
+            {
+                var name = inc[i];
+                if (ign.Contains(name, StringComparer.Ordinal))
+                {
+                    var attr = type.GetAttributes()
+                        .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
+                    var loc = attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken).GetLocation() ??
+                              type.Locations.FirstOrDefault();
+                    if (loc is not null) spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.EQ001, loc, name));
+
+                    break;
+                }
+            }
+
+        foreach (var member in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers,
+                     schema))) EmitMember(w, type, member, root, emittedComparers, comparerDeclarations, spc);
 
         w.Line("return true;");
-
-        if (!type.IsValueType)
+        if (!type.IsValueType && trackCycles)
         {
-            // Close try
             w.Close();
-
-            // finally { context.Exit(left, right); }
             w.Open("finally");
             w.Line("context.Exit(left, right);");
             w.Close();
         }
 
-        w.Close(); // method
+        w.Close();
         w.Line();
     }
 
@@ -2228,55 +2228,62 @@ internal sealed class DiffDeltaEmitter
     private static void EmitRootApis(
         CodeWriter w,
         INamedTypeSymbol rootType,
-        bool cycleTrackingEnabled, // retained for signature compatibility; no longer gates tracking
+        bool cycleTrackingEnabled,
         bool generateDiff,
         bool generateDelta)
     {
         var fqn = rootType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var id = GenCommon.SanitizeIdentifier(fqn);
         var nullSuffix = rootType.IsValueType ? "" : "?";
-        var helper = GenCommon.GetHelperMethodName(rootType);
 
-        // --------------------------------------------------------------------
-        // 1) Core equality overload: accepts ComparisonContext (cycle-safe)
-        // --------------------------------------------------------------------
         w.Open(
             $"public static bool AreDeepEqual({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
         if (!rootType.IsValueType)
         {
             w.Line("if (object.ReferenceEquals(left, right)) return true;");
             w.Line("if (left is null || right is null) return false;");
-            w.Line("if (!context.Enter(left!, right!)) return true;");
-            w.Open("try");
         }
 
         if (generateDiff)
         {
-            // Use generated diff to decide equality, but still benefit from Enter/Exit above.
+            if (cycleTrackingEnabled && !rootType.IsValueType)
+            {
+                w.Line("if (!context.Enter(left!, right!)) return true;");
+                w.Open("try");
+            }
+
             w.Line($"var r = TryGetDiff__{id}(left, right, context);");
             w.Line("return !r.hasDiff;");
+            if (cycleTrackingEnabled && !rootType.IsValueType)
+            {
+                w.Close();
+                w.Open("finally");
+                w.Line("context.Exit(left!, right!);");
+                w.Close();
+            }
         }
         else
         {
-            // Pure equality via polymorphic helper (arrays/collections/dynamic/etc).
+            if (cycleTrackingEnabled && !rootType.IsValueType)
+            {
+                w.Line("if (!context.Enter(left!, right!)) return true;");
+                w.Open("try");
+            }
+
             w.Line("// Fallback: deep-compare via polymorphic helper");
             w.Line("return DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context);");
-        }
-
-        if (!rootType.IsValueType)
-        {
-            w.Close(); // try
-            w.Open("finally");
-            w.Line("context.Exit(left!, right!);");
-            w.Close();
+            if (cycleTrackingEnabled && !rootType.IsValueType)
+            {
+                w.Close();
+                w.Open("finally");
+                w.Line("context.Exit(left!, right!);");
+                w.Close();
+            }
         }
 
         w.Close();
         w.Line();
 
-        // --------------------------------------------------------------------
-        // 2) Diff API (unchanged behavior; benefits from cycle-safe context in caller)
-        // --------------------------------------------------------------------
         if (generateDiff)
         {
             w.Open(
@@ -2286,20 +2293,22 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
 
-        // --------------------------------------------------------------------
-        // 3) Delta APIs (unchanged behavior)
-        // --------------------------------------------------------------------
         if (generateDelta)
         {
-            w.Line("/// <summary>Computes a delta (patch) from <paramref name=\"left\"/> to <paramref name=\"right\"/>.</summary>");
+            w.Line(
+                "/// <summary>Computes a delta (patch) from <paramref name=\"left\"/> to <paramref name=\"right\"/>.</summary>");
             w.Line("/// <remarks>");
             w.Line("/// Collections policy:");
             w.Line("/// <list type=\"bullet\">");
-            w.Line("/// <item><description><b>Arrays</b>: treated as replace-on-change. Any detected difference emits a single <c>SetMember</c> for that member.</description></item>");
-            w.Line("/// <item><description><b>IList&lt;T&gt;</b>: granular sequence ops (<c>SeqReplaceAt</c>/<c>SeqAddAt</c>/<c>SeqRemoveAt</c>) are emitted.</description></item>");
-            w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
+            w.Line(
+                "/// <item><description><b>Arrays</b>: treated as replace-on-change. Any detected difference emits a single <c>SetMember</c> for that member.</description></item>");
+            w.Line(
+                "/// <item><description><b>IList&lt;T&gt;</b>: granular sequence ops (<c>SeqReplaceAt</c>/<c>SeqAddAt</c>/<c>SeqRemoveAt</c>) are emitted.</description></item>");
+            w.Line(
+                "/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
             w.Line("/// </list>");
-            w.Line("/// This mirrors <see cref=\"ApplyDelta(ref " + fqn + nullSuffix + ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
+            w.Line("/// This mirrors <see cref=\"ApplyDelta(ref " + fqn + nullSuffix +
+                   ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
             w.Open(
                 $"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
             w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
@@ -2313,9 +2322,12 @@ internal sealed class DiffDeltaEmitter
             w.Line("/// <remarks>");
             w.Line("/// Collections policy during application:");
             w.Line("/// <list type=\"bullet\">");
-            w.Line("/// <item><description><b>Arrays</b>: always replaced as a whole when a <c>SetMember</c> op is present. Sequence ops are ignored for arrays.</description></item>");
-            w.Line("/// <item><description><b>IList&lt;T&gt;</b>: sequence ops are applied in-place (replace/add/remove).</description></item>");
-            w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: key ops are applied (set/remove) and nested deltas are applied when present.</description></item>");
+            w.Line(
+                "/// <item><description><b>Arrays</b>: always replaced as a whole when a <c>SetMember</c> op is present. Sequence ops are ignored for arrays.</description></item>");
+            w.Line(
+                "/// <item><description><b>IList&lt;T&gt;</b>: sequence ops are applied in-place (replace/add/remove).</description></item>");
+            w.Line(
+                "/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: key ops are applied (set/remove) and nested deltas are applied when present.</description></item>");
             w.Line("/// </list>");
             w.Line("/// This matches the generator’s policy in delta computation.</remarks>");
             w.Open(
@@ -2326,9 +2338,6 @@ internal sealed class DiffDeltaEmitter
             w.Line();
         }
 
-        // --------------------------------------------------------------------
-        // 4) Convenience overloads: always tracking by default
-        // --------------------------------------------------------------------
         w.Open($"public static bool AreDeepEqual({fqn}{nullSuffix} left, {fqn}{nullSuffix} right)");
         w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
         w.Line("return AreDeepEqual(left, right, ctx);");
@@ -2354,6 +2363,11 @@ internal sealed class DiffDeltaEmitter
             w.Close();
             w.Line();
         }
+    }
+
+    private static bool IsArray(ITypeSymbol t)
+    {
+        return t is IArrayTypeSymbol;
     }
 
     private static bool IsExpando(ITypeSymbol t)

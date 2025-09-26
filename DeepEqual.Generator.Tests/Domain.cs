@@ -65,7 +65,7 @@ public sealed class Order
     public Customer Customer { get; set; } = new();
     [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { "Sku" })]
     public List<OrderLine> Lines { get; } = new();            // unordered & keyed by Sku via Fluent config
-    public List<Widget> Widgets { get; } = new();             // ordered by default
+    public List<Widget> Widgets { get; set; } = new();             // ordered by default
 
     public Dictionary<string, object?> Props { get; } = new();
     public IDictionary<string, object?> Bag { get; } = new Dictionary<string, object?>();
@@ -92,7 +92,7 @@ public sealed class Order
     [DeepCompare(OrderInsensitive = true)]
     public HashSet<string> Flags { get; } = new(StringComparer.OrdinalIgnoreCase);
     public SortedSet<int> Sorted { get; } = new();
-    public Dictionary<Guid, string> Meta { get; } = new();
+    public Dictionary<Guid, string> Meta { get; set; } = new();
 
     public int[,] Grid { get; set; } = new int[0,0];
 
