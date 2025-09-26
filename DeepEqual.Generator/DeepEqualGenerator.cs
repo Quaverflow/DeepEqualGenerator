@@ -20,6 +20,608 @@ internal static class GenCommon
 
     internal const string ExternalDeepCompareMetadataName = "DeepEqual.Generator.Shared.ExternalDeepCompareAttribute";
 
+    internal static HashSet<INamedTypeSymbol> BuildReachableTypeClosure(EqualityTarget root)
+    {
+        var set = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        var queue = new Queue<INamedTypeSymbol>();
+        set.Add(root.Type);
+        queue.Enqueue(root.Type);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var schema = GetTypeSchema(current);
+
+            foreach (var member in EnumerateMembers(current, root.IncludeInternals, root.IncludeBaseMembers, schema))
+            {
+                var kind = GenCommon.GetEffectiveKind(member.Type, GetDeepCompareAttribute(member.Symbol));
+                if (kind is EffectiveKind.Skip or EffectiveKind.Shallow or EffectiveKind.Reference) continue;
+
+                Accumulate(member.Type);
+            }
+        }
+
+        return set;
+
+        void Accumulate(ITypeSymbol t)
+        {
+            if (t is INamedTypeSymbol nnt && nnt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
+                t = nnt.TypeArguments[0];
+
+            if (t is IArrayTypeSymbol at)
+            {
+                Accumulate(at.ElementType);
+                return;
+            }
+
+            if (TryGetDictionaryInterface(t, out _, out var valT))
+            {
+                Accumulate(valT!);
+                return;
+            }
+
+            if (TryGetEnumerableInterface(t, out var elT))
+            {
+                Accumulate(elT!);
+                return;
+            }
+
+            if (TryGetReadOnlyMemory(t, out var rmT))
+            {
+                Accumulate(rmT!);
+                return;
+            }
+
+            if (TryGetMemory(t, out var mT))
+            {
+                Accumulate(mT!);
+                return;
+            }
+
+            if (t is INamedTypeSymbol n && GenCommon.IsUserObjectType(n) && IsTypeAccessibleFromRoot(n, root) && set.Add(n))
+                queue.Enqueue(n);
+        }
+    }
+
+    internal static bool TryEmitWellKnownStructCompare(CodeWriter w, string leftExpr, string rightExpr, ITypeSymbol type)
+    {
+        if (type.SpecialType == SpecialType.System_DateTime)
+        {
+            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + leftExpr + ", " + rightExpr +
+                   "))");
+            w.Line("return false;");
+            w.Close();
+            return true;
+        }
+
+        var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (fqn == "global::System.DateTimeOffset")
+        {
+            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + leftExpr + ", " +
+                   rightExpr + "))");
+            w.Line("return false;");
+            w.Close();
+            return true;
+        }
+
+        if (fqn == "global::System.TimeSpan")
+        {
+            w.Open("if (" + leftExpr + ".Ticks != " + rightExpr + ".Ticks)");
+            w.Line("return false;");
+            w.Close();
+            return true;
+        }
+
+        if (fqn == "global::System.Guid")
+        {
+            w.Open("if (!" + leftExpr + ".Equals(" + rightExpr + "))");
+            w.Line("return false;");
+            w.Close();
+            return true;
+        }
+
+        if (fqn == "global::System.DateOnly")
+        {
+            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + leftExpr + ", " + rightExpr +
+                   "))");
+            w.Line("return false;");
+            w.Close();
+            return true;
+        }
+
+        if (fqn == "global::System.TimeOnly")
+        {
+            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + leftExpr + ", " + rightExpr +
+                   "))");
+            w.Line("return false;");
+            w.Close();
+            return true;
+        }
+
+        return false;
+    }
+
+
+    internal static bool TryGetReadOnlyMemory(ITypeSymbol type, out ITypeSymbol? elementType)
+    {
+        elementType = null;
+        if (type is INamedTypeSymbol named && named.OriginalDefinition.ToDisplayString() == "System.ReadOnlyMemory<T>")
+        {
+            elementType = named.TypeArguments[0];
+            return true;
+        }
+
+        return false;
+    }
+
+    internal static bool TryGetMemory(ITypeSymbol type, out ITypeSymbol? elementType)
+    {
+        elementType = null;
+        if (type is INamedTypeSymbol named && named.OriginalDefinition.ToDisplayString() == "System.Memory<T>")
+        {
+            elementType = named.TypeArguments[0];
+            return true;
+        }
+
+        return false;
+    }
+
+    internal static bool IsHashFriendly(ITypeSymbol type)
+    {
+        if (type.SpecialType == SpecialType.System_String) return true;
+
+        if (type.TypeKind == TypeKind.Enum) return true;
+
+        if (type.SpecialType is SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal)
+            return false;
+
+        if (type.IsValueType && type.SpecialType != SpecialType.None) return true;
+
+        var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (fqn is "global::System.DateTime" or "global::System.DateTimeOffset") return true;
+
+        return false;
+    }
+
+    internal static string GetNumericCall(ITypeSymbol type, string l, string r, string ctxVar)
+    {
+        return type.SpecialType switch
+        {
+            SpecialType.System_Single => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle(" + l + ", " + r +
+                                         ", " + ctxVar + ")",
+            SpecialType.System_Double => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble(" + l + ", " + r +
+                                         ", " + ctxVar + ")",
+            SpecialType.System_Decimal => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal(" + l + ", " +
+                                          r + ", " + ctxVar + ")",
+            _ => l + ".Equals(" + r + ")"
+        };
+    }
+
+    internal static bool IsNumericWithTolerance(ITypeSymbol type)
+    {
+        return type.SpecialType is SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal;
+    }
+
+    internal static EqualityTypeSchema GetTypeSchema(INamedTypeSymbol type)
+    {
+        var attr = type.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeMetadataName);
+        if (attr is null)
+        {
+            var empty = new EqualityTypeSchema(Array.Empty<string>(), Array.Empty<string>());
+            return empty;
+        }
+
+        static string[] ReadStringArray(TypedConstant arg)
+        {
+            if (arg is { Kind: TypedConstantKind.Array, IsNull: false })
+                return arg.Values.Select(v => v.Value?.ToString() ?? string.Empty)
+                    .Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+
+            return [];
+        }
+
+        var include = Array.Empty<string>();
+        var ignore = Array.Empty<string>();
+
+        foreach (var kv in attr.NamedArguments)
+            if (kv.Key == "Members")
+                include = ReadStringArray(kv.Value);
+            else if (kv.Key == "IgnoreMembers") ignore = ReadStringArray(kv.Value);
+
+        var schema = new EqualityTypeSchema(include, ignore);
+        return schema;
+    }
+
+    internal static IEnumerable<EqualityMemberSymbol> EnumerateMembers(INamedTypeSymbol type, bool allowInternals,
+        bool includeBase, EqualityTypeSchema schema)
+    {
+        return EnumerateMembersUncached(type, allowInternals, includeBase, schema);
+    }
+
+    internal static IEnumerable<EqualityMemberSymbol> EnumerateMembersUncached(INamedTypeSymbol ownerType,
+        bool includeInternals,
+        bool includeBase, EqualityTypeSchema schema)
+    {
+        static bool IsAccessible(ISymbol s, bool inclInternals, INamedTypeSymbol owner)
+        {
+            return s.DeclaredAccessibility switch
+            {
+                Accessibility.Public => true,
+                Accessibility.Internal or Accessibility.ProtectedAndInternal => inclInternals &&
+                    SymbolEqualityComparer.Default.Equals(s.ContainingAssembly, owner.ContainingAssembly),
+                _ => false
+            };
+        }
+
+        var hasInclude = schema.IncludeMembers.Count > 0;
+        var includeSet = hasInclude ? new HashSet<string>(schema.IncludeMembers, StringComparer.Ordinal) : null;
+        var ignoreSet = schema.IgnoreMembers.Count > 0
+            ? new HashSet<string>(schema.IgnoreMembers, StringComparer.Ordinal)
+            : null;
+
+        var yielded = new HashSet<string>(StringComparer.Ordinal);
+        for (var t = ownerType;
+             t is not null && t.SpecialType != SpecialType.System_Object;
+             t = includeBase ? t.BaseType : null)
+        {
+            foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (p.IsStatic) continue;
+
+                if (p.Parameters.Length != 0) continue;
+
+                if (p.GetMethod is null) continue;
+
+                if (!IsAccessible(p, includeInternals, ownerType)) continue;
+
+                if (yielded.Contains(p.Name)) continue;
+
+                if (hasInclude && !includeSet!.Contains(p.Name)) continue;
+
+                if (ignoreSet is not null && ignoreSet.Contains(p.Name)) continue;
+
+                if (ownerType.IsValueType && SymbolEqualityComparer.Default.Equals(p.Type, ownerType) &&
+                    !hasInclude)
+                    continue;
+
+                yielded.Add(p.Name);
+                yield return new EqualityMemberSymbol(p.Name, p.Type, p);
+            }
+
+            foreach (var f in t.GetMembers().OfType<IFieldSymbol>())
+            {
+                if (f.IsStatic || f.IsConst || f.IsImplicitlyDeclared) continue;
+
+                if (f.AssociatedSymbol is not null) continue;
+
+                if (f.Name.StartsWith("<", StringComparison.Ordinal)) continue;
+
+                if (!IsAccessible(f, includeInternals, ownerType)) continue;
+
+                if (yielded.Contains(f.Name)) continue;
+
+                if (hasInclude && !includeSet!.Contains(f.Name)) continue;
+
+                if (ignoreSet is not null && ignoreSet.Contains(f.Name)) continue;
+
+                if (ownerType.IsValueType && SymbolEqualityComparer.Default.Equals(f.Type, ownerType) &&
+                    !hasInclude)
+                    continue;
+
+                yielded.Add(f.Name);
+                yield return new EqualityMemberSymbol(f.Name, f.Type, f);
+            }
+
+            if (!includeBase) break;
+        }
+    }
+
+    internal static IEnumerable<EqualityMemberSymbol> OrderMembers(IEnumerable<EqualityMemberSymbol> members)
+    {
+        return members.Select(m => (m, key: MemberCost(m))).OrderBy(t => t.key)
+            .ThenBy(t => t.m.Name, StringComparer.Ordinal).Select(t => t.m);
+    }
+
+    internal static int MemberCost(EqualityMemberSymbol equalityMember)
+    {
+        var attr = GetDeepCompareAttribute(equalityMember.Symbol);
+        var kind = GenCommon.GetEffectiveKind(equalityMember.Type, attr);
+        if (kind == EffectiveKind.Skip) return 99;
+
+        if (kind is EffectiveKind.Reference or EffectiveKind.Shallow) return 0;
+
+        var t = equalityMember.Type;
+        if (t is INamedTypeSymbol nnt && nnt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
+        {
+            var inner = nnt.TypeArguments[0];
+            if (inner.TypeKind == TypeKind.Enum) return 2;
+
+            if (IsWellKnownStruct(inner) || (inner.IsValueType && inner.SpecialType != SpecialType.None)) return 3;
+
+            t = inner;
+        }
+
+        if (t.SpecialType == SpecialType.System_String) return 1;
+
+        if (t.TypeKind == TypeKind.Enum) return 2;
+
+        if (IsWellKnownStruct(t) || (t.IsValueType && t.SpecialType != SpecialType.None)) return 3;
+
+        if (t.SpecialType == SpecialType.System_Object) return 6;
+
+        if (t is IArrayTypeSymbol) return 9;
+
+        if (TryGetDictionaryInterface(t, out _, out _)) return 8;
+
+        if (TryGetEnumerableInterface(t, out _)) return 9;
+
+        if (TryGetReadOnlyMemory(t, out _)) return 3;
+
+        if (TryGetMemory(t, out _)) return 3;
+
+        if (t is INamedTypeSymbol nts && GenCommon.IsUserObjectType(nts)) return 7;
+
+        return 7;
+    }
+
+    internal static bool IsWellKnownStruct(ITypeSymbol t)
+    {
+        if (t.SpecialType == SpecialType.System_DateTime) return true;
+
+        var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return fqn is "global::System.DateTimeOffset" or "global::System.TimeSpan" or "global::System.Guid"
+            or "global::System.DateOnly" or "global::System.TimeOnly";
+    }
+
+    internal static AttributeData? GetDeepCompareAttribute(ISymbol symbol)
+    {
+        return symbol.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeMetadataName);
+    }
+
+
+    internal static INamedTypeSymbol? GetEffectiveComparerType(ITypeSymbol comparedType, AttributeData? memberAttribute)
+    {
+        INamedTypeSymbol? fromMember = null;
+        if (memberAttribute is not null)
+            foreach (var kv in memberAttribute.NamedArguments)
+                if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts } &&
+                    ImplementsIEqualityComparerFor(ts, comparedType))
+                {
+                    fromMember = ts;
+                    break;
+                }
+
+        if (fromMember is not null) return fromMember;
+
+        var typeAttr = comparedType.OriginalDefinition.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeMetadataName);
+        if (typeAttr is not null)
+            foreach (var kv in typeAttr.NamedArguments)
+                if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts2 } &&
+                    ImplementsIEqualityComparerFor(ts2, comparedType))
+                    return ts2;
+
+        return null;
+    }
+
+    internal static bool ImplementsIEqualityComparerFor(INamedTypeSymbol comparerType, ITypeSymbol argument)
+    {
+        foreach (var i in comparerType.AllInterfaces)
+            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEqualityComparer<T>")
+                if (SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], argument))
+                    return true;
+
+        return false;
+    }
+
+    internal static bool TryGetKeySpec(ITypeSymbol elementType, AttributeData? memberAttribute, EqualityTarget root,
+        out string keyTypeFqn, out string keyExprFormat)
+    {
+        var keys = new List<EqualityMemberSymbol>();
+        keyTypeFqn = "";
+        keyExprFormat = "{0}";
+        var names = Array.Empty<string>();
+
+        if (memberAttribute is not null)
+            foreach (var kv in memberAttribute.NamedArguments)
+                if (kv is { Key: "KeyMembers", Value.Values: { Length: > 0 } arr })
+                {
+                    names = arr.Select(v => v.Value?.ToString() ?? "").Where(s => s.Length > 0).ToArray();
+                    break;
+                }
+
+        if (names.Length == 0)
+        {
+            var typeAttr = elementType.OriginalDefinition.GetAttributes()
+                .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeMetadataName);
+            if (typeAttr is not null)
+                foreach (var kv in typeAttr.NamedArguments)
+                    if (kv is { Key: "KeyMembers", Value.Values: { Length: > 0 } arr2 })
+                    {
+                        names = arr2.Select(v => v.Value?.ToString() ?? "").Where(s => s.Length > 0).ToArray();
+                        break;
+                    }
+        }
+
+        if (names.Length == 0) return false;
+
+        foreach (var n in names)
+        {
+            var m = FindMemberOn(elementType, n, root.IncludeInternals, root.IncludeBaseMembers);
+            if (m is not null) keys.Add(m.Value);
+        }
+
+        if (keys.Count == 0) return false;
+
+        if (keys.Count == 1)
+        {
+            keyTypeFqn = keys[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            keyExprFormat = "{0}." + keys[0].Name;
+            return true;
+        }
+
+        if (keys.Count > 7) return false;
+
+        keyTypeFqn = "global::System.ValueTuple<" + string.Join(",",
+            keys.Select(k => k.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + ">";
+        keyExprFormat = "(" + string.Join(",", keys.Select(k => "{0}." + k.Name)) + ")";
+        return true;
+    }
+
+    internal static EqualityMemberSymbol? FindMemberOn(ITypeSymbol type, string name, bool includeInternals, bool includeBase)
+    {
+        for (var t = type;
+             t is not null && t.SpecialType != SpecialType.System_Object;
+             t = includeBase ? (t as INamedTypeSymbol)?.BaseType : null)
+        {
+            foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (p.Name != name) continue;
+
+                if (p.IsStatic || p.Parameters.Length != 0 || p.GetMethod is null) continue;
+
+                if (!IsAccessibleForMember(p, includeInternals, type)) continue;
+
+                return new EqualityMemberSymbol(p.Name, p.Type, p);
+            }
+
+            foreach (var f in t.GetMembers().OfType<IFieldSymbol>())
+            {
+                if (f.Name != name) continue;
+
+                if (f.IsStatic || f.IsConst || f.IsImplicitlyDeclared) continue;
+
+                if (!IsAccessibleForMember(f, includeInternals, type)) continue;
+
+                return new EqualityMemberSymbol(f.Name, f.Type, f);
+            }
+
+            if (!includeBase) break;
+        }
+
+        return null;
+    }
+
+    internal static bool IsAccessibleForMember(ISymbol s, bool inclInternals, ITypeSymbol owner)
+    {
+        return s.DeclaredAccessibility switch
+        {
+            Accessibility.Public => true,
+            Accessibility.Internal or Accessibility.ProtectedAndInternal => inclInternals &&
+                                                                            SymbolEqualityComparer.Default.Equals(
+                                                                                s.ContainingAssembly,
+                                                                                owner.ContainingAssembly),
+            _ => false
+        };
+    }
+
+    internal static string GetEqualityComparerExprForHash(ITypeSymbol elType, string ctxVar, string? customVar)
+    {
+        if (customVar is not null) return customVar;
+
+        if (elType.SpecialType == SpecialType.System_String)
+            return "DeepEqual.Generator.Shared.ComparisonHelpers.GetStringComparer(" + ctxVar + ")";
+
+        var fqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (fqn == "global::System.DateTime")
+            return "DeepEqual.Generator.Shared.ComparisonHelpers.StrictDateTimeComparer.Instance";
+
+        if (fqn == "global::System.DateTimeOffset")
+            return "DeepEqual.Generator.Shared.ComparisonHelpers.StrictDateTimeOffsetComparer.Instance";
+
+        return "System.Collections.Generic.EqualityComparer<" +
+               elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ">.Default";
+    }
+
+    internal static bool TryGetEnumerableInterface(ITypeSymbol type, out ITypeSymbol? elementType)
+    {
+        if (type is INamedTypeSymbol named &&
+            named.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>")
+        {
+            elementType = named.TypeArguments[0];
+            return true;
+        }
+
+        foreach (var i in type.AllInterfaces)
+            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>")
+            {
+                elementType = i.TypeArguments[0];
+                return true;
+            }
+
+        elementType = null;
+        return false;
+    }
+
+    internal static bool TryGetDictionaryInterface(ITypeSymbol type, out ITypeSymbol? keyType,
+        out ITypeSymbol? valueType)
+    {
+        if (type is INamedTypeSymbol named)
+        {
+            var defSelf = named.OriginalDefinition.ToDisplayString();
+            if (defSelf is "System.Collections.Generic.IDictionary<TKey, TValue>"
+                or "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>")
+            {
+                keyType = named.TypeArguments[0];
+                valueType = named.TypeArguments[1];
+                return true;
+            }
+        }
+
+        foreach (var i in type.AllInterfaces)
+        {
+            var def = i.OriginalDefinition.ToDisplayString();
+            if (def is "System.Collections.Generic.IDictionary<TKey, TValue>"
+                or "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>")
+            {
+                keyType = i.TypeArguments[0];
+                valueType = i.TypeArguments[1];
+                return true;
+            }
+        }
+
+        keyType = null;
+        valueType = null;
+        return false;
+    }
+
+    internal static bool IsTypeAccessibleFromRoot(INamedTypeSymbol t, EqualityTarget root)
+    {
+        if (t.DeclaredAccessibility == Accessibility.Public)
+        {
+            var cur = t.ContainingType;
+            while (cur is not null)
+            {
+                if (cur.DeclaredAccessibility != Accessibility.Public) return false;
+
+                cur = cur.ContainingType;
+            }
+
+            return true;
+        }
+
+        if (!root.IncludeInternals) return false;
+
+        if (!SymbolEqualityComparer.Default.Equals(t.ContainingAssembly, root.Type.ContainingAssembly)) return false;
+
+        var c = t;
+        while (c is not null)
+        {
+            if (c.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal
+                or Accessibility.ProtectedAndInternal)
+            {
+                c = c.ContainingType;
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
     internal static string BuildMetadataName(INamedTypeSymbol symbol)
     {
         var sb = new StringBuilder();
@@ -540,7 +1142,7 @@ internal sealed class EqualityEmitter
         var helperClass = root.Type.Name + "DeepEqual";
         var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + "_DeepEqual.g.cs");
 
-        var reachable = BuildReachableTypeClosure(root);
+        var reachable = GenCommon.BuildReachableTypeClosure(root);
         var trackCycles = root.CycleTrackingEnabled;
         var accessibility = root.IncludeInternals || root.Type.DeclaredAccessibility != Accessibility.Public
             ? "internal"
@@ -564,7 +1166,7 @@ internal sealed class EqualityEmitter
 
 
         w.Open("static " + helperClass + "()");
-        foreach (var t in reachable.Where(t => IsTypeAccessibleFromRoot(t, root))
+        foreach (var t in reachable.Where(t => GenCommon.IsTypeAccessibleFromRoot(t, root))
                      .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
         {
             var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -707,7 +1309,7 @@ internal sealed class EqualityEmitter
             }
         }
 
-        var schema = GetTypeSchema(type);
+        var schema = GenCommon.GetTypeSchema(type);
         var inc = schema.IncludeMembers;
         var ign = schema.IgnoreMembers;
         if (inc.Count > 0 && ign.Count > 0)
@@ -742,7 +1344,7 @@ internal sealed class EqualityEmitter
                 }
             }
 
-        foreach (var member in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers,
+        foreach (var member in GenCommon.OrderMembers(GenCommon.EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers,
                      schema))) EmitMember(w, type, member, root, emittedComparers, comparerDeclarations, spc);
 
         w.Line("return true;");
@@ -764,7 +1366,7 @@ internal sealed class EqualityEmitter
     {
         var leftExpr = "left." + equalityMember.Name;
         var rightExpr = "right." + equalityMember.Name;
-        var deepAttr = GetDeepCompareAttribute(equalityMember.Symbol);
+        var deepAttr = GenCommon.GetDeepCompareAttribute(equalityMember.Symbol);
         var kind = GenCommon.GetEffectiveKind(equalityMember.Type, deepAttr);
         {
             var all = equalityMember.Symbol.GetAttributes()
@@ -780,7 +1382,7 @@ internal sealed class EqualityEmitter
             if (kind == EffectiveKind.Deep)
             {
                 var t = equalityMember.Type;
-                if (t is INamedTypeSymbol n && GenCommon.IsUserObjectType(n) && !IsTypeAccessibleFromRoot(n, root))
+                if (t is INamedTypeSymbol n && GenCommon.IsUserObjectType(n) && !GenCommon.IsTypeAccessibleFromRoot(n, root))
                 {
                     var attr = all.FirstOrDefault();
                     var loc2 = attr?.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken).GetLocation() ??
@@ -817,7 +1419,7 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        var directCustomCmp = GetEffectiveComparerType(equalityMember.Type, deepAttr);
+        var directCustomCmp = GenCommon.GetEffectiveComparerType(equalityMember.Type, deepAttr);
         if (directCustomCmp is not null)
         {
             var cmpFqn = directCustomCmp.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -846,7 +1448,7 @@ internal sealed class EqualityEmitter
             nnt0.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
         {
             var valueT = nnt0.TypeArguments[0];
-            var customCmpT = GetEffectiveComparerType(valueT, deepAttr);
+            var customCmpT = GenCommon.GetEffectiveComparerType(valueT, deepAttr);
             string? customVar = null;
             if (customCmpT is not null)
             {
@@ -878,7 +1480,7 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        if (TryEmitWellKnownStructCompare(w, leftExpr, rightExpr, equalityMember.Type))
+        if (GenCommon.TryEmitWellKnownStructCompare(w, leftExpr, rightExpr, equalityMember.Type))
         {
             w.Line();
             return;
@@ -905,9 +1507,9 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        if (IsNumericWithTolerance(equalityMember.Type))
+        if (GenCommon.IsNumericWithTolerance(equalityMember.Type))
         {
-            var call = GetNumericCall(equalityMember.Type, leftExpr, rightExpr, "context");
+            var call = GenCommon.GetNumericCall(equalityMember.Type, leftExpr, rightExpr, "context");
             w.Open("if (!" + call + ")");
             w.Line("return false;");
             w.Close();
@@ -915,11 +1517,11 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        if (TryGetReadOnlyMemory(equalityMember.Type, out var romEl))
+        if (GenCommon.TryGetReadOnlyMemory(equalityMember.Type, out var romEl))
         {
             var elFqn = romEl!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var elKind = GenCommon.GetEffectiveKind(romEl, null);
-            var elemCustomCmpT = GetEffectiveComparerType(romEl, deepAttr);
+            var elemCustomCmpT = GenCommon.GetEffectiveComparerType(romEl, deepAttr);
             string? elemCustomVar = null;
             if (elemCustomCmpT is not null)
             {
@@ -943,11 +1545,11 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        if (TryGetMemory(equalityMember.Type, out var memEl))
+        if (GenCommon.TryGetMemory(equalityMember.Type, out var memEl))
         {
             var elFqn = memEl!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var elKind = GenCommon.GetEffectiveKind(memEl, null);
-            var elemCustomCmpT = GetEffectiveComparerType(memEl, deepAttr);
+            var elemCustomCmpT = GenCommon.GetEffectiveComparerType(memEl, deepAttr);
             string? elemCustomVar = null;
             if (elemCustomCmpT is not null)
             {
@@ -985,7 +1587,7 @@ internal sealed class EqualityEmitter
             var unordered = arr.Rank == 1 && GenCommon.ResolveOrderInsensitive(root.OrderInsensitiveCollections, deepAttr, el, owner);
             var elKind = GenCommon.GetEffectiveKind(el, null);
 
-            var elemCustomCmpT = GetEffectiveComparerType(el, deepAttr);
+            var elemCustomCmpT = GenCommon.GetEffectiveComparerType(el, deepAttr);
             string? elemCustomVar = null;
             if (elemCustomCmpT is not null)
             {
@@ -1001,7 +1603,7 @@ internal sealed class EqualityEmitter
                 "_" + equalityMember.Name, elemCustomVar);
 
             // Keyed unordered (rank==1 only) — compare arrays by grouping on the key, no IReadOnlyList casts.
-            if (unordered && TryGetKeySpec(el, deepAttr, root, out var keyTypeFqn, out var keyExprFmt))
+            if (unordered && GenCommon.TryGetKeySpec(el, deepAttr, root, out var keyTypeFqn, out var keyExprFmt))
             {
                 // a[] / b[] strong-typed views
                 var aArr = "__arrA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
@@ -1084,10 +1686,10 @@ internal sealed class EqualityEmitter
                 w.Line();
                 return;
             }
-            else if (unordered && IsHashFriendly(el))
+            else if (unordered && GenCommon.IsHashFriendly(el))
             {
                 // Fast multiset compare for hash-friendly elements (string/primitive/enums etc.)
-                var eqExpr = GetEqualityComparerExprForHash(el, "context", elemCustomVar);
+                var eqExpr = GenCommon.GetEqualityComparerExprForHash(el, "context", elemCustomVar);
 
                 w.Open("if (!object.ReferenceEquals(" + leftExpr + ", " + rightExpr + "))");
                 w.Open("if (" + leftExpr + " is null || " + rightExpr + " is null)");
@@ -1132,13 +1734,13 @@ internal sealed class EqualityEmitter
         }
 
 
-        if (TryGetDictionaryInterface(equalityMember.Type, out var keyT, out var valT))
+        if (GenCommon.TryGetDictionaryInterface(equalityMember.Type, out var keyT, out var valT))
         {
             var kFqn = keyT!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var vFqn = valT!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var vKind = GenCommon.GetEffectiveKind(valT, null);
 
-            var valCustomCmpT = GetEffectiveComparerType(valT, deepAttr);
+            var valCustomCmpT = GenCommon.GetEffectiveComparerType(valT, deepAttr);
             string? valCustomVar = null;
             if (valCustomCmpT is not null)
             {
@@ -1166,13 +1768,13 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        if (TryGetEnumerableInterface(equalityMember.Type, out var elT))
+        if (GenCommon.TryGetEnumerableInterface(equalityMember.Type, out var elT))
         {
             var elFqn = elT!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var elKind = GenCommon.GetEffectiveKind(elT, null);
             var unordered = GenCommon.ResolveOrderInsensitive(root.OrderInsensitiveCollections, deepAttr, elT, owner);
 
-            var elemCustomCmpT = GetEffectiveComparerType(elT, deepAttr);
+            var elemCustomCmpT = GenCommon.GetEffectiveComparerType(elT, deepAttr);
             string? elemCustomVar = null;
             if (elemCustomCmpT is not null)
             {
@@ -1184,7 +1786,7 @@ internal sealed class EqualityEmitter
             }
 
             if (unordered &&
-                TryGetKeySpec(elT, deepAttr, root, out var keyTypeFqn2, out var keyExprFmt2) &&
+                GenCommon.TryGetKeySpec(elT, deepAttr, root, out var keyTypeFqn2, out var keyExprFmt2) &&
                 GenCommon.IsUserObjectType(elT))
             {
                 var la = "__seqA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
@@ -1262,13 +1864,13 @@ internal sealed class EqualityEmitter
                 return;
             }
 
-            if (unordered && IsHashFriendly(elT))
+            if (unordered && GenCommon.IsHashFriendly(elT))
             {
                 var la = "__seqA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
                          GenCommon.SanitizeIdentifier(equalityMember.Name);
                 var lb = "__seqB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
                          GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var eqExpr = GetEqualityComparerExprForHash(elT, "context", elemCustomVar);
+                var eqExpr = GenCommon.GetEqualityComparerExprForHash(elT, "context", elemCustomVar);
 
                 w.Line("var " + la + " = " + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">;");
                 w.Line("var " + lb + " = " + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">;");
@@ -1353,8 +1955,8 @@ internal sealed class EqualityEmitter
 
         if ((equalityMember.Type.TypeKind == TypeKind.Interface ||
              equalityMember.Type is INamedTypeSymbol { IsAbstract: true })
-            && !(TryGetDictionaryInterface(equalityMember.Type, out _, out _) ||
-                 TryGetEnumerableInterface(equalityMember.Type, out _)))
+            && !(GenCommon.TryGetDictionaryInterface(equalityMember.Type, out _, out _) ||
+                 GenCommon.TryGetEnumerableInterface(equalityMember.Type, out _)))
         {
             var declFqn = equalityMember.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + declFqn + ">(" +
@@ -1395,7 +1997,7 @@ internal sealed class EqualityEmitter
     private void EmitNullableValueCompare_NoCustom(CodeWriter w, string leftExpr, string rightExpr,
         ITypeSymbol valueType)
     {
-        if (TryEmitWellKnownStructCompare(w, leftExpr + ".Value", rightExpr + ".Value", valueType)) return;
+        if (GenCommon.TryEmitWellKnownStructCompare(w, leftExpr + ".Value", rightExpr + ".Value", valueType)) return;
 
         if (valueType.TypeKind == TypeKind.Enum)
         {
@@ -1416,9 +2018,9 @@ internal sealed class EqualityEmitter
             return;
         }
 
-        if (IsNumericWithTolerance(valueType))
+        if (GenCommon.IsNumericWithTolerance(valueType))
         {
-            var call = GetNumericCall(valueType, leftExpr + ".Value", rightExpr + ".Value", "context");
+            var call = GenCommon.GetNumericCall(valueType, leftExpr + ".Value", rightExpr + ".Value", "context");
             w.Open("if (!" + call + ")");
             w.Line("return false;");
             w.Close();
@@ -1449,608 +2051,6 @@ internal sealed class EqualityEmitter
         w.Open("if (!object.Equals(" + leftExpr + ".Value, " + rightExpr + ".Value))");
         w.Line("return false;");
         w.Close();
-    }
-
-    private bool TryEmitWellKnownStructCompare(CodeWriter w, string leftExpr, string rightExpr, ITypeSymbol type)
-    {
-        if (type.SpecialType == SpecialType.System_DateTime)
-        {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + leftExpr + ", " + rightExpr +
-                   "))");
-            w.Line("return false;");
-            w.Close();
-            return true;
-        }
-
-        var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        if (fqn == "global::System.DateTimeOffset")
-        {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + leftExpr + ", " +
-                   rightExpr + "))");
-            w.Line("return false;");
-            w.Close();
-            return true;
-        }
-
-        if (fqn == "global::System.TimeSpan")
-        {
-            w.Open("if (" + leftExpr + ".Ticks != " + rightExpr + ".Ticks)");
-            w.Line("return false;");
-            w.Close();
-            return true;
-        }
-
-        if (fqn == "global::System.Guid")
-        {
-            w.Open("if (!" + leftExpr + ".Equals(" + rightExpr + "))");
-            w.Line("return false;");
-            w.Close();
-            return true;
-        }
-
-        if (fqn == "global::System.DateOnly")
-        {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + leftExpr + ", " + rightExpr +
-                   "))");
-            w.Line("return false;");
-            w.Close();
-            return true;
-        }
-
-        if (fqn == "global::System.TimeOnly")
-        {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + leftExpr + ", " + rightExpr +
-                   "))");
-            w.Line("return false;");
-            w.Close();
-            return true;
-        }
-
-        return false;
-    }
-
-
-    private bool TryGetReadOnlyMemory(ITypeSymbol type, out ITypeSymbol? elementType)
-    {
-        elementType = null;
-        if (type is INamedTypeSymbol named && named.OriginalDefinition.ToDisplayString() == "System.ReadOnlyMemory<T>")
-        {
-            elementType = named.TypeArguments[0];
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryGetMemory(ITypeSymbol type, out ITypeSymbol? elementType)
-    {
-        elementType = null;
-        if (type is INamedTypeSymbol named && named.OriginalDefinition.ToDisplayString() == "System.Memory<T>")
-        {
-            elementType = named.TypeArguments[0];
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsHashFriendly(ITypeSymbol type)
-    {
-        if (type.SpecialType == SpecialType.System_String) return true;
-
-        if (type.TypeKind == TypeKind.Enum) return true;
-
-        if (type.SpecialType is SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal)
-            return false;
-
-        if (type.IsValueType && type.SpecialType != SpecialType.None) return true;
-
-        var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        if (fqn is "global::System.DateTime" or "global::System.DateTimeOffset") return true;
-
-        return false;
-    }
-
-    private static string GetNumericCall(ITypeSymbol type, string l, string r, string ctxVar)
-    {
-        return type.SpecialType switch
-        {
-            SpecialType.System_Single => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle(" + l + ", " + r +
-                                         ", " + ctxVar + ")",
-            SpecialType.System_Double => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble(" + l + ", " + r +
-                                         ", " + ctxVar + ")",
-            SpecialType.System_Decimal => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal(" + l + ", " +
-                                          r + ", " + ctxVar + ")",
-            _ => l + ".Equals(" + r + ")"
-        };
-    }
-
-    private static bool IsNumericWithTolerance(ITypeSymbol type)
-    {
-        return type.SpecialType is SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal;
-    }
-
-    private EqualityTypeSchema GetTypeSchema(INamedTypeSymbol type)
-    {
-        var attr = type.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-        if (attr is null)
-        {
-            var empty = new EqualityTypeSchema(Array.Empty<string>(), Array.Empty<string>());
-            return empty;
-        }
-
-        static string[] ReadStringArray(TypedConstant arg)
-        {
-            if (arg is { Kind: TypedConstantKind.Array, IsNull: false })
-                return arg.Values.Select(v => v.Value?.ToString() ?? string.Empty)
-                    .Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
-
-            return [];
-        }
-
-        var include = Array.Empty<string>();
-        var ignore = Array.Empty<string>();
-
-        foreach (var kv in attr.NamedArguments)
-            if (kv.Key == "Members")
-                include = ReadStringArray(kv.Value);
-            else if (kv.Key == "IgnoreMembers") ignore = ReadStringArray(kv.Value);
-
-        var schema = new EqualityTypeSchema(include, ignore);
-        return schema;
-    }
-
-    private IEnumerable<EqualityMemberSymbol> EnumerateMembers(INamedTypeSymbol type, bool allowInternals,
-        bool includeBase, EqualityTypeSchema schema)
-    {
-        return EnumerateMembersUncached(type, allowInternals, includeBase, schema);
-    }
-
-    private IEnumerable<EqualityMemberSymbol> EnumerateMembersUncached(INamedTypeSymbol ownerType,
-        bool includeInternals,
-        bool includeBase, EqualityTypeSchema schema)
-    {
-        static bool IsAccessible(ISymbol s, bool inclInternals, INamedTypeSymbol owner)
-        {
-            return s.DeclaredAccessibility switch
-            {
-                Accessibility.Public => true,
-                Accessibility.Internal or Accessibility.ProtectedAndInternal => inclInternals &&
-                    SymbolEqualityComparer.Default.Equals(s.ContainingAssembly, owner.ContainingAssembly),
-                _ => false
-            };
-        }
-
-        var hasInclude = schema.IncludeMembers.Count > 0;
-        var includeSet = hasInclude ? new HashSet<string>(schema.IncludeMembers, StringComparer.Ordinal) : null;
-        var ignoreSet = schema.IgnoreMembers.Count > 0
-            ? new HashSet<string>(schema.IgnoreMembers, StringComparer.Ordinal)
-            : null;
-
-        var yielded = new HashSet<string>(StringComparer.Ordinal);
-        for (var t = ownerType;
-             t is not null && t.SpecialType != SpecialType.System_Object;
-             t = includeBase ? t.BaseType : null)
-        {
-            foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
-            {
-                if (p.IsStatic) continue;
-
-                if (p.Parameters.Length != 0) continue;
-
-                if (p.GetMethod is null) continue;
-
-                if (!IsAccessible(p, includeInternals, ownerType)) continue;
-
-                if (yielded.Contains(p.Name)) continue;
-
-                if (hasInclude && !includeSet!.Contains(p.Name)) continue;
-
-                if (ignoreSet is not null && ignoreSet.Contains(p.Name)) continue;
-
-                if (ownerType.IsValueType && SymbolEqualityComparer.Default.Equals(p.Type, ownerType) &&
-                    !hasInclude)
-                    continue;
-
-                yielded.Add(p.Name);
-                yield return new EqualityMemberSymbol(p.Name, p.Type, p);
-            }
-
-            foreach (var f in t.GetMembers().OfType<IFieldSymbol>())
-            {
-                if (f.IsStatic || f.IsConst || f.IsImplicitlyDeclared) continue;
-
-                if (f.AssociatedSymbol is not null) continue;
-
-                if (f.Name.StartsWith("<", StringComparison.Ordinal)) continue;
-
-                if (!IsAccessible(f, includeInternals, ownerType)) continue;
-
-                if (yielded.Contains(f.Name)) continue;
-
-                if (hasInclude && !includeSet!.Contains(f.Name)) continue;
-
-                if (ignoreSet is not null && ignoreSet.Contains(f.Name)) continue;
-
-                if (ownerType.IsValueType && SymbolEqualityComparer.Default.Equals(f.Type, ownerType) &&
-                    !hasInclude)
-                    continue;
-
-                yielded.Add(f.Name);
-                yield return new EqualityMemberSymbol(f.Name, f.Type, f);
-            }
-
-            if (!includeBase) break;
-        }
-    }
-
-    private IEnumerable<EqualityMemberSymbol> OrderMembers(IEnumerable<EqualityMemberSymbol> members)
-    {
-        return members.Select(m => (m, key: MemberCost(m))).OrderBy(t => t.key)
-            .ThenBy(t => t.m.Name, StringComparer.Ordinal).Select(t => t.m);
-    }
-
-    private int MemberCost(EqualityMemberSymbol equalityMember)
-    {
-        var attr = GetDeepCompareAttribute(equalityMember.Symbol);
-        var kind = GenCommon.GetEffectiveKind(equalityMember.Type, attr);
-        if (kind == EffectiveKind.Skip) return 99;
-
-        if (kind is EffectiveKind.Reference or EffectiveKind.Shallow) return 0;
-
-        var t = equalityMember.Type;
-        if (t is INamedTypeSymbol nnt && nnt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
-        {
-            var inner = nnt.TypeArguments[0];
-            if (inner.TypeKind == TypeKind.Enum) return 2;
-
-            if (IsWellKnownStruct(inner) || (inner.IsValueType && inner.SpecialType != SpecialType.None)) return 3;
-
-            t = inner;
-        }
-
-        if (t.SpecialType == SpecialType.System_String) return 1;
-
-        if (t.TypeKind == TypeKind.Enum) return 2;
-
-        if (IsWellKnownStruct(t) || (t.IsValueType && t.SpecialType != SpecialType.None)) return 3;
-
-        if (t.SpecialType == SpecialType.System_Object) return 6;
-
-        if (t is IArrayTypeSymbol) return 9;
-
-        if (TryGetDictionaryInterface(t, out _, out _)) return 8;
-
-        if (TryGetEnumerableInterface(t, out _)) return 9;
-
-        if (TryGetReadOnlyMemory(t, out _)) return 3;
-
-        if (TryGetMemory(t, out _)) return 3;
-
-        if (t is INamedTypeSymbol nts && GenCommon.IsUserObjectType(nts)) return 7;
-
-        return 7;
-    }
-
-    private static bool IsWellKnownStruct(ITypeSymbol t)
-    {
-        if (t.SpecialType == SpecialType.System_DateTime) return true;
-
-        var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        return fqn is "global::System.DateTimeOffset" or "global::System.TimeSpan" or "global::System.Guid"
-            or "global::System.DateOnly" or "global::System.TimeOnly";
-    }
-
-    private static AttributeData? GetDeepCompareAttribute(ISymbol symbol)
-    {
-        return symbol.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-    }
-
-
-    private static INamedTypeSymbol? GetEffectiveComparerType(ITypeSymbol comparedType, AttributeData? memberAttribute)
-    {
-        INamedTypeSymbol? fromMember = null;
-        if (memberAttribute is not null)
-            foreach (var kv in memberAttribute.NamedArguments)
-                if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts } &&
-                    ImplementsIEqualityComparerFor(ts, comparedType))
-                {
-                    fromMember = ts;
-                    break;
-                }
-
-        if (fromMember is not null) return fromMember;
-
-        var typeAttr = comparedType.OriginalDefinition.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-        if (typeAttr is not null)
-            foreach (var kv in typeAttr.NamedArguments)
-                if (kv is { Key: "ComparerType", Value.Value: INamedTypeSymbol ts2 } &&
-                    ImplementsIEqualityComparerFor(ts2, comparedType))
-                    return ts2;
-
-        return null;
-    }
-
-    private static bool ImplementsIEqualityComparerFor(INamedTypeSymbol comparerType, ITypeSymbol argument)
-    {
-        foreach (var i in comparerType.AllInterfaces)
-            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEqualityComparer<T>")
-                if (SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], argument))
-                    return true;
-
-        return false;
-    }
-
-    private bool TryGetKeySpec(ITypeSymbol elementType, AttributeData? memberAttribute, EqualityTarget root,
-        out string keyTypeFqn, out string keyExprFormat)
-    {
-        var keys = new List<EqualityMemberSymbol>();
-        keyTypeFqn = "";
-        keyExprFormat = "{0}";
-        var names = Array.Empty<string>();
-
-        if (memberAttribute is not null)
-            foreach (var kv in memberAttribute.NamedArguments)
-                if (kv is { Key: "KeyMembers", Value.Values: { Length: > 0 } arr })
-                {
-                    names = arr.Select(v => v.Value?.ToString() ?? "").Where(s => s.Length > 0).ToArray();
-                    break;
-                }
-
-        if (names.Length == 0)
-        {
-            var typeAttr = elementType.OriginalDefinition.GetAttributes()
-                .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == DeepCompareAttributeName);
-            if (typeAttr is not null)
-                foreach (var kv in typeAttr.NamedArguments)
-                    if (kv is { Key: "KeyMembers", Value.Values: { Length: > 0 } arr2 })
-                    {
-                        names = arr2.Select(v => v.Value?.ToString() ?? "").Where(s => s.Length > 0).ToArray();
-                        break;
-                    }
-        }
-
-        if (names.Length == 0) return false;
-
-        foreach (var n in names)
-        {
-            var m = FindMemberOn(elementType, n, root.IncludeInternals, root.IncludeBaseMembers);
-            if (m is not null) keys.Add(m.Value);
-        }
-
-        if (keys.Count == 0) return false;
-
-        if (keys.Count == 1)
-        {
-            keyTypeFqn = keys[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            keyExprFormat = "{0}." + keys[0].Name;
-            return true;
-        }
-
-        if (keys.Count > 7) return false;
-
-        keyTypeFqn = "global::System.ValueTuple<" + string.Join(",",
-            keys.Select(k => k.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + ">";
-        keyExprFormat = "(" + string.Join(",", keys.Select(k => "{0}." + k.Name)) + ")";
-        return true;
-    }
-
-    private EqualityMemberSymbol? FindMemberOn(ITypeSymbol type, string name, bool includeInternals, bool includeBase)
-    {
-        for (var t = type;
-             t is not null && t.SpecialType != SpecialType.System_Object;
-             t = includeBase ? (t as INamedTypeSymbol)?.BaseType : null)
-        {
-            foreach (var p in t.GetMembers().OfType<IPropertySymbol>())
-            {
-                if (p.Name != name) continue;
-
-                if (p.IsStatic || p.Parameters.Length != 0 || p.GetMethod is null) continue;
-
-                if (!IsAccessibleForMember(p, includeInternals, type)) continue;
-
-                return new EqualityMemberSymbol(p.Name, p.Type, p);
-            }
-
-            foreach (var f in t.GetMembers().OfType<IFieldSymbol>())
-            {
-                if (f.Name != name) continue;
-
-                if (f.IsStatic || f.IsConst || f.IsImplicitlyDeclared) continue;
-
-                if (!IsAccessibleForMember(f, includeInternals, type)) continue;
-
-                return new EqualityMemberSymbol(f.Name, f.Type, f);
-            }
-
-            if (!includeBase) break;
-        }
-
-        return null;
-    }
-
-    private static bool IsAccessibleForMember(ISymbol s, bool inclInternals, ITypeSymbol owner)
-    {
-        return s.DeclaredAccessibility switch
-        {
-            Accessibility.Public => true,
-            Accessibility.Internal or Accessibility.ProtectedAndInternal => inclInternals &&
-                                                                            SymbolEqualityComparer.Default.Equals(
-                                                                                s.ContainingAssembly,
-                                                                                owner.ContainingAssembly),
-            _ => false
-        };
-    }
-
-    private static string GetEqualityComparerExprForHash(ITypeSymbol elType, string ctxVar, string? customVar)
-    {
-        if (customVar is not null) return customVar;
-
-        if (elType.SpecialType == SpecialType.System_String)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.GetStringComparer(" + ctxVar + ")";
-
-        var fqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        if (fqn == "global::System.DateTime")
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.StrictDateTimeComparer.Instance";
-
-        if (fqn == "global::System.DateTimeOffset")
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.StrictDateTimeOffsetComparer.Instance";
-
-        return "System.Collections.Generic.EqualityComparer<" +
-               elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ">.Default";
-    }
-
-    private bool TryGetEnumerableInterface(ITypeSymbol type, out ITypeSymbol? elementType)
-    {
-        if (type is INamedTypeSymbol named &&
-            named.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>")
-        {
-            elementType = named.TypeArguments[0];
-            return true;
-        }
-
-        foreach (var i in type.AllInterfaces)
-            if (i.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>")
-            {
-                elementType = i.TypeArguments[0];
-                return true;
-            }
-
-        elementType = null;
-        return false;
-    }
-
-    private bool TryGetDictionaryInterface(ITypeSymbol type, out ITypeSymbol? keyType,
-        out ITypeSymbol? valueType)
-    {
-        if (type is INamedTypeSymbol named)
-        {
-            var defSelf = named.OriginalDefinition.ToDisplayString();
-            if (defSelf is "System.Collections.Generic.IDictionary<TKey, TValue>"
-                or "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>")
-            {
-                keyType = named.TypeArguments[0];
-                valueType = named.TypeArguments[1];
-                return true;
-            }
-        }
-
-        foreach (var i in type.AllInterfaces)
-        {
-            var def = i.OriginalDefinition.ToDisplayString();
-            if (def is "System.Collections.Generic.IDictionary<TKey, TValue>"
-                or "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>")
-            {
-                keyType = i.TypeArguments[0];
-                valueType = i.TypeArguments[1];
-                return true;
-            }
-        }
-
-        keyType = null;
-        valueType = null;
-        return false;
-    }
-
-    private static bool IsTypeAccessibleFromRoot(INamedTypeSymbol t, EqualityTarget root)
-    {
-        if (t.DeclaredAccessibility == Accessibility.Public)
-        {
-            var cur = t.ContainingType;
-            while (cur is not null)
-            {
-                if (cur.DeclaredAccessibility != Accessibility.Public) return false;
-
-                cur = cur.ContainingType;
-            }
-
-            return true;
-        }
-
-        if (!root.IncludeInternals) return false;
-
-        if (!SymbolEqualityComparer.Default.Equals(t.ContainingAssembly, root.Type.ContainingAssembly)) return false;
-
-        var c = t;
-        while (c is not null)
-        {
-            if (c.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal
-                or Accessibility.ProtectedAndInternal)
-            {
-                c = c.ContainingType;
-                continue;
-            }
-
-            return false;
-        }
-
-        return true;
-    }
-
-    private HashSet<INamedTypeSymbol> BuildReachableTypeClosure(EqualityTarget root)
-    {
-        var set = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-        var queue = new Queue<INamedTypeSymbol>();
-        set.Add(root.Type);
-        queue.Enqueue(root.Type);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            var schema = GetTypeSchema(current);
-
-            foreach (var member in EnumerateMembers(current, root.IncludeInternals, root.IncludeBaseMembers, schema))
-            {
-                var kind = GenCommon.GetEffectiveKind(member.Type, GetDeepCompareAttribute(member.Symbol));
-                if (kind is EffectiveKind.Skip or EffectiveKind.Shallow or EffectiveKind.Reference) continue;
-
-                Accumulate(member.Type);
-            }
-        }
-
-        return set;
-
-        void Accumulate(ITypeSymbol t)
-        {
-            if (t is INamedTypeSymbol nnt && nnt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
-                t = nnt.TypeArguments[0];
-
-            if (t is IArrayTypeSymbol at)
-            {
-                Accumulate(at.ElementType);
-                return;
-            }
-
-            if (TryGetDictionaryInterface(t, out _, out var valT))
-            {
-                Accumulate(valT!);
-                return;
-            }
-
-            if (TryGetEnumerableInterface(t, out var elT))
-            {
-                Accumulate(elT!);
-                return;
-            }
-
-            if (TryGetReadOnlyMemory(t, out var rmT))
-            {
-                Accumulate(rmT!);
-                return;
-            }
-
-            if (TryGetMemory(t, out var mT))
-            {
-                Accumulate(mT!);
-                return;
-            }
-
-            if (t is INamedTypeSymbol n && GenCommon.IsUserObjectType(n) && IsTypeAccessibleFromRoot(n, root) && set.Add(n))
-                queue.Enqueue(n);
-        }
     }
 
 }
@@ -2395,11 +2395,6 @@ internal sealed class DiffDeltaEmitter
             w.Close();
             w.Line();
         }
-    }
-
-    private static bool IsArray(ITypeSymbol t)
-    {
-        return t is IArrayTypeSymbol;
     }
 
     private static bool IsExpando(ITypeSymbol t)
@@ -4118,43 +4113,18 @@ internal sealed class DiffDeltaEmitter
         return false;
     }
 
-    private static bool IsEnumerable(ITypeSymbol t)
-    {
-        if (t is IArrayTypeSymbol) return true;
-
-        foreach (var i in t.AllInterfaces)
-            if (i != null &&
-                i.OriginalDefinition.ToDisplayString(Fqn) == "global::System.Collections.Generic.IEnumerable<T>")
-                return true;
-
-        if (t is INamedTypeSymbol nt &&
-            nt.OriginalDefinition.ToDisplayString(Fqn) == "global::System.Collections.Generic.IEnumerable<T>")
-            return true;
-
-        return false;
-    }
-
-    private static bool IsDictionary(ITypeSymbol t)
-    {
-        static bool IsDict(INamedTypeSymbol x)
-        {
-            return x.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
-                   "global::System.Collections.Generic.IDictionary<TKey, TValue>" ||
-                   x.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ==
-                   "global::System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>";
-        }
-
-        foreach (var i in t.AllInterfaces)
-            if (i != null && IsDict(i))
-                return true;
-
-        if (t is INamedTypeSymbol nt && IsDict(nt)) return true;
-
-        return false;
-    }
-
     private static string GetValueLikeEqualsInvocation(ITypeSymbol t, string leftExpr, string rightExpr)
     {
+        // Nullable<T>: unwrap and reuse the inner type's comparison
+        if (t is INamedTypeSymbol nt &&
+            nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Nullable<T>")
+        {
+            var u = nt.TypeArguments[0];
+            var inner = GetValueLikeEqualsInvocation(u, leftExpr + ".Value", rightExpr + ".Value");
+            // equal when both null, or both have value and inner compares equal
+            return $"(({leftExpr}.HasValue == {rightExpr}.HasValue) && (!{leftExpr}.HasValue || ({inner})))";
+        }
+
         if (t.SpecialType == SpecialType.System_String)
             return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings({leftExpr}, {rightExpr}, context)";
 
@@ -4167,12 +4137,12 @@ internal sealed class DiffDeltaEmitter
         if (t.SpecialType == SpecialType.System_Decimal)
             return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal({leftExpr}, {rightExpr}, context)";
 
-        // Content-equality for Memory<T>/ReadOnlyMemory<T>
-        if (t is INamedTypeSymbol nt &&
-            (nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.ReadOnlyMemory<T>" ||
-             nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Memory<T>"))
+        // Content equality for Memory<T>/ReadOnlyMemory<T>
+        if (t is INamedTypeSymbol nt2 &&
+            (nt2.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.ReadOnlyMemory<T>" ||
+             nt2.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Memory<T>"))
         {
-            var el = nt.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var el = nt2.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             return $"System.MemoryExtensions.SequenceEqual<{el}>({leftExpr}.Span, {rightExpr}.Span)";
         }
 
@@ -4203,58 +4173,142 @@ internal sealed class DiffDeltaEmitter
         return sb.ToString();
     }
 
+
+    // In DiffDeltaEmitter (or the class that builds the set of types to generate)
     private static HashSet<INamedTypeSymbol> BuildReachableTypeClosure(DiffDeltaTarget root)
     {
-        var set = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default)
-        {
-            root.Type
-        };
-        var queue = new Queue<INamedTypeSymbol>();
-        queue.Enqueue(root.Type);
+        var set = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        var q = new Queue<ITypeSymbol>();
 
-        while (queue.Count > 0)
+        void Enq(ITypeSymbol t)
         {
-            var cur = queue.Dequeue();
+            // unwrap Nullable<T>
+            if (t is INamedTypeSymbol nt &&
+                nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Nullable<T>")
+                t = nt.TypeArguments[0];
 
-            foreach (var member in EnumerateMembers(cur, root.IncludeInternals, root.IncludeBaseMembers,
-                         new DiffDeltaTypeSchema(Array.Empty<string>(), Array.Empty<string>(), CompareKind.Deep, false,
-                             false, false))) Accumulate(member.Type);
+            q.Enqueue(t);
+        }
+
+        Enq(root.Type);
+
+        INamespaceSymbol asmRoot = root.Type.ContainingAssembly.GlobalNamespace;
+
+        while (q.Count > 0)
+        {
+            var cur = q.Dequeue();
+
+            // Arrays → element
+            if (cur is IArrayTypeSymbol at)
+            {
+                Enq(at.ElementType);
+                continue;
+            }
+
+            // Dict → key, value
+            if (TryGetDictionaryTypes(cur, out var kT, out var vT))
+            {
+                Enq(kT!); Enq(vT!);
+                continue;
+            }
+
+            // IEnumerable<T> → T
+            if (TryGetEnumerableElement(cur, out var elT))
+                Enq(elT!);
+
+            // Memory<T> / ReadOnlyMemory<T> → T
+            if (GenCommon.TryGetReadOnlyMemory(cur, out var romT))
+                Enq(romT!);
+            if (GenCommon.TryGetMemory(cur, out var memT))
+                Enq(memT!);
+
+            // If it's a concrete user object, accessible in the same assembly → include and traverse its members
+            if (cur is INamedTypeSymbol user &&
+                GenCommon.IsUserObjectType(user) &&
+                IsTypeAccessibleFromRoot(user, root) &&
+                set.Add(user))
+            {
+                // IMPORTANT: use the equality-side enumerator (broad),
+                // not the apply/delta enumerator that may drop get-only members.
+                var schema = GenCommon.GetTypeSchema(user);
+                foreach (var m in GenCommon.EnumerateMembers(user, root.IncludeInternals, root.IncludeBaseMembers, schema))
+                    Enq(m.Type);
+            }
+
+            // If it's an interface or abstract, scan this assembly for concrete implementations and enqueue them
+            if (cur is INamedTypeSymbol ia && (ia.TypeKind == TypeKind.Interface || ia.IsAbstract))
+            {
+                foreach (var impl in EnumerateAllNamedTypes(asmRoot))
+                {
+                    if (!GenCommon.IsUserObjectType(impl) || impl.IsAbstract) continue;
+                    if (!IsTypeAccessibleFromRoot(impl, root)) continue;
+
+                    bool matches =
+                        ia.TypeKind == TypeKind.Interface
+                            ? impl.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, ia))
+                            : IsDerivedFrom(impl, ia);
+
+                    if (matches && set.Add(impl))
+                        Enq(impl);
+                }
+            }
         }
 
         return set;
 
-        void Accumulate(ITypeSymbol t)
+        // SAME-ASSEMBLY accessibility: allow public and internal (and nesting chain must not be private/protected)
+        static bool IsTypeAccessibleFromRoot(INamedTypeSymbol t, DiffDeltaTarget root)
         {
-            if (t is INamedTypeSymbol nnt && nnt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
-                t = nnt.TypeArguments[0];
+            if (!SymbolEqualityComparer.Default.Equals(t.ContainingAssembly, root.Type.ContainingAssembly)) return false;
 
-            if (t is IArrayTypeSymbol at)
+            var c = t;
+            while (c is not null)
             {
-                Accumulate(at.ElementType);
-                return;
-            }
-
-            if (t is INamedTypeSymbol nn)
-                foreach (var i in nn.AllInterfaces)
+                var acc = c.DeclaredAccessibility;
+                if (acc is Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedAndInternal)
                 {
-                    if (i != null && i.OriginalDefinition.ToDisplayString() ==
-                        "System.Collections.Generic.IEnumerable<T>") Accumulate(i.TypeArguments[0]);
-                    if (i != null && (i.OriginalDefinition.ToDisplayString() ==
-                                      "System.Collections.Generic.IDictionary<TKey, TValue>" ||
-                                      i.OriginalDefinition.ToDisplayString() ==
-                                      "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>"))
-                    {
-                        Accumulate(i.TypeArguments[0]);
-                        Accumulate(i.TypeArguments[1]);
-                    }
+                    c = c.ContainingType;
+                    continue;
                 }
+                return false;
+            }
+            return true;
+        }
 
-            if (t is INamedTypeSymbol user && user.ContainingNamespace?.ToDisplayString() is { Length: > 0 } ns
-                                           && !ns.StartsWith("System", StringComparison.Ordinal)
-                                           && set.Add(user))
-                queue.Enqueue(user);
+        static bool IsDerivedFrom(INamedTypeSymbol impl, INamedTypeSymbol baseType)
+        {
+            for (var bt = impl.BaseType; bt is not null && bt.SpecialType != SpecialType.System_Object; bt = bt.BaseType)
+                if (SymbolEqualityComparer.Default.Equals(bt, baseType)) return true;
+            return false;
+        }
+
+        static IEnumerable<INamedTypeSymbol> EnumerateAllNamedTypes(INamespaceSymbol ns)
+        {
+            foreach (var m in ns.GetMembers())
+            {
+                if (m is INamespaceSymbol sub)
+                {
+                    foreach (var t in EnumerateAllNamedTypes(sub)) yield return t;
+                }
+                else if (m is INamedTypeSymbol t)
+                {
+                    yield return t;
+                    foreach (var nested in EnumerateNested(t)) yield return nested;
+                }
+            }
+        }
+        static IEnumerable<INamedTypeSymbol> EnumerateNested(INamedTypeSymbol t)
+        {
+            foreach (var m in t.GetMembers())
+                if (m is INamedTypeSymbol nt)
+                {
+                    yield return nt;
+                    foreach (var deeper in EnumerateNested(nt)) yield return deeper;
+                }
         }
     }
+
+
 }
 
 internal enum StableMemberIndexMode
