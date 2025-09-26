@@ -25,22 +25,42 @@ namespace DeepEqual
             // Fallback: value-like compare & dynamic container support
             return DynamicDeepComparer.AreEqualDynamic(a, b, ctx);
         }
-
-        public static (bool has, IDiff diff) GetDiff(object? a, object? b, ComparisonOptions? opts = null)
+        private static (bool has, DeepEqual.Generator.Shared.IDiff diff)
+            GetDiffCore(object? a, object? b, DeepEqual.Generator.Shared.ComparisonContext ctx)
         {
-            var ctx = opts is null ? new ComparisonContext() : new ComparisonContext(opts);
-            if (ReferenceEquals(a, b)) return (false, Diff.Empty);
-            if (a is null && b is not null) return (true, Diff<object>.Replacement(b));
-            if (a is not null && b is null) return (true, Diff<object>.Replacement(b));
+            if (ReferenceEquals(a, b)) return (false, DeepEqual.Generator.Shared.Diff.Empty);
+
+            if (a is null && b is not null) return (true, DeepEqual.Generator.Shared.Diff<object>.Replacement(b));
+            if (a is not null && b is null) return (true, DeepEqual.Generator.Shared.Diff<object>.Replacement(b));
 
             var ta = a!.GetType();
-            if (!ReferenceEquals(ta, b!.GetType())) return (true, Diff<object>.Replacement(b));
+            var tb = b!.GetType();
+            if (!ReferenceEquals(ta, tb))
+                return (true, DeepEqual.Generator.Shared.Diff<object>.Replacement(b));
 
-            if (GeneratedHelperRegistry.TryGetDiffSameType(ta, a, b, ctx, out var id)) return (!id.IsEmpty, id);
+            if (DeepEqual.Generator.Shared.GeneratedHelperRegistry.TryGetDiffSameType(ta, a, b, ctx, out var id))
+                return (!id.IsEmpty, id);
 
-            // No typed provider registered – synthesize as replacement when not equal
-            return (!AreEqual(a, b, opts), Diff<object>.Replacement(b));
+            var equal = AreEqual(a, b, ctx.Options);
+            return equal
+                ? (false, DeepEqual.Generator.Shared.Diff.Empty)
+                : (true, DeepEqual.Generator.Shared.Diff<object>.Replacement(b));
         }
+
+        public static (bool has, DeepEqual.Generator.Shared.IDiff diff)
+            GetDiff(object? a, object? b, DeepEqual.Generator.Shared.ComparisonOptions? opts = null)
+        {
+            var ctx = opts is null ? new DeepEqual.Generator.Shared.ComparisonContext()
+                : new DeepEqual.Generator.Shared.ComparisonContext(opts);
+            return GetDiffCore(a, b, ctx);
+        }
+
+        public static (bool has, DeepEqual.Generator.Shared.IDiff diff)
+            GetDiff(object? a, object? b, DeepEqual.Generator.Shared.ComparisonContext? ctx)
+        {
+            return GetDiffCore(a, b, ctx ?? new DeepEqual.Generator.Shared.ComparisonContext());
+        }
+
 
         public static DeltaDocument ComputeDelta(object? a, object? b, ComparisonOptions? opts = null)
         {

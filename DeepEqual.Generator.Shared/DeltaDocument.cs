@@ -13,7 +13,7 @@ public sealed class DeltaDocument
     public static readonly DeltaDocument Empty = new();
 
     [ThreadStatic] private static Stack<DeltaDocument>? _pool;
-    internal readonly List<DeltaOp> Ops = [];
+    public readonly List<DeltaOp> Ops = [];
     public IReadOnlyList<DeltaOp> Operations => Ops;
     public bool IsEmpty => Ops.Count == 0;
 

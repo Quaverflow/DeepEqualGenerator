@@ -141,7 +141,10 @@ public static class GeneratedHelperRegistry
     public static bool TryGetDiffSameType(Type runtimeType, object left, object right, ComparisonContext ctx,
         out IDiff diff)
     {
-        if (_diffMap.TryGetValue(runtimeType, out var fn)) return fn(left, right, ctx, out diff);
+        if (_diffMap.TryGetValue(runtimeType, out var fn))
+        {
+            return fn(left, right, ctx, out diff);
+        }
 
         diff = Diff.Empty;
         return false;

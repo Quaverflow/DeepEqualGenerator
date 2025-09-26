@@ -64,10 +64,10 @@ public sealed class Order
     public OrderStatus Status { get; set; }
     public Customer Customer { get; set; } = new();
     [DeepCompare(OrderInsensitive = true, KeyMembers = new[] { "Sku" })]
-    public List<OrderLine> Lines { get; } = new();            // unordered & keyed by Sku via Fluent config
+    public List<OrderLine> Lines { get; set; } = new();            // unordered & keyed by Sku via Fluent config
     public List<Widget> Widgets { get; set; } = new();             // ordered by default
 
-    public Dictionary<string, object?> Props { get; } = new();
+    public Dictionary<string, object?> Props { get; set; } = new();
     public IDictionary<string, object?> Bag { get; } = new Dictionary<string, object?>();
 
     public ExpandoObject Expando { get; set; } = new();
@@ -86,12 +86,12 @@ public sealed class Order
 
     public string[] Notes { get; set; } = Array.Empty<string>();
 
-    public Queue<string> Queue { get; } = new();
-    public Stack<int> Stack { get; } = new();
-    public LinkedList<string> Linked { get; } = new();
+    public Queue<string> Queue { get; set; } = new();
+    public Stack<int> Stack { get; set; } = new();
+    public LinkedList<string> Linked { get; set; } = new();
     [DeepCompare(OrderInsensitive = true)]
-    public HashSet<string> Flags { get; } = new(StringComparer.OrdinalIgnoreCase);
-    public SortedSet<int> Sorted { get; } = new();
+    public HashSet<string> Flags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public SortedSet<int> Sorted { get; set; } = new();
     public Dictionary<Guid, string> Meta { get; set; } = new();
 
     public int[,] Grid { get; set; } = new int[0,0];
