@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -646,38 +645,6 @@ internal static class GenCommon
 
         return sb.ToString();
     }
-    internal static bool IsMemoryLike(ITypeSymbol t, out ITypeSymbol? elem, out string spanExprFmt)
-    {
-        elem = null;
-        spanExprFmt = "{0}";
-
-        if (t is not INamedTypeSymbol nt || nt.TypeArguments.Length != 1)
-            return false;
-
-        var elemT = nt.TypeArguments[0];
-        var def = nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-        switch (def)
-        {
-            case "global::System.ReadOnlyMemory<T>":
-                elem = elemT;
-                spanExprFmt = "{0}.Span";
-                return true;
-
-            case "global::System.Memory<T>":
-                elem = elemT;
-                spanExprFmt = "{0}.Span";
-                return true;
-
-            case "global::System.ArraySegment<T>":
-                elem = elemT;
-                spanExprFmt = "{0}.AsSpan()";
-                return true;
-        }
-
-        return false;
-    }
-
 
     internal static string SanitizeFileName(string value)
     {
@@ -1130,7 +1097,6 @@ internal readonly record struct RootRequest(
 
 internal sealed class EqualityEmitter
 {
-    private const string DeepComparableAttributeName = GenCommon.DeepComparableAttributeMetadataName;
     private const string DeepCompareAttributeName = GenCommon.DeepCompareAttributeMetadataName;
 
     public void EmitForRoot(SourceProductionContext spc, EqualityTarget root, string? hintOverride = null)
@@ -2055,48 +2021,6 @@ internal sealed class EqualityEmitter
 
 }
 
-internal sealed class EqualityRuntimeCache
-{
-    internal readonly Dictionary<ITypeSymbol, (ITypeSymbol Key, ITypeSymbol Val)?> DictionaryKv =
-        new(SymbolEqualityComparer.Default);
-
-    internal readonly Dictionary<ITypeSymbol, ITypeSymbol?> EnumerableElement = new(SymbolEqualityComparer.Default);
-
-    internal readonly Dictionary<(INamedTypeSymbol type, bool allowInternals, bool includeBase), EqualityMemberSymbol[]>
-        MemberCache = new(MemberKeyComparer.Instance);
-
-    internal readonly Dictionary<ITypeSymbol, ITypeSymbol?> MemoryElement = new(SymbolEqualityComparer.Default);
-
-    internal readonly Dictionary<INamedTypeSymbol, EqualityTypeSchema>
-        SchemaCache = new(SymbolEqualityComparer.Default);
-
-    internal readonly Dictionary<ITypeSymbol, bool> UserObject = new(SymbolEqualityComparer.Default);
-
-    private sealed class
-        MemberKeyComparer : IEqualityComparer<(INamedTypeSymbol type, bool allowInternals, bool includeBase)>
-    {
-        public static readonly MemberKeyComparer Instance = new();
-
-        public bool Equals((INamedTypeSymbol type, bool allowInternals, bool includeBase) x,
-            (INamedTypeSymbol type, bool allowInternals, bool includeBase) y)
-        {
-            return SymbolEqualityComparer.Default.Equals(x.type, y.type) && x.allowInternals == y.allowInternals &&
-                   x.includeBase == y.includeBase;
-        }
-
-        public int GetHashCode((INamedTypeSymbol type, bool allowInternals, bool includeBase) obj)
-        {
-            unchecked
-            {
-                var h1 = SymbolEqualityComparer.Default.GetHashCode(obj.type);
-                var h2 = obj.allowInternals ? 1 : 0;
-                var h3 = obj.includeBase ? 1 : 0;
-                return (((h1 * 397) ^ h2) * 397) ^ h3;
-            }
-        }
-    }
-}
-
 internal sealed class CodeWriter
 {
     private readonly StringBuilder _buffer = new();
@@ -2158,8 +2082,6 @@ internal sealed record DiffDeltaTypeSchema(
 internal sealed class DiffDeltaEmitter
 {
     private const string DeepCompareAttributeName = GenCommon.DeepCompareAttributeMetadataName;
-
-    private static readonly SymbolDisplayFormat Fqn = SymbolDisplayFormat.FullyQualifiedFormat;
 
     private readonly Dictionary<INamedTypeSymbol, Dictionary<string, int>> _stableIndexTables =
         new(SymbolEqualityComparer.Default);
@@ -2693,7 +2615,7 @@ internal sealed class DiffDeltaEmitter
 
                     // In your original code, unordered/keyed lists were forced to Set; keep same behavior here
                     var (kind, orderInsensitive, keys, dShallow, dSkip) = ResolveEffectiveSettings(mem);
-                    if (!dSkip && (orderInsensitive || (keys?.Length ?? 0) > 0))
+                    if (!dSkip && (orderInsensitive || keys.Length > 0))
                     {
                         w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
                         w.Line("break;");
@@ -2724,8 +2646,8 @@ internal sealed class DiffDeltaEmitter
 
                     if (TryGetEnumerableElement(mem.Type, out var elemType) && TryGetListInterface(mem.Type, out _))
                     {
-                        var (knd, ordIns, keyMembers, dS, dSk) = ResolveEffectiveSettings(mem);
-                        if (!dSk && (ordIns || (keyMembers?.Length ?? 0) > 0))
+                        var (_, ordIns, keyMembers, _, dSk) = ResolveEffectiveSettings(mem);
+                        if (!dSk && (ordIns || keyMembers.Length > 0))
                         {
                             w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
                             w.Line($"__emitted_m{stable} = true;");
@@ -2815,10 +2737,10 @@ internal sealed class DiffDeltaEmitter
                 // Post-loop catch-up for unordered/keyed lists (unchanged policy)
                 foreach (var mem in ordered)
                 {
-                    if (TryGetEnumerableElement(mem.Type, out var et) && TryGetListInterface(mem.Type, out _))
+                    if (TryGetEnumerableElement(mem.Type, out _) && TryGetListInterface(mem.Type, out _))
                     {
-                        var (_, ordIns, keyMembers, dShallow2, dSkip2) = ResolveEffectiveSettings(mem);
-                        if (!dSkip2 && (ordIns || (keyMembers?.Length ?? 0) > 0))
+                        var (_, ordIns, keyMembers, _, dSkip2) = ResolveEffectiveSettings(mem);
+                        if (!dSkip2 && (ordIns || keyMembers.Length > 0))
                         {
                             var stable = GetStableMemberIndex(type, mem);
                             var rightExpr = "right." + mem.Name;
@@ -3197,7 +3119,7 @@ internal sealed class DiffDeltaEmitter
         var left = "left." + member.Name;
         var right = "right." + member.Name;
 
-        var (effKind, orderInsensitive, keys, deltaShallow, deltaSkip) = ResolveEffectiveSettings(member);
+        var (effKind, orderInsensitive, _, deltaShallow, deltaSkip) = ResolveEffectiveSettings(member);
         if (effKind == CompareKind.Skip || deltaSkip) return;
 
         // Arrays: replace-on-change (keep DIFF simple for arrays)
@@ -3409,221 +3331,6 @@ internal sealed class DiffDeltaEmitter
             w.Line("}");
         }
     }
-    private enum BclCollectionKind
-    {
-        None,
-        ISet,          // HashSet<T>, SortedSet<T> (and any ISet<T>)
-        LinkedList,    // LinkedList<T>
-        Queue,         // Queue<T>
-        Stack,         // Stack<T>
-        ICollectionT   // generic ICollection<T> fallback
-    }
-    private void EmitApplyCaseForMember(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol m, int idx)
-    {
-        var targetProp = $"target.{m.Name}";
-        var hasSetter = m.Symbol is IPropertySymbol p && p.SetMethod is not null;
-
-        w.Open($"case {idx}:");
-        w.Open("switch (op.Kind)");
-
-        // 1) SetMember
-        w.Open("case DeepEqual.Generator.Shared.DeltaKind.SetMember:");
-        if (m.Type is IArrayTypeSymbol)
-        {
-            // arrays: direct replace (setter required)
-            w.Line($"{targetProp} = ({m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}?)op.Value;");
-        }
-        else if (TryGetDictionaryTypes(m.Type, out var kT, out var vT))
-        {
-            var kFqn = kT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            var vFqn = vT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-            if (hasSetter)
-            {
-                w.Line($"{targetProp} = ({$"global::System.Collections.Generic.Dictionary<{kFqn}, {vFqn}>"}?)op.Value;");
-            }
-            else
-            {
-                // in-place clear+copy for get-only dictionaries
-                w.Line($"var __dobj = {targetProp};");
-                w.Open($"if (__dobj is global::System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __d)");
-                w.Line($"__d.Clear();");
-                w.Open($"if (op.Value is global::System.Collections.Generic.IEnumerable<global::System.Collections.Generic.KeyValuePair<{kFqn}, {vFqn}>> __src)");
-                w.Line($"foreach (var __kv in __src) __d[__kv.Key] = __kv.Value;");
-                w.Close();
-                w.Close();
-            }
-        }
-        else if (TryGetBclCollectionKind(m.Type, out var bclKind, out var elT) && !hasSetter)
-        {
-            // get-only BCL collection → in-place replace
-            EmitInPlaceReplaceForGetOnlyCollection(w, targetProp, bclKind, elT!);
-        }
-        else
-        {
-            // scalars/objects/lists with setter
-            w.Line($"{targetProp} = ({m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})op.Value;");
-        }
-        w.Line("break;");
-        w.Close(); // SetMember
-
-        // 2) Sequence ops (only when we *support* list ops)
-        if (TryGetEnumerableElement(m.Type, out var el) && m.Type is not IArrayTypeSymbol)
-        {
-            var eFqn = el.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-            // Only support IList<T> style ops (CloneIfNeeded handles List<T> & arrays already)
-            // If property is get-only we still can mutate in place (no assignment).
-            void emitSeq(string kind, string tmp)
-            {
-                w.Open($"case DeepEqual.Generator.Shared.DeltaKind.{kind}:");
-                w.Line($"object? {tmp} = {targetProp};");
-                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{eFqn}>(ref {tmp}, in op);");
-                if (hasSetter) w.Line($"{targetProp} = ({GetRuntimeListType(m.Type, eFqn)}){tmp};");
-                w.Line("break;");
-                w.Close();
-            }
-
-            emitSeq("SeqReplaceAt", "__obj_seq_r");
-            emitSeq("SeqAddAt", "__obj_seq_a");
-            emitSeq("SeqRemoveAt", "__obj_seq_d");
-            emitSeq("SeqNestedAt", "__obj_seq_n");
-        }
-
-        // 3) Dict ops (only when property type is a dict; if get-only we *don’t* assign back)
-        if (TryGetDictionaryTypes(m.Type, out var dk, out var dv))
-        {
-            var kFqn = dk.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            var vFqn = dv.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-            void emitDict(string kind, string tmp)
-            {
-                w.Open($"case DeepEqual.Generator.Shared.DeltaKind.{kind}:");
-                w.Line($"object? {tmp} = {targetProp};");
-                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn}, {vFqn}>(ref {tmp}, in op);");
-                if (hasSetter) w.Line($"{targetProp} = ({$"global::System.Collections.Generic.Dictionary<{kFqn}, {vFqn}>"}){tmp};");
-                w.Line("break;");
-                w.Close();
-            }
-
-            emitDict("DictSet", "__obj_dict_set");
-            emitDict("DictRemove", "__obj_dict_rm");
-            emitDict("DictNested", "__obj_dict_n");
-        }
-
-        // 4) NestedMember (only for *non*-BCL containers; never generate typed ApplyDelta__global__... for BCL)
-        w.Open("case DeepEqual.Generator.Shared.DeltaKind.NestedMember:");
-        // If this is an in-house generated type, your existing typed call is fine.
-        // But for safety (and to fix the HashSet/LinkedList/Queue/Stack/SortedSet cases) always fallback to the registry:
-        w.Line($"object? __obj = {targetProp};");
-        w.Line($"var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
-        w.Line($"if (__obj != null) {{ var __t = __obj.GetType(); GeneratedHelperRegistry.TryApplyDeltaSameType(__t, ref __obj, ref __subReader); }}");
-        if (hasSetter) w.Line($"{targetProp} = ({m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})__obj;");
-        w.Line("break;");
-        w.Close(); // NestedMember
-
-        // default
-        w.Line("default: { break; }");
-
-        w.Close(); // switch(op.Kind)
-        w.Line("break;");
-        w.Close(); // case <idx>
-    }
-
-    // You can keep your GetRuntimeListType the same as before; here's a simple one:
-    private static string GetRuntimeListType(ITypeSymbol declared, string elemFqn)
-    {
-        // Used only for the cast after ApplyListOpCloneIfNeeded; List<T> is a safe target.
-        return $"global::System.Collections.Generic.List<{elemFqn}>";
-    }
-
-    private static bool TryGetBclCollectionKind(ITypeSymbol type, out BclCollectionKind kind, out ITypeSymbol? elem)
-    {
-        elem = null;
-        kind = BclCollectionKind.None;
-
-        if (!TryGetEnumerableElement(type, out var tElem))
-            return false;
-
-        elem = tElem;
-        var tfqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-        // Direct name checks for common BCL types
-        if (tfqn.StartsWith("global::System.Collections.Generic.HashSet<")) { kind = BclCollectionKind.ISet; return true; }
-        if (tfqn.StartsWith("global::System.Collections.Generic.SortedSet<")) { kind = BclCollectionKind.ISet; return true; }
-        if (tfqn.StartsWith("global::System.Collections.Generic.LinkedList<")) { kind = BclCollectionKind.LinkedList; return true; }
-        if (tfqn.StartsWith("global::System.Collections.Generic.Queue<")) { kind = BclCollectionKind.Queue; return true; }
-        if (tfqn.StartsWith("global::System.Collections.Generic.Stack<")) { kind = BclCollectionKind.Stack; return true; }
-
-        // Interface checks
-        foreach (var i in type.AllInterfaces)
-        {
-            var ifqn = i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (ifqn.StartsWith("global::System.Collections.Generic.ISet<")) { kind = BclCollectionKind.ISet; return true; }
-            if (ifqn.StartsWith("global::System.Collections.Generic.ICollection<")) { kind = BclCollectionKind.ICollectionT; return true; }
-        }
-        return false;
-    }
-
-    /// Emit in-place "replace" for get-only collection properties on SetMember.
-    private void EmitInPlaceReplaceForGetOnlyCollection(CodeWriter w, string targetExpr, BclCollectionKind kind, ITypeSymbol elem)
-    {
-        var eFqn = elem.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-        switch (kind)
-        {
-            case BclCollectionKind.ISet:
-                w.Line($"var __dobj = {targetExpr};");
-                w.Open($"if (__dobj is System.Collections.Generic.ISet<{eFqn}> __set)");
-                w.Line($"__set.Clear();");
-                w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{eFqn}> __src)");
-                w.Line($"foreach (var __v in __src) __set.Add(__v);");
-                w.Close(); // if (src)
-                w.Close(); // if (is ISet)
-                break;
-
-            case BclCollectionKind.LinkedList:
-                w.Line($"var __ldst = {targetExpr};");
-                w.Open($"if (__ldst is System.Collections.Generic.LinkedList<{eFqn}> __ll)");
-                w.Line($"__ll.Clear();");
-                w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{eFqn}> __src)");
-                w.Line($"foreach (var __v in __src) __ll.AddLast(__v);");
-                w.Close();
-                w.Close();
-                break;
-
-            case BclCollectionKind.Queue:
-                w.Line($"var __qdst = {targetExpr};");
-                w.Open($"if (__qdst is System.Collections.Generic.Queue<{eFqn}> __q)");
-                w.Line($"__q.Clear();");
-                w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{eFqn}> __src)");
-                w.Line($"foreach (var __v in __src) __q.Enqueue(__v);");
-                w.Close();
-                w.Close();
-                break;
-
-            case BclCollectionKind.Stack:
-                w.Line($"var __sdst = {targetExpr};");
-                w.Open($"if (__sdst is System.Collections.Generic.Stack<{eFqn}> __s)");
-                w.Line($"__s.Clear();");
-                w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{eFqn}> __src)");
-                w.Line($"var __tmp = __src as System.Collections.Generic.IList<{eFqn}> ?? new System.Collections.Generic.List<{eFqn}>(__src);");
-                w.Line($"for (int __i = __tmp.Count - 1; __i >= 0; __i--) __s.Push(__tmp[__i]);");
-                w.Close();
-                w.Close();
-                break;
-
-            case BclCollectionKind.ICollectionT: // fallback: Clear + Add
-                w.Line($"var __cdst = {targetExpr};");
-                w.Open($"if (__cdst is System.Collections.Generic.ICollection<{eFqn}> __c)");
-                w.Line($"__c.Clear();");
-                w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{eFqn}> __src)");
-                w.Line($"foreach (var __v in __src) __c.Add(__v);");
-                w.Close();
-                w.Close();
-                break;
-        }
-    }
 
     private void EmitMemberDelta(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member,
         DiffDeltaTarget root)
@@ -3789,7 +3496,7 @@ internal sealed class DiffDeltaEmitter
         // List: allow structural ops only if settable or concrete List<T>, otherwise nested-only or SetMember
         if (TryGetEnumerableElement(member.Type, out var elemType) && TryGetListInterface(member.Type, out _))
         {
-            if (!deltaSkip && (orderInsensitive || (keys?.Length ?? 0) > 0))
+            if (!deltaSkip && (orderInsensitive || keys.Length > 0))
             {
                 w.Line($"writer.WriteSetMember({idx}, {right});");
                 return;
@@ -4208,13 +3915,13 @@ internal sealed class DiffDeltaEmitter
             // Dict → key, value
             if (TryGetDictionaryTypes(cur, out var kT, out var vT))
             {
-                Enq(kT!); Enq(vT!);
+                Enq(kT); Enq(vT);
                 continue;
             }
 
             // IEnumerable<T> → T
             if (TryGetEnumerableElement(cur, out var elT))
-                Enq(elT!);
+                Enq(elT);
 
             // Memory<T> / ReadOnlyMemory<T> → T
             if (GenCommon.TryGetReadOnlyMemory(cur, out var romT))
