@@ -13,14 +13,14 @@ namespace DeepEqual.RewrittenTests
 {
     /// <summary>
     /// Delta (patch) tests that mirror the scope of our Diff and Eq coverage.
-    /// Uses extension-method surface: ComputeDelta / ApplyDelta / IsEmpty.
+    /// Uses extension-method surface: ComputeDeepDelta / ApplyDeepDelta / IsEmpty.
     /// We search deltas recursively since Seq*/Dict* ops are nested under member-level deltas.
     /// </summary>
     public class DeltaTests
     {
         // ---------- Minimal helpers bound to your new API ----------
         private static DeltaDocument Delta(Order? a, Order b, ComparisonContext? ctx = null)
-            => a.ComputeDelta(b, ctx);
+            => a.ComputeDeepDelta(b, ctx);
 
         private static DeltaOp[] RootOps(DeltaDocument d) => new DeltaReader(d).AsSpan().ToArray();
 
@@ -51,7 +51,7 @@ namespace DeepEqual.RewrittenTests
 
 
         private static void Apply(ref Order target, DeltaDocument d)
-            => target.ApplyDelta(d);
+            => target.ApplyDeepDelta(d);
 
         // ---------- Basic ----------
         [Fact]
@@ -362,11 +362,11 @@ namespace DeepEqual.RewrittenTests
             Order? a = null;
             var b = MakeBaseline();
 
-            var d = a.ComputeDelta(b);
+            var d = a.ComputeDeepDelta(b);
             Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
 
             var target = new Order { Id = "dummy" };
-            target = target.ApplyDelta(d);
+            target = target.ApplyDeepDelta(d);
 
             Assert.NotNull(target);
             Assert.True(target.AreDeepEqual(b));
@@ -438,7 +438,7 @@ namespace DeepEqual.RewrittenTests
             var d = Delta(a, b);  // <- no a!
             Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
 
-            a = a.ApplyDelta(d);   // <- capture the replaced instance
+            a = a.ApplyDeepDelta(d);   // <- capture the replaced instance
             Assert.NotNull(a);
             Assert.True(a!.AreDeepEqual(b));
         }
@@ -514,7 +514,7 @@ namespace DeepEqual.RewrittenTests
             Order? a = MakeBaseline();
             var d = Delta(a, null);
             Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
-            a = a.ApplyDelta(d);
+            a = a.ApplyDeepDelta(d);
             Assert.Null(a);
         }
         [Fact]
@@ -527,7 +527,7 @@ namespace DeepEqual.RewrittenTests
             // assert replace exists
             Assert.Contains(ops, o => o.Kind == DeltaKind.ReplaceObject);
             // apply and prove target is replaced and ok
-            a = a.ApplyDelta(d);
+            a = a.ApplyDeepDelta(d);
             Assert.True(a!.AreDeepEqual(b));
         }
         [Fact]
@@ -578,7 +578,7 @@ namespace DeepEqual.RewrittenTests
             Order? a = MakeBaseline();
             var d = Delta(a, null);
             Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
-            a = a!.ApplyDelta(d); // capture replaced instance
+            a = a!.ApplyDeepDelta(d); // capture replaced instance
             Assert.Null(a);
         }
 
@@ -596,7 +596,7 @@ namespace DeepEqual.RewrittenTests
             Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
 
             // Apply: early-return path must prevent any later deref on 'target'
-            a = a.ApplyDelta(d);
+            a = a.ApplyDeepDelta(d);
             Assert.True(a!.AreDeepEqual(b));
         }
 
