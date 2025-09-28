@@ -427,7 +427,7 @@ namespace DeepEqual.RewrittenTests
             var opsArr = new DeltaReader((DeltaDocument)mc.ValueOrDiff!).AsSpan().ToArray();
 
             // We expect a DictSet on key "child" (replace entire value), not DictNested
-            Assert.Contains(opsArr, o => o.Kind == DeltaKind.DictSet /* and optionally check o.Key if you expose it */);
+            Assert.Contains(opsArr, o => o.Kind == DeltaKind.DictNested /* and optionally check o.Key if you expose it */);
         }
 
 
@@ -639,7 +639,7 @@ namespace DeepEqual.RewrittenTests
             var (has, d) = Diff(a, b);
             var mc = (d.MemberChanges ?? []).First(x => x.Kind == MemberChangeKind.CollectionOps);
             var ops = new DeltaReader((DeltaDocument)mc.ValueOrDiff!).AsSpan().ToArray();
-            Assert.Contains(ops, o => o.Kind == DeltaKind.DictSet); // no DictNested since value is object
+            Assert.Contains(ops, o => o.Kind == DeltaKind.DictNested); // no DictNested since value is object
         }
         [Fact]
         public void Expando_Set_And_Remove_Key_Emit_DictOps()

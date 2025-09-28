@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -306,8 +308,15 @@ public struct DeltaReader(DeltaDocument? doc)
 /// <summary>
 ///     Delta helper algorithms used by the generated code.
 /// </summary>
+/// <summary>
+///     Delta helper algorithms used by the generated code.
+/// </summary>
 public static class DeltaHelpers
 {
+    // ------------------------------------------------------------
+    // SEQUENCES (LISTS)
+    // ------------------------------------------------------------
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ApplyListOpCloneIfNeeded<T>(ref object? target, in DeltaOp op)
     {
@@ -351,7 +360,7 @@ public static class DeltaHelpers
             return;
         }
 
-        if (target is IList<T> ilist && !IsReadOnly(ilist))
+        if (target is IList<T> ilist && !ilist.IsReadOnly)
         {
             switch (op.Kind)
             {
@@ -389,6 +398,7 @@ public static class DeltaHelpers
             return;
         }
 
+        // clone path (target not a mutable list)
         List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
@@ -439,11 +449,6 @@ public static class DeltaHelpers
         }
 
         target = clone;
-
-        static bool IsReadOnly(IList<T> l)
-        {
-            return l.IsReadOnly;
-        }
     }
 
     public static void ComputeListDeltaNested<T>(
@@ -526,7 +531,6 @@ public static class DeltaHelpers
             }
         }
 
-
         var common = Math.Min(ra, rb);
 
         for (var i = 0; i < common; i++)
@@ -560,7 +564,6 @@ public static class DeltaHelpers
             for (var i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
     }
-
 
     public static void ComputeListDelta<T, TComparer>(
         IList<T>? left,
@@ -651,7 +654,81 @@ public static class DeltaHelpers
             for (var i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
     }
+    // =============================
+    // LIST DELTA (keyed / order-insensitive)
+    // =============================
+    public static void ComputeKeyedListDeltaNested<T, TKey>(
+        IList<T>? left,
+        IList<T>? right,
+        int memberIndex,
+        ref DeltaWriter writer,
+        Func<T, TKey> keySelector,
+        ComparisonContext context)
+        where TKey : notnull
+    {
+        if (ReferenceEquals(left, right)) return;
+        if (left is null || right is null) { writer.WriteSetMember(memberIndex, right); return; }
 
+        var lMap = new Dictionary<TKey, T>(left.Count);
+        var rMap = new Dictionary<TKey, T>(right.Count);
+
+        for (int i = 0; i < left.Count; i++) lMap[keySelector(left[i])] = left[i];
+        for (int i = 0; i < right.Count; i++) rMap[keySelector(right[i])] = right[i];
+
+        // Removals (by index from LEFT)
+        foreach (var k in lMap.Keys)
+        {
+            if (!rMap.ContainsKey(k))
+            {
+                int idx = IndexOf(left, keySelector, k);
+                if (idx >= 0) writer.WriteSeqRemoveAt(memberIndex, idx);
+            }
+        }
+
+        // Adds + nested updates (by key)
+        foreach (var kv in rMap)
+        {
+            var k = kv.Key;
+            var rv = kv.Value;
+
+            if (!lMap.TryGetValue(k, out var lv))
+            {
+                // Add at the position it appears in RIGHT (advisory)
+                int idx = IndexOf(right, keySelector, k);
+                writer.WriteSeqAddAt(memberIndex, idx < 0 ? right.Count : idx, rv);
+            }
+            else
+            {
+                // Same key present in both: diff in-place
+                if (!ComparisonHelpers.DeepComparePolymorphic(lv, rv, context))
+                {
+                    int li = IndexOf(left, keySelector, k);
+                    if (li >= 0)
+                    {
+                        var scope = writer.BeginSeqNestedAt(memberIndex, li, out var w);
+                        GeneratedHelperRegistry.ComputeDeltaSameType(lv!.GetType(), lv!, rv!, context, ref w);
+                        var had = !w.Document.IsEmpty;
+                        scope.Dispose();
+                        if (!had) writer.WriteSeqReplaceAt(memberIndex, li, rv);
+                    }
+                }
+            }
+        }
+
+        // Reorder-only differences are intentionally ignored (no ops)
+
+        static int IndexOf(IList<T> list, Func<T, TKey> sel, TKey key)
+        {
+            for (int i = 0; i < list.Count; i++)
+                if (EqualityComparer<TKey>.Default.Equals(sel(list[i]), key))
+                    return i;
+            return -1;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // DICTIONARIES
+    // ------------------------------------------------------------
 
     public static void ComputeDictDelta<TKey, TValue>(
         IDictionary<TKey, TValue>? left,
@@ -670,38 +747,69 @@ public static class DeltaHelpers
             return;
         }
 
-        // Avoid double hashing: TryGetValue instead of ContainsKey+indexer
+        // removals (avoid double hashing)
         foreach (var kv in left)
+        {
             if (!right.TryGetValue(kv.Key, out _))
                 writer.WriteDictRemove(memberIndex, kv.Key);
+        }
 
+        // adds / updates
         foreach (var kv in right)
         {
-            if (!left.TryGetValue(kv.Key, out var lv))
+            var k = kv.Key;
+            var rv = kv.Value;
+
+            if (!left.TryGetValue(k, out var lv))
             {
-                writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
+                writer.WriteDictSet(memberIndex, k, rv);
                 continue;
             }
 
-            if (default(DefaultElementComparer<TValue>).Invoke(lv, kv.Value, context)) continue;
+            // equal? skip
+            if (default(DefaultElementComparer<TValue>).Invoke(lv, rv, context)) continue;
 
-            if (nestedValues && lv is object lo && kv.Value is object ro)
+            if (nestedValues)
             {
-                var tL = lo.GetType();
-                var tR = ro.GetType();
-                if (ReferenceEquals(tL, tR))
+                var lo = (object?)lv;
+                var ro = (object?)rv;
+
+                // 1) Expando / IDictionary<string, object?>
+                if (lo is IDictionary<string, object?> lDict && ro is IDictionary<string, object?> rDict)
                 {
-                    var scope = writer.BeginDictNested(memberIndex, kv.Key, out var w);
-                    GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w);
+                    var scope = writer.BeginDictNested(memberIndex, k, out var w);
+                    ComputeDictDelta<string, object?>(lDict, rDict, /*memberIndex*/ 0, ref w, /*nestedValues*/ true, context);
                     var had = !w.Document.IsEmpty;
                     scope.Dispose();
-                    if (!had) writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
+                    if (!had) writer.WriteDictSet(memberIndex, k, rv);
+                    continue;
+                }
 
+                // 2) Any IReadOnlyDictionary<,> (held as object)
+                if (IsReadOnlyDictionary(lo, out var lro) && IsReadOnlyDictionary(ro, out var rro))
+                {
+                    var scope = writer.BeginDictNested(memberIndex, k, out var w);
+                    ComputeReadOnlyDictDeltaUntyped(lro!, rro!, /*memberIndex*/ 0, ref w, /*nestedValues*/ true, context);
+                    var had = !w.Document.IsEmpty;
+                    scope.Dispose();
+                    if (!had) writer.WriteDictSet(memberIndex, k, rv);
+                    continue;
+                }
+
+                // 3) Same runtime type with generated helper
+                if (lo is not null && ro is not null && ReferenceEquals(lo.GetType(), ro.GetType()))
+                {
+                    var scope = writer.BeginDictNested(memberIndex, k, out var w);
+                    GeneratedHelperRegistry.ComputeDeltaSameType(lo.GetType(), lo, ro, context, ref w);
+                    var had = !w.Document.IsEmpty;
+                    scope.Dispose();
+                    if (!had) writer.WriteDictSet(memberIndex, k, rv);
                     continue;
                 }
             }
 
-            writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
+            // fallback: set
+            writer.WriteDictSet(memberIndex, k, rv);
         }
     }
 
@@ -722,55 +830,168 @@ public static class DeltaHelpers
             return;
         }
 
+        // removals
         foreach (var kv in left)
             if (!right.TryGetValue(kv.Key, out _))
                 writer.WriteDictRemove(memberIndex, kv.Key);
 
+        // adds / updates
         foreach (var kv in right)
         {
-            if (!left.TryGetValue(kv.Key, out var lval))
+            var k = kv.Key;
+            var rv = kv.Value;
+
+            if (!left.TryGetValue(k, out var lval))
             {
-                writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
+                writer.WriteDictSet(memberIndex, k, rv);
                 continue;
             }
 
             if (!nestedValues)
             {
-                if (!default(DefaultElementComparer<TValue>).Invoke(lval, kv.Value, context))
-                    writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
-
+                if (!default(DefaultElementComparer<TValue>).Invoke(lval, rv, context))
+                    writer.WriteDictSet(memberIndex, k, rv);
                 continue;
             }
 
             var lo = (object?)lval;
-            var ro = (object?)kv.Value;
+            var ro = (object?)rv;
+
             if (ReferenceEquals(lo, ro)) continue;
 
             if (lo is null || ro is null)
             {
-                if (!EqualityComparer<TValue>.Default.Equals(lval, kv.Value))
-                    writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
-
+                if (!EqualityComparer<TValue>.Default.Equals(lval, rv))
+                    writer.WriteDictSet(memberIndex, k, rv);
                 continue;
             }
 
+            // 1) Expando / IDictionary<string, object?>
+            if (lo is IDictionary<string, object?> lDict && ro is IDictionary<string, object?> rDict)
+            {
+                var scope = writer.BeginDictNested(memberIndex, k, out var w);
+                ComputeDictDelta<string, object?>(lDict, rDict, /*memberIndex*/ 0, ref w, /*nestedValues*/ true, context);
+                var had = !w.Document.IsEmpty;
+                scope.Dispose();
+                if (!had) writer.WriteDictSet(memberIndex, k, rv);
+                continue;
+            }
+
+            // 2) Any IReadOnlyDictionary<,> (held as object)
+            if (IsReadOnlyDictionary(lo, out var lro) && IsReadOnlyDictionary(ro, out var rro))
+            {
+                var scope = writer.BeginDictNested(memberIndex, k, out var w);
+                ComputeReadOnlyDictDeltaUntyped(lro!, rro!, /*memberIndex*/ 0, ref w, /*nestedValues*/ true, context);
+                var had = !w.Document.IsEmpty;
+                scope.Dispose();
+                if (!had) writer.WriteDictSet(memberIndex, k, rv);
+                continue;
+            }
+
+            // 3) Same-type generated helper
             var tL = lo.GetType();
             var tR = ro.GetType();
             if (!ReferenceEquals(tL, tR))
             {
-                writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
+                writer.WriteDictSet(memberIndex, k, rv);
                 continue;
             }
 
             if (ComparisonHelpers.DeepComparePolymorphic(lo, ro, context)) continue;
 
-            var scope = writer.BeginDictNested(memberIndex, kv.Key, out var w);
-            GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w);
-            var had = !w.Document.IsEmpty;
-            scope.Dispose();
-            if (!had) writer.WriteDictSet(memberIndex, kv.Key, kv.Value);
+            var scope2 = writer.BeginDictNested(memberIndex, k, out var w2);
+            GeneratedHelperRegistry.ComputeDeltaSameType(tL, lo, ro, context, ref w2);
+            var had2 = !w2.Document.IsEmpty;
+            scope2.Dispose();
+            if (!had2) writer.WriteDictSet(memberIndex, k, rv);
         }
     }
+
+    /// <summary>
+    /// Untyped variant for any IReadOnlyDictionary&lt;TKey,TValue&gt; held as object.
+    /// Builds dict ops directly into <paramref name="writer"/> at <paramref name="memberIndex"/>.
+    /// </summary>
+    public static void ComputeReadOnlyDictDeltaUntyped(
+        object leftRO,
+        object rightRO,
+        int memberIndex,
+        ref DeltaWriter writer,
+        bool nestedValues,
+        ComparisonContext context)
+    {
+        if (leftRO is null || rightRO is null) return;
+
+        var rightMap = new Dictionary<object, object?>(EqualityComparer<object>.Default);
+        foreach (var (rk, rv) in RoEnumerate(rightRO)) rightMap[rk] = rv;
+
+        // removals
+        foreach (var (lk, _) in RoEnumerate(leftRO))
+            if (!rightMap.ContainsKey(lk)) writer.WriteDictRemove(memberIndex, lk);
+
+        // adds / updates
+        foreach (var (rk, rv) in RoEnumerate(rightRO))
+        {
+            if (!RoTryGetValue(leftRO, rk, out var lv))
+            {
+                writer.WriteDictSet(memberIndex, rk, rv);
+                continue;
+            }
+
+            if (ComparisonHelpers.DeepComparePolymorphic(lv, rv, context))
+                continue;
+
+            if (nestedValues)
+            {
+                if (lv is IDictionary<string, object?> lDict && rv is IDictionary<string, object?> rDict)
+                {
+                    var scope = writer.BeginDictNested(memberIndex, rk, out var w);
+                    ComputeDictDelta<string, object?>(lDict, rDict, /*memberIndex*/ 0, ref w, /*nestedValues*/ true, context);
+                    var had = !w.Document.IsEmpty;
+                    scope.Dispose();
+                    if (!had) writer.WriteDictSet(memberIndex, rk, rv);
+                    continue;
+                }
+
+                if (IsReadOnlyDictionary(lv, out var lro) && IsReadOnlyDictionary(rv, out var rro))
+                {
+                    var scope = writer.BeginDictNested(memberIndex, rk, out var w);
+                    ComputeReadOnlyDictDeltaUntyped(lro!, rro!, /*memberIndex*/ 0, ref w, /*nestedValues*/ true, context);
+                    var had = !w.Document.IsEmpty;
+                    scope.Dispose();
+                    if (!had) writer.WriteDictSet(memberIndex, rk, rv);
+                    continue;
+                }
+            }
+
+            writer.WriteDictSet(memberIndex, rk, rv);
+        }
+
+        // local helpers
+        static IEnumerable<(object key, object? value)> RoEnumerate(object ro)
+        {
+            var e = ro as IEnumerable ?? throw new InvalidOperationException("Not an IEnumerable");
+            foreach (var kv in e)
+            {
+                var t = kv!.GetType();
+                var k = t.GetProperty("Key")!.GetValue(kv)!;
+                var v = t.GetProperty("Value")!.GetValue(kv);
+                yield return (k, v);
+            }
+        }
+
+        static bool RoTryGetValue(object ro, object key, out object? value)
+        {
+            var m = ro.GetType().GetMethod("TryGetValue");
+            var args = new object?[] { key, null };
+            var ok = (bool)(m?.Invoke(ro, args) ?? false);
+            value = ok ? args[1] : null;
+            return ok;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // APPLY — DICTIONARY OPS
+    // ------------------------------------------------------------
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ApplyDictOpCloneIfNeeded<TKey, TValue>(ref object? target, in DeltaOp op)
@@ -797,12 +1018,10 @@ public static class DeltaHelpers
                         ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, k, out var existed);
                         if (existed && slot is not null)
                         {
-                            object? obj = slot!;
-                            var subReader = new DeltaReader(op.Nested!);
-                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                            slot = (TValue)obj!;
+                            object? cur = slot!;
+                            ApplyNestedDictOrSameType(ref cur, op.Nested!);
+                            slot = (TValue)cur!;
                         }
-
                         return;
                     }
             }
@@ -810,27 +1029,27 @@ public static class DeltaHelpers
             return;
         }
 
-        if (target is IDictionary<TKey, TValue> { IsReadOnly: false } map)
+        if (target is IDictionary<TKey, TValue> map && !map.IsReadOnly)
         {
             switch (op.Kind)
             {
                 case DeltaKind.DictSet:
                     map[(TKey)op.Key!] = (TValue)op.Value!;
                     return;
+
                 case DeltaKind.DictRemove:
                     map.Remove((TKey)op.Key!);
                     return;
+
                 case DeltaKind.DictNested:
                     {
                         var k = (TKey)op.Key!;
                         if (map.TryGetValue(k, out var oldVal) && oldVal is not null)
                         {
-                            object? obj = oldVal;
-                            var subReader = new DeltaReader(op.Nested!);
-                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                            map[k] = (TValue)obj!;
+                            object? cur = oldVal;
+                            ApplyNestedDictOrSameType(ref cur, op.Nested!);
+                            map[k] = (TValue)cur!;
                         }
-
                         return;
                     }
             }
@@ -838,6 +1057,7 @@ public static class DeltaHelpers
             return;
         }
 
+        // clone path (read-only or null)
         var ro = target as IReadOnlyDictionary<TKey, TValue>;
         var clone = ro is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(ro);
 
@@ -856,16 +1076,87 @@ public static class DeltaHelpers
                     var k = (TKey)op.Key!;
                     if (clone.TryGetValue(k, out var oldVal) && oldVal is not null)
                     {
-                        object? obj = oldVal;
-                        var subReader = new DeltaReader(op.Nested!);
-                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                        clone[k] = (TValue)obj!;
+                        object? cur = oldVal;
+                        ApplyNestedDictOrSameType(ref cur, op.Nested!);
+                        clone[k] = (TValue)cur!;
                     }
-
                     break;
                 }
         }
 
         target = clone;
+
+        // ------------ local ------------
+        static void ApplyNestedDictOrSameType(ref object? curVal, DeltaDocument nestedDoc)
+        {
+            // Expando / IDictionary<string, object?>
+            if (curVal is IDictionary<string, object?> rw)
+            {
+                object? inner = rw;
+                var ops = new DeltaReader(nestedDoc).AsSpan();
+                for (int i = 0; i < ops.Length; i++)
+                {
+                    ref readonly var nop = ref ops[i];
+                    ApplyDictOpCloneIfNeeded<string, object?>(ref inner, in nop);
+                }
+
+                // preserve ExpandoObject if that was the original
+                if (curVal is ExpandoObject)
+                {
+                    var src = (IDictionary<string, object?>)inner!;
+                    var exp = new ExpandoObject();
+                    var dst = (IDictionary<string, object?>)exp;
+                    dst.Clear();
+                    foreach (var kv in src) dst[kv.Key] = kv.Value;
+                    curVal = exp;
+                }
+                else
+                {
+                    curVal = inner!;
+                }
+                return;
+            }
+
+            // Any IReadOnlyDictionary<,> — we don't mutate (could add a reflection-based apply if ever needed)
+            var ifaces = curVal?.GetType().GetInterfaces();
+            if (ifaces != null)
+            {
+                foreach (var it in ifaces)
+                {
+                    if (it.IsGenericType && it.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>))
+                    {
+                        // no-op; user would need a generated helper to mutate inner RO maps
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: same-type generated helper
+            if (curVal is not null)
+            {
+                var t = curVal.GetType();
+                var subReader = new DeltaReader(nestedDoc);
+                GeneratedHelperRegistry.TryApplyDeltaSameType(t, ref curVal, ref subReader);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------
+    // PRIVATE HELPERS
+    // ------------------------------------------------------------
+
+    private static bool IsReadOnlyDictionary(object? o, out object? roDict)
+    {
+        roDict = null;
+        if (o is null) return false;
+        foreach (var it in o.GetType().GetInterfaces())
+        {
+            if (it.IsGenericType && it.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>))
+            {
+                roDict = o;
+                return true;
+            }
+        }
+        return false;
     }
 }
