@@ -119,7 +119,7 @@ namespace DeepEqual.RewrittenTests
 
         // ---------- Helpers to assert semantically (index-agnostic) ----------
         private static (bool has, Diff<Order> d) Diff(Order a, Order b, ComparisonContext? ctx = null)
-            => a.GetDeepDiff(b, ctx);
+            => a.GetDiff(b, ctx);
 
         private static MemberChange[] Changes<T>(Diff<T> d) => d.MemberChanges.ToArray() ?? [];
 
@@ -680,7 +680,7 @@ namespace DeepEqual.RewrittenTests
         public void NullVsObject_IsReplacement()
         {
             Order? a = null; var b = NewOrder();
-            var (has, d) = b.GetDeepDiff(a); // or a.GetDeepDiff(b) depending on your semantics
+            var (has, d) = b.GetDiff(a); // or a.GetDiff(b) depending on your semantics
             // We only need that has == true (replacement semantics displayed by your API). If you expose IsReplacement, assert it here.
             Assert.True(has);
         }
@@ -1005,7 +1005,7 @@ namespace DeepEqual.RewrittenTests
             var a = new Node2 { Name = "A" }; a.Next = a;
             var b = new Node2 { Name = "A" }; b.Next = b;
 
-            var (has, d) = a.GetDeepDiff(b);
+            var (has, d) = a.GetDiff(b);
             Assert.False(has);
             Assert.True(d.IsEmpty);
         }
@@ -1021,7 +1021,7 @@ namespace DeepEqual.RewrittenTests
             var b2 = new Node2 { Name = "Y" };
             b1.Next = b2; b2.Next = b1;
 
-            var (has, d) = a1.GetDeepDiff(b1);
+            var (has, d) = a1.GetDiff(b1);
             Assert.False(has);
             Assert.True(d.IsEmpty);
         }
@@ -1037,7 +1037,7 @@ namespace DeepEqual.RewrittenTests
             var b2 = new Node2 { Name = "Y2" };
             b1.Next = b2; b2.Next = b1;
 
-            var (has, d) = a1.GetDeepDiff(b1);
+            var (has, d) = a1.GetDiff(b1);
             Assert.True(has);
             // any non-empty Nested diff suffices
             Assert.Contains(d.MemberChanges ?? Array.Empty<MemberChange>(),
@@ -1056,7 +1056,7 @@ namespace DeepEqual.RewrittenTests
             var a = Build(100, i => $"N{i}");
             var b = Build(100, i => $"N{i}");
 
-            var (has, d) = a.GetDeepDiff(b);
+            var (has, d) = a.GetDiff(b);
             Assert.False(has);
             Assert.True(d.IsEmpty);
         }
@@ -1077,7 +1077,7 @@ namespace DeepEqual.RewrittenTests
             for (int i = 0; i < 49; i++) t = t!.Next!;
             t!.Name = "TAIL*";
 
-            var (has, d) = a.GetDeepDiff(b);
+            var (has, d) = a.GetDiff(b);
             Assert.True(has);
             Assert.Contains(d.MemberChanges ?? Array.Empty<MemberChange>(),
                 mc => mc.Kind == MemberChangeKind.Nested && mc.ValueOrDiff is IDiff id && !id.IsEmpty);
@@ -1097,10 +1097,10 @@ namespace DeepEqual.RewrittenTests
             var bTop = new BiNode { Id = "T", Left = bL, Right = bR };
             var bBot = new BiNode { Id = "B", Left = bL, Right = bR };
 
-            var (has1, d1) = aTop.GetDeepDiff(bTop);
+            var (has1, d1) = aTop.GetDiff(bTop);
             Assert.False(has1); Assert.True(d1.IsEmpty);
 
-            var (has2, d2) = aBot.GetDeepDiff(bBot);
+            var (has2, d2) = aBot.GetDiff(bBot);
             Assert.False(has2); Assert.True(d2.IsEmpty);
         }
 
@@ -1118,7 +1118,7 @@ namespace DeepEqual.RewrittenTests
             // mutate one child
             pb.Children[1].Label = "B*";
 
-            var (has, d) = pa.GetDeepDiff(pb);
+            var (has, d) = pa.GetDiff(pb);
             Assert.True(has);
 
             var coll = (d.MemberChanges ?? Array.Empty<MemberChange>())
@@ -1140,7 +1140,7 @@ namespace DeepEqual.RewrittenTests
             pb.Children.Add(new Child { Label = "A", Parent = pb });
             pb.Children.Add(new Child { Label = "B", Parent = pb });
 
-            var (has, d) = pa.GetDeepDiff(pb);
+            var (has, d) = pa.GetDiff(pb);
             Assert.False(has);
             Assert.True(d.IsEmpty);
         }

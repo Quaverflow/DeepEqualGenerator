@@ -8,6 +8,14 @@ namespace DeepEqual.Generator;
 internal static class Diagnostics
 {
     private const string Category = "DeepEqual.Generator";
+    internal static readonly DiagnosticDescriptor GN999 =
+        new(
+            "GN999",
+            "Typed API generator failure",
+            "Typed API generator failed: {0}",
+            Category,
+            DiagnosticSeverity.Error,
+            true);
 
     internal static readonly DiagnosticDescriptor DL001 =
         new(

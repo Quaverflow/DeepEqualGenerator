@@ -86,8 +86,7 @@ internal static class GenCommon
     {
         if (type.SpecialType == SpecialType.System_DateTime)
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + leftExpr + ", " + rightExpr +
-                   "))");
+            w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             return true;
@@ -96,8 +95,8 @@ internal static class GenCommon
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (fqn == "global::System.DateTimeOffset")
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + leftExpr + ", " +
-                   rightExpr + "))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             return true;
@@ -105,7 +104,7 @@ internal static class GenCommon
 
         if (fqn == "global::System.TimeSpan")
         {
-            w.Open("if (" + leftExpr + ".Ticks != " + rightExpr + ".Ticks)");
+            w.Open($"if ({leftExpr}.Ticks != {rightExpr}.Ticks)");
             w.Line("return false;");
             w.Close();
             return true;
@@ -113,7 +112,7 @@ internal static class GenCommon
 
         if (fqn == "global::System.Guid")
         {
-            w.Open("if (!" + leftExpr + ".Equals(" + rightExpr + "))");
+            w.Open($"if (!{leftExpr}.Equals({rightExpr}))");
             w.Line("return false;");
             w.Close();
             return true;
@@ -121,8 +120,7 @@ internal static class GenCommon
 
         if (fqn == "global::System.DateOnly")
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + leftExpr + ", " + rightExpr +
-                   "))");
+            w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             return true;
@@ -130,8 +128,7 @@ internal static class GenCommon
 
         if (fqn == "global::System.TimeOnly")
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + leftExpr + ", " + rightExpr +
-                   "))");
+            w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             return true;
@@ -185,13 +182,13 @@ internal static class GenCommon
     {
         return type.SpecialType switch
         {
-            SpecialType.System_Single => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle(" + l + ", " + r +
-                                         ", " + ctxVar + ")",
-            SpecialType.System_Double => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble(" + l + ", " + r +
-                                         ", " + ctxVar + ")",
-            SpecialType.System_Decimal => "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal(" + l + ", " +
-                                          r + ", " + ctxVar + ")",
-            _ => l + ".Equals(" + r + ")"
+            SpecialType.System_Single =>
+                $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle({l}, {r}, {ctxVar})",
+            SpecialType.System_Double =>
+                $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble({l}, {r}, {ctxVar})",
+            SpecialType.System_Decimal =>
+                $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal({l}, {r}, {ctxVar})",
+            _ => $"{l}.Equals({r})"
         };
     }
 
@@ -456,15 +453,15 @@ internal static class GenCommon
         if (keys.Count == 1)
         {
             keyTypeFqn = keys[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            keyExprFormat = "{0}." + keys[0].Name;
+            keyExprFormat = $"{{0}}.{keys[0].Name}";
             return true;
         }
 
         if (keys.Count > 7) return false;
 
-        keyTypeFqn = "global::System.ValueTuple<" + string.Join(",",
-            keys.Select(k => k.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + ">";
-        keyExprFormat = "(" + string.Join(",", keys.Select(k => "{0}." + k.Name)) + ")";
+        keyTypeFqn = $"global::System.ValueTuple<{string.Join(",",
+            keys.Select(k => k.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))}>";
+        keyExprFormat = $"({string.Join(",", keys.Select(k => $"{{0}}.{k.Name}"))})";
         return true;
     }
 
@@ -520,7 +517,7 @@ internal static class GenCommon
         if (customVar is not null) return customVar;
 
         if (elType.SpecialType == SpecialType.System_String)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.GetStringComparer(" + ctxVar + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.GetStringComparer({ctxVar})";
 
         var fqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (fqn == "global::System.DateTime")
@@ -529,8 +526,8 @@ internal static class GenCommon
         if (fqn == "global::System.DateTimeOffset")
             return "DeepEqual.Generator.Shared.ComparisonHelpers.StrictDateTimeOffsetComparer.Instance";
 
-        return "System.Collections.Generic.EqualityComparer<" +
-               elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ">.Default";
+        return
+            $"System.Collections.Generic.EqualityComparer<{elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}>.Default";
     }
 
     internal static bool TryGetEnumerableInterface(ITypeSymbol type, out ITypeSymbol? elementType)
@@ -683,63 +680,62 @@ internal static class GenCommon
     }
     internal static string GetHelperMethodName(INamedTypeSymbol type)
     {
-        return "AreDeepEqual__" +
-               GenCommon.SanitizeIdentifier(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+        return
+            $"AreDeepEqual__{GenCommon.SanitizeIdentifier(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}";
     }
 
     internal static string BuildInlineCompareExpr(string l, string r, ITypeSymbol type, EffectiveKind kind,
         string ctxVar = "c", string? customEqVar = null)
     {
         if (customEqVar is not null)
-            return customEqVar + ".Equals(" + l + ", " + r + ")";
+            return $"{customEqVar}.Equals({l}, {r})";
 
         if (kind == EffectiveKind.Reference)
-            return "object.ReferenceEquals(" + l + ", " + r + ")";
+            return $"object.ReferenceEquals({l}, {r})";
 
         if (kind == EffectiveKind.Shallow)
-            return "object.Equals(" + l + ", " + r + ")";
+            return $"object.Equals({l}, {r})";
 
         if (type is INamedTypeSymbol nt && nt.OriginalDefinition.ToDisplayString() == "System.Nullable<T>")
         {
             var tArg = nt.TypeArguments[0];
-            var inner = BuildInlineCompareExpr(l + ".Value", r + ".Value", tArg, GenCommon.GetEffectiveKind(tArg, null), ctxVar,
+            var inner = BuildInlineCompareExpr($"{l}.Value", $"{r}.Value", tArg, GenCommon.GetEffectiveKind(tArg, null), ctxVar,
                 customEqVar);
-            return "(" + l + ".HasValue == " + r + ".HasValue) && (!" + l + ".HasValue || (" + inner + "))";
+            return $"({l}.HasValue == {r}.HasValue) && (!{l}.HasValue || ({inner}))";
         }
 
         if (type.SpecialType == SpecialType.System_String)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + l + ", " + r + ", " + ctxVar + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings({l}, {r}, {ctxVar})";
         if (type.TypeKind == TypeKind.Enum)
         {
             var enumFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<" + enumFqn + ">(" + l + ", " + r + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<{enumFqn}>({l}, {r})";
         }
 
         if (type.SpecialType == SpecialType.System_DateTime)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + l + ", " + r + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime({l}, {r})";
 
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (fqn == "global::System.DateTimeOffset")
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + l + ", " + r + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset({l}, {r})";
         if (fqn == "global::System.TimeSpan")
-            return l + ".Ticks == " + r + ".Ticks";
+            return $"{l}.Ticks == {r}.Ticks";
         if (fqn == "global::System.Guid")
-            return l + ".Equals(" + r + ")";
+            return $"{l}.Equals({r})";
         if (fqn == "global::System.DateOnly")
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + l + ", " + r + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly({l}, {r})";
         if (fqn == "global::System.TimeOnly")
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + l + ", " + r + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly({l}, {r})";
 
         if (type.SpecialType == SpecialType.System_Double)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble(" + l + ", " + r + ", " + ctxVar + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDouble({l}, {r}, {ctxVar})";
         if (type.SpecialType == SpecialType.System_Single)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle(" + l + ", " + r + ", " + ctxVar + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSingle({l}, {r}, {ctxVar})";
         if (type.SpecialType == SpecialType.System_Decimal)
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal(" + l + ", " + r + ", " + ctxVar + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDecimal({l}, {r}, {ctxVar})";
 
         if (type.SpecialType == SpecialType.System_Object)
-            return "DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic(" + l + ", " + r + ", " + ctxVar +
-                   ")";
+            return $"DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({l}, {r}, {ctxVar})";
 
         if (type.IsValueType && type.SpecialType != SpecialType.None)
             return type.SpecialType switch
@@ -749,21 +745,20 @@ internal static class GenCommon
                     SpecialType.System_Byte or SpecialType.System_SByte or
                     SpecialType.System_Int64 or SpecialType.System_UInt64 or
                     SpecialType.System_Boolean or SpecialType.System_Char
-                    => l + "==" + r,
-                _ => l + ".Equals(" + r + ")"
+                    => $"{l}=={r}",
+                _ => $"{l}.Equals({r})"
             };
 
         if (type.TypeKind == TypeKind.Interface || type is INamedTypeSymbol { IsAbstract: true })
         {
             var ts = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            return "DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + ts + ">(" + l + ", " + r +
-                   ", " + ctxVar + ")";
+            return $"DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<{ts}>({l}, {r}, {ctxVar})";
         }
 
         if (type is INamedTypeSymbol nts && GenCommon.IsUserObjectType(nts))
-            return GetHelperMethodName(nts) + "(" + l + ", " + r + ", " + ctxVar + ")";
+            return $"{GetHelperMethodName(nts)}({l}, {r}, {ctxVar})";
 
-        return "object.Equals(" + l + ", " + r + ")";
+        return $"object.Equals({l}, {r})";
     }
 
     internal static bool IsUserObjectType(ITypeSymbol type)
@@ -799,20 +794,18 @@ internal static class GenCommon
         EffectiveKind elementKind, string hint, string? customComparerVar = null)
     {
         var elFqn = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var cmpName = "__Cmp__" + GenCommon.SanitizeIdentifier(elFqn) + "__" + hint;
+        var cmpName = $"__Cmp__{GenCommon.SanitizeIdentifier(elFqn)}__{hint}";
         if (!emitted.Add(cmpName)) return cmpName;
 
         if (customComparerVar is not null)
         {
             var linesX = new List<string>
             {
-                "private readonly struct " + cmpName + " : DeepEqual.Generator.Shared.IElementComparer<" + elFqn + ">",
+                $"private readonly struct {cmpName} : DeepEqual.Generator.Shared.IElementComparer<{elFqn}>",
                 "{",
-                "    private readonly System.Collections.Generic.IEqualityComparer<" + elFqn + "> __c;",
-                "    public " + cmpName + "(System.Collections.Generic.IEqualityComparer<" + elFqn +
-                "> c) { __c = c; }",
-                "    public bool Invoke(" + elFqn + " l, " + elFqn +
-                " r, DeepEqual.Generator.Shared.ComparisonContext c) { return __c.Equals(l, r); }",
+                $"    private readonly System.Collections.Generic.IEqualityComparer<{elFqn}> __c;",
+                $"    public {cmpName}(System.Collections.Generic.IEqualityComparer<{elFqn}> c) {{ __c = c; }}",
+                $"    public bool Invoke({elFqn} l, {elFqn} r, DeepEqual.Generator.Shared.ComparisonContext c) {{ return __c.Equals(l, r); }}",
                 "}",
                 ""
             };
@@ -823,13 +816,13 @@ internal static class GenCommon
         var expr = BuildInlineCompareExpr("l", "r", elementType, elementKind);
         var lines = new List<string>
         {
-            "private readonly struct " + cmpName + " : DeepEqual.Generator.Shared.IElementComparer<" + elFqn + ">",
+            $"private readonly struct {cmpName} : DeepEqual.Generator.Shared.IElementComparer<{elFqn}>",
             "{",
-            "    public " + cmpName + "(" + "System.Collections.Generic.IEqualityComparer<" + elFqn + "> _ = null) {}",
+            $"    public {cmpName}(System.Collections.Generic.IEqualityComparer<{elFqn}> _ = null) {{}}",
             "    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining | System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]",
-            "    public bool Invoke(" + elFqn + " l, " + elFqn + " r, DeepEqual.Generator.Shared.ComparisonContext c)",
+            $"    public bool Invoke({elFqn} l, {elFqn} r, DeepEqual.Generator.Shared.ComparisonContext c)",
             "    {",
-            "        return " + expr + ";",
+            $"        return {expr};",
             "    }",
             "}",
             ""
@@ -876,22 +869,21 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+        // Collect owned roots via [DeepComparable]
         var ownedRequests =
-            context.SyntaxProvider.ForAttributeWithMetadataName(
+            context.SyntaxProvider.ForAttributeWithMetadataName<RootRequest?>(
                     GenCommon.DeepComparableAttributeMetadataName,
                     static (node, _) => node is TypeDeclarationSyntax,
                     static (gasc, ct) =>
                     {
-                        if (gasc.TargetSymbol is not INamedTypeSymbol typeSymbol) return null;
+                        if (gasc.TargetSymbol is not INamedTypeSymbol typeSymbol) return (RootRequest?)null;
 
                         var attr = gasc.Attributes.FirstOrDefault(a =>
                             a.AttributeClass?.ToDisplayString() == GenCommon.DeepComparableAttributeMetadataName);
                         if (attr is null) return (RootRequest?)null;
 
                         static bool HasNamedTrue(AttributeData a, string name)
-                        {
-                            return a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
-                        }
+                            => a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
 
                         static bool? GetNamedBool(AttributeData a, string name)
                         {
@@ -928,20 +920,24 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                             eqCycle, ddCycle, includeBase,
                             genDiff, genDelta, stableMode, emitSnapshot, attrLoc);
                     })
-                .Where(static r => r is not null)
+                .Where(static r => r.HasValue)
                 .Select(static (r, _) => r!.Value);
 
+        // Collect external roots and external member paths from assembly attributes
         var external = context.CompilationProvider.Select((comp, _) =>
         {
             var asm = comp.Assembly;
-            var extRoots = new List<(INamedTypeSymbol Root, AttributeData Attr)>();
+            var extRoots = new List<(INamedTypeSymbol Root, string? Path, AttributeData Attr)>();
             var extMember = new List<(INamedTypeSymbol Root, string Path, AttributeData Attr)>();
+
             foreach (var a in asm.GetAttributes())
             {
                 var name = a.AttributeClass?.ToDisplayString();
-                if (name == GenCommon.ExternalDeepComparableMetadataName && a.ConstructorArguments.Length == 1)
+
+                if (name == GenCommon.ExternalDeepComparableMetadataName && a.ConstructorArguments.Length >= 1)
                 {
-                    if (a.ConstructorArguments[0].Value is INamedTypeSymbol rootTs) extRoots.Add((rootTs, a));
+                    if (a.ConstructorArguments[0].Value is INamedTypeSymbol rootTs)
+                        extRoots.Add((rootTs, null, a));
                 }
                 else if (name == GenCommon.ExternalDeepCompareMetadataName && a.ConstructorArguments.Length == 2)
                 {
@@ -955,19 +951,22 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
         });
 
         var inputs = ownedRequests.Collect().Combine(external);
+
         context.RegisterSourceOutput(inputs, (spc, all) =>
         {
             var (ownedList, (compilation, extRoots, extMembers)) = all;
 
+            // Validate external member paths (diagnostics only; do not stop generation)
             foreach (var (rootType, path, attr) in extMembers)
+            {
                 try
                 {
-                    var (_, member, _) = ExternalPathResolver.ResolveMemberPath(
+                    _ = ExternalPathResolver.ResolveMemberPath(
                         compilation,
                         rootType,
                         path,
-                        false,
-                        true,
+                        includeInternals: false,
+                        includeBase: true,
                         (loc, msg, kind) =>
                         {
                             var diag = kind switch
@@ -978,18 +977,21 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                             };
                             spc.ReportDiagnostic(Diagnostic.Create(diag, loc, msg));
                         },
-                        attr.ApplicationSyntaxReference?.GetSyntax().GetLocation());
-                    _ = member;
+                        attr.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken).GetLocation());
                 }
                 catch
                 {
+                    // Swallow resolution exceptions—already reported as diagnostics above.
                 }
+            }
 
-            var roots =
-                new Dictionary<INamedTypeSymbol, (bool incInt, bool ordIns, bool eqCycle, bool ddCycle, bool incBase,
-                    bool genDiff, bool genDelta, StableMemberIndexMode stableMode, bool emitSnapshot, Location? loc)>(
-                    SymbolEqualityComparer.Default);
+            // Build per-root options map (owned + external)
+            var roots = new Dictionary<INamedTypeSymbol,
+                (bool incInt, bool ordIns, bool eqCycle, bool ddCycle, bool incBase,
+                 bool genDiff, bool genDelta, StableMemberIndexMode stableMode, bool emitSnapshot, Location? loc)>(
+                SymbolEqualityComparer.Default);
 
+            // Owned roots
             foreach (var req in ownedList)
             {
                 var t = compilation.GetTypeByMetadataName(req.MetadataName);
@@ -997,14 +999,13 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
 
                 if (!roots.ContainsKey(t))
                     roots[t] = (req.IncludeInternals, req.OrderInsensitiveCollections, req.EqCycleTrackingEnabled,
-                        req.DdCycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta,
-                        req.StableMemberIndexMode, req.EmitSchemaSnapshot, req.AttributeLocation);
+                                req.DdCycleTrackingEnabled, req.IncludeBaseMembers, req.GenerateDiff, req.GenerateDelta,
+                                req.StableMemberIndexMode, req.EmitSchemaSnapshot, req.AttributeLocation);
             }
 
+            // External roots
             static bool HasNamedTrue(AttributeData a, string name)
-            {
-                return a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
-            }
+                => a.NamedArguments.Any(kv => kv.Key == name && kv.Value.Value is true);
 
             static (bool? val, bool present) GetNamedBool(AttributeData a, string name)
             {
@@ -1018,7 +1019,7 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                 return arg is { Kind: TypedConstantKind.Enum, Value: int i } ? i : 0;
             }
 
-            foreach (var (extType, attr) in extRoots)
+            foreach (var (extType, _, attr) in extRoots)
             {
                 if (roots.ContainsKey(extType)) continue;
 
@@ -1032,51 +1033,33 @@ public sealed class DeepOpsGenerator : IIncrementalGenerator
                 var ddCycle = present && (cycleVal ?? false);
                 var stableMode = (StableMemberIndexMode)GetEnumValue(attr, "StableMemberIndex");
                 var emitSnapshot = HasNamedTrue(attr, "EmitSchemaSnapshot");
-                var loc = attr.ApplicationSyntaxReference?.GetSyntax().GetLocation();
+                var loc = attr.ApplicationSyntaxReference?.GetSyntax(spc.CancellationToken).GetLocation();
 
-                roots[extType] = (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode,
-                    emitSnapshot, loc);
+                roots[extType] = (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot, loc);
             }
 
-            var eqEmitter = new EqualityEmitter();
-            var ddEmitter = new DiffDeltaEmitter();
-            var seenHints = new HashSet<string>(StringComparer.Ordinal);
-
+            // Emit one Extensions-only file per root
+            var unified = new UnifiedExtensionsEmitter();
             foreach (var kvp in roots)
             {
                 var type = kvp.Key;
-                var (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot, loc) =
-                    kvp.Value;
+                var (incInt, ordIns, eqCycle, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot, loc) = kvp.Value;
 
                 Diagnostics.DiagnosticPass(spc, type);
 
-                {
-                    var hint = GenCommon.SanitizeFileName(
-                        type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepEqual.g.cs");
-                    if (seenHints.Add(hint))
-                        eqEmitter.EmitForRoot(
-                            spc,
-                            new EqualityTarget(type, incInt, ordIns, eqCycle, incBase),
-                            hint);
-                }
+                var eqTarget = new EqualityTarget(type, incInt, ordIns, eqCycle, incBase);
+                var ddTarget = new DiffDeltaTarget(type, incInt, ordIns, ddCycle, incBase, genDiff, genDelta, stableMode, emitSnapshot);
 
-                if (genDiff || genDelta)
-                {
-                    if (genDelta && stableMode == StableMemberIndexMode.Off && loc is not null)
-                        spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.DL001, loc));
+                unified.Emit(spc, ddTarget, eqTarget);
 
-                    var hint = GenCommon.SanitizeFileName(
-                        type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "_DeepOps.g.cs");
-                    if (seenHints.Add(hint))
-                        ddEmitter.EmitForRoot(
-                            spc,
-                            new DiffDeltaTarget(type, incInt, ordIns, ddCycle, incBase, genDiff, genDelta, stableMode,
-                                emitSnapshot),
-                            hint);
-                }
+                // Warning: delta with stable indices off
+                if (genDelta && stableMode == StableMemberIndexMode.Off && loc is not null)
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.DL001, loc));
             }
         });
     }
+
+
 }
 
 internal readonly record struct RootRequest(
@@ -1104,8 +1087,8 @@ internal sealed class EqualityEmitter
             ? null
             : root.Type.ContainingNamespace.ToDisplayString();
         var rootFqn = root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var helperClass = root.Type.Name + "DeepEqual";
-        var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + "_DeepEqual.g.cs");
+        var helperClass = $"{root.Type.Name}DeepEqual";
+        var hintName = hintOverride ?? GenCommon.SanitizeFileName($"{rootFqn}_DeepEqual.g.cs");
 
         var reachable = GenCommon.BuildReachableTypeClosure(root);
         var trackCycles = root.CycleTrackingEnabled;
@@ -1113,7 +1096,7 @@ internal sealed class EqualityEmitter
             ? "internal"
             : "public";
         var typeParams = root.Type.Arity > 0
-            ? "<" + string.Join(",", root.Type.TypeArguments.Select(a => a.Name)) + ">"
+            ? $"<{string.Join(",", root.Type.TypeArguments.Select(a => a.Name))}>"
             : "";
 
         var w = new CodeWriter();
@@ -1125,27 +1108,27 @@ internal sealed class EqualityEmitter
         w.Line("using DeepEqual.Generator.Shared;");
         w.Line();
 
-        if (ns is not null) w.Open("namespace " + ns);
+        if (ns is not null) w.Line($"namespace {ns};");
 
-        w.Open(accessibility + " static class " + helperClass + typeParams);
+        w.Open($"{accessibility} static class {helperClass}{typeParams}");
 
 
-        w.Open("static " + helperClass + "()");
+        w.Open($"static {helperClass}()");
         foreach (var t in reachable.Where(t => GenCommon.IsTypeAccessibleFromRoot(t, root))
                      .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
         {
             var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var helper = GenCommon.GetHelperMethodName(t);
-            w.Line("GeneratedHelperRegistry.RegisterComparer<" + fqn + ">((l, r, c) => " + helper + "(l, r, c));");
+            w.Line($"GeneratedHelperRegistry.RegisterComparer<{fqn}>((l, r, c) => {helper}(l, r, c));");
         }
 
         w.Close();
         w.Line();
 
         if (root.Type.IsValueType)
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + " left, " + rootFqn + " right)");
+            w.Open($"{accessibility} static bool AreDeepEqual({rootFqn} left, {rootFqn} right)");
         else
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + "? left, " + rootFqn + "? right)");
+            w.Open($"{accessibility} static bool AreDeepEqual({rootFqn}? left, {rootFqn}? right)");
 
         if (!root.Type.IsValueType)
         {
@@ -1157,20 +1140,19 @@ internal sealed class EqualityEmitter
             w.Close();
         }
 
-        w.Line("var context = " +
-               (trackCycles
-                   ? "new DeepEqual.Generator.Shared.ComparisonContext()"
-                   : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking") + ";");
-        w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
+        w.Line($"var context = {(trackCycles
+            ? "new DeepEqual.Generator.Shared.ComparisonContext()"
+            : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking")};");
+        w.Line($"return {GenCommon.GetHelperMethodName(root.Type)}(left, right, context);");
         w.Close();
         w.Line();
 
         if (root.Type.IsValueType)
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + " left, " + rootFqn +
-                   " right, DeepEqual.Generator.Shared.ComparisonOptions options)");
+            w.Open(
+                $"{accessibility} static bool AreDeepEqual({rootFqn} left, {rootFqn} right, DeepEqual.Generator.Shared.ComparisonOptions options)");
         else
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + "? left, " + rootFqn +
-                   "? right, DeepEqual.Generator.Shared.ComparisonOptions options)");
+            w.Open(
+                $"{accessibility} static bool AreDeepEqual({rootFqn}? left, {rootFqn}? right, DeepEqual.Generator.Shared.ComparisonOptions options)");
 
         if (!root.Type.IsValueType)
         {
@@ -1183,16 +1165,16 @@ internal sealed class EqualityEmitter
         }
 
         w.Line("var context = new DeepEqual.Generator.Shared.ComparisonContext(options);");
-        w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
+        w.Line($"return {GenCommon.GetHelperMethodName(root.Type)}(left, right, context);");
         w.Close();
         w.Line();
 
         if (root.Type.IsValueType)
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + " left, " + rootFqn +
-                   " right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            w.Open(
+                $"{accessibility} static bool AreDeepEqual({rootFqn} left, {rootFqn} right, DeepEqual.Generator.Shared.ComparisonContext context)");
         else
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + "? left, " + rootFqn +
-                   "? right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            w.Open(
+                $"{accessibility} static bool AreDeepEqual({rootFqn}? left, {rootFqn}? right, DeepEqual.Generator.Shared.ComparisonContext context)");
 
         if (!root.Type.IsValueType)
         {
@@ -1204,7 +1186,7 @@ internal sealed class EqualityEmitter
             w.Close();
         }
 
-        w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
+        w.Line($"return {GenCommon.GetHelperMethodName(root.Type)}(left, right, context);");
         w.Close();
         w.Line();
 
@@ -1226,18 +1208,18 @@ internal sealed class EqualityEmitter
         {
             if (arity <= 0) return "";
             if (arity == 1) return "<>";
-            return "<" + new string(',', arity - 1) + ">";
+            return $"<{new string(',', arity - 1)}>";
         }
 
         var openSuffix = OpenGenericSuffix(root.Type.Arity);
-        var initTypeName = "__" + GenCommon.SanitizeIdentifier(helperClass) + "_ModuleInit_" +
-                           Math.Abs(root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode());
+        var initTypeName =
+            $"__{GenCommon.SanitizeIdentifier(helperClass)}_ModuleInit_{Math.Abs(root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode())}";
 
-        w.Open("internal static class " + initTypeName);
+        w.Open($"internal static class {initTypeName}");
         w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
         w.Open("internal static void Init()");
-        w.Line("System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(" + helperClass + openSuffix +
-               ").TypeHandle);");
+        w.Line(
+            $"System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof({helperClass}{openSuffix}).TypeHandle);");
         w.Close();
         w.Close();
 
@@ -1253,8 +1235,8 @@ internal sealed class EqualityEmitter
     {
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var helper = GenCommon.GetHelperMethodName(type);
-        w.Open("private static bool " + helper + "(" + fqn + " left, " + fqn +
-               " right, DeepEqual.Generator.Shared.ComparisonContext context)");
+        w.Open(
+            $"private static bool {helper}({fqn} left, {fqn} right, DeepEqual.Generator.Shared.ComparisonContext context)");
 
         if (!type.IsValueType)
         {
@@ -1329,8 +1311,8 @@ internal sealed class EqualityEmitter
         EqualityTarget root,
         HashSet<string> emittedComparers, List<string[]> comparerDeclarations, SourceProductionContext spc)
     {
-        var leftExpr = "left." + equalityMember.Name;
-        var rightExpr = "right." + equalityMember.Name;
+        var leftExpr = $"left.{equalityMember.Name}";
+        var rightExpr = $"right.{equalityMember.Name}";
         var deepAttr = GenCommon.GetDeepCompareAttribute(equalityMember.Symbol);
         var kind = GenCommon.GetEffectiveKind(equalityMember.Type, deepAttr);
         {
@@ -1368,8 +1350,8 @@ internal sealed class EqualityEmitter
         var isString = equalityMember.Type.SpecialType == SpecialType.System_String;
         if (!equalityMember.Type.IsValueType && !isString)
         {
-            w.Open("if (!object.ReferenceEquals(" + leftExpr + ", " + rightExpr + "))");
-            w.Open("if (" + leftExpr + " is null || " + rightExpr + " is null)");
+            w.Open($"if (!object.ReferenceEquals({leftExpr}, {rightExpr}))");
+            w.Open($"if ({leftExpr} is null || {rightExpr} is null)");
             w.Line("return false;");
             w.Close();
             w.Close();
@@ -1377,7 +1359,7 @@ internal sealed class EqualityEmitter
 
         if (kind == EffectiveKind.Reference)
         {
-            w.Open("if (!object.ReferenceEquals(" + leftExpr + ", " + rightExpr + "))");
+            w.Open($"if (!object.ReferenceEquals({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1389,11 +1371,11 @@ internal sealed class EqualityEmitter
         {
             var cmpFqn = directCustomCmp.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var tFqn = equalityMember.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            var customVar = "__cmp_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                            GenCommon.SanitizeIdentifier(equalityMember.Name);
-            w.Line("var " + customVar + " = (System.Collections.Generic.IEqualityComparer<" + tFqn +
-                   ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!;");
-            w.Open("if (!" + customVar + ".Equals(" + leftExpr + ", " + rightExpr + "))");
+            var customVar =
+                $"__cmp_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+            w.Line(
+                $"var {customVar} = (System.Collections.Generic.IEqualityComparer<{tFqn}>)System.Activator.CreateInstance(typeof({cmpFqn}))!;");
+            w.Open($"if (!{customVar}.Equals({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1402,7 +1384,7 @@ internal sealed class EqualityEmitter
 
         if (kind == EffectiveKind.Shallow)
         {
-            w.Open("if (!object.Equals(" + leftExpr + ", " + rightExpr + "))");
+            w.Open($"if (!object.Equals({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1419,19 +1401,19 @@ internal sealed class EqualityEmitter
             {
                 var cmpFqn = customCmpT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var elFqn2 = valueT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                customVar = "__cmp_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                            GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + customVar + " = (System.Collections.Generic.IEqualityComparer<" + elFqn2 +
-                       ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!;");
+                customVar =
+                    $"__cmp_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line(
+                    $"var {customVar} = (System.Collections.Generic.IEqualityComparer<{elFqn2}>)System.Activator.CreateInstance(typeof({cmpFqn}))!;");
             }
 
-            w.Open("if (" + leftExpr + ".HasValue != " + rightExpr + ".HasValue)");
+            w.Open($"if ({leftExpr}.HasValue != {rightExpr}.HasValue)");
             w.Line("return false;");
             w.Close();
-            w.Open("if (" + leftExpr + ".HasValue)");
+            w.Open($"if ({leftExpr}.HasValue)");
             if (customVar is not null)
             {
-                w.Open("if (!" + customVar + ".Equals(" + leftExpr + ".Value, " + rightExpr + ".Value))");
+                w.Open($"if (!{customVar}.Equals({leftExpr}.Value, {rightExpr}.Value))");
                 w.Line("return false;");
                 w.Close();
             }
@@ -1453,8 +1435,8 @@ internal sealed class EqualityEmitter
 
         if (equalityMember.Type.SpecialType == SpecialType.System_String)
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + leftExpr + ", " + rightExpr +
-                   ", context))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings({leftExpr}, {rightExpr}, context))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1464,8 +1446,8 @@ internal sealed class EqualityEmitter
         if (equalityMember.Type.TypeKind == TypeKind.Enum)
         {
             var enumFqn = equalityMember.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<" + enumFqn + ">(" + leftExpr +
-                   ", " + rightExpr + "))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<{enumFqn}>({leftExpr}, {rightExpr}))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1475,7 +1457,7 @@ internal sealed class EqualityEmitter
         if (GenCommon.IsNumericWithTolerance(equalityMember.Type))
         {
             var call = GenCommon.GetNumericCall(equalityMember.Type, leftExpr, rightExpr, "context");
-            w.Open("if (!" + call + ")");
+            w.Open($"if (!{call})");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1491,19 +1473,16 @@ internal sealed class EqualityEmitter
             if (elemCustomCmpT is not null)
             {
                 var cmpFqn = elemCustomCmpT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                elemCustomVar = "__cmpE_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                                GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + elemCustomVar + " = (System.Collections.Generic.IEqualityComparer<" + elFqn +
-                       ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!;");
+                elemCustomVar =
+                    $"__cmpE_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line(
+                    $"var {elemCustomVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cmpFqn}))!;");
             }
 
             var cmpName = GenCommon.EnsureComparerStruct(emittedComparers, comparerDeclarations, romEl, elKind,
-                "M_" + GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
-                "_" +
-                equalityMember.Name, elemCustomVar);
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualReadOnlyMemory<" + elFqn + ", " +
-                   cmpName + ">(" + leftExpr + ", " + rightExpr + ", new " + cmpName + "(" + (elemCustomVar ?? "") +
-                   "), context))");
+                $"M_{GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}_{equalityMember.Name}", elemCustomVar);
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualReadOnlyMemory<{elFqn}, {cmpName}>({leftExpr}, {rightExpr}, new {cmpName}({(elemCustomVar ?? "")}), context))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1519,18 +1498,16 @@ internal sealed class EqualityEmitter
             if (elemCustomCmpT is not null)
             {
                 var cmpFqn = elemCustomCmpT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                elemCustomVar = "__cmpE_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                                GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + elemCustomVar + " = (System.Collections.Generic.IEqualityComparer<" + elFqn +
-                       ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!;");
+                elemCustomVar =
+                    $"__cmpE_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line(
+                    $"var {elemCustomVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cmpFqn}))!;");
             }
 
             var cmpName = GenCommon.EnsureComparerStruct(emittedComparers, comparerDeclarations, memEl, elKind,
-                "M_" + GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
-                "_" +
-                equalityMember.Name, elemCustomVar);
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualMemory<" + elFqn + ", " + cmpName + ">(" +
-                   leftExpr + ", " + rightExpr + ", new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                $"M_{GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}_{equalityMember.Name}", elemCustomVar);
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualMemory<{elFqn}, {cmpName}>({leftExpr}, {rightExpr}, new {cmpName}({(elemCustomVar ?? "")}), context))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1539,7 +1516,7 @@ internal sealed class EqualityEmitter
 
         if (equalityMember.Type.IsValueType && equalityMember.Type.SpecialType != SpecialType.None)
         {
-            w.Open("if (!" + leftExpr + ".Equals(" + rightExpr + "))");
+            w.Open($"if (!{leftExpr}.Equals({rightExpr}))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1557,87 +1534,93 @@ internal sealed class EqualityEmitter
             if (elemCustomCmpT is not null)
             {
                 var cmpFqn = elemCustomCmpT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                elemCustomVar = "__cmpE_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                                GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + elemCustomVar + " = (System.Collections.Generic.IEqualityComparer<" + elFqn +
-                       ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!;");
+                elemCustomVar =
+                    $"__cmpE_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line(
+                    $"var {elemCustomVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cmpFqn}))!;");
             }
 
             var cmpName = GenCommon.EnsureComparerStruct(emittedComparers, comparerDeclarations, el, elKind,
-                "M_" + GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
-                "_" + equalityMember.Name, elemCustomVar);
+                $"M_{GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}_{equalityMember.Name}", elemCustomVar);
 
             // Keyed unordered (rank==1 only) — compare arrays by grouping on the key, no IReadOnlyList casts.
             if (unordered && GenCommon.TryGetKeySpec(el, deepAttr, root, out var keyTypeFqn, out var keyExprFmt))
             {
                 // a[] / b[] strong-typed views
-                var aArr = "__arrA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var bArr = "__arrB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
+                var aArr =
+                    $"__arrA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var bArr =
+                    $"__arrB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
 
                 // groupings
-                var dictA = "__ka_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var dictB = "__kb_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
+                var dictA =
+                    $"__ka_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var dictB =
+                    $"__kb_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
 
                 // temps
-                var tmpA = "__eA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var tmpB = "__eB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
+                var tmpA =
+                    $"__eA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var tmpB =
+                    $"__eB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
 
-                w.Line("var " + aArr + " = " + leftExpr + " as " + elFqn + "[];");
-                w.Line("var " + bArr + " = " + rightExpr + " as " + elFqn + "[];");
+                w.Line($"var {aArr} = {leftExpr} as {elFqn}[];");
+                w.Line($"var {bArr} = {rightExpr} as {elFqn}[];");
 
-                w.Open("if (!object.ReferenceEquals(" + aArr + ", " + bArr + "))");
-                w.Open("if (" + aArr + " is null || " + bArr + " is null)");
+                w.Open($"if (!object.ReferenceEquals({aArr}, {bArr}))");
+                w.Open($"if ({aArr} is null || {bArr} is null)");
                 w.Line("return false;");
                 w.Close();
 
-                w.Open("if (" + aArr + ".Length != " + bArr + ".Length)");
+                w.Open($"if ({aArr}.Length != {bArr}.Length)");
                 w.Line("return false;");
                 w.Close();
 
-                w.Line("var " + dictA + " = new System.Collections.Generic.Dictionary<" + keyTypeFqn +
-                       ", System.Collections.Generic.List<" + elFqn + ">>();");
-                w.Line("var " + dictB + " = new System.Collections.Generic.Dictionary<" + keyTypeFqn +
-                       ", System.Collections.Generic.List<" + elFqn + ">>();");
+                w.Line(
+                    $"var {dictA} = new System.Collections.Generic.Dictionary<{keyTypeFqn}, System.Collections.Generic.List<{elFqn}>>();");
+                w.Line(
+                    $"var {dictB} = new System.Collections.Generic.Dictionary<{keyTypeFqn}, System.Collections.Generic.List<{elFqn}>>();");
 
                 // Build A buckets
-                w.Open("for (int __i = 0; __i < " + aArr + ".Length; __i++)");
-                w.Line("var " + tmpA + " = " + aArr + "[__i];");
-                w.Line("var __k = " + string.Format(keyExprFmt, tmpA) + ";");
-                w.Open("if (!" + dictA + ".TryGetValue(__k, out var __lst))");
-                w.Line("__lst = " + dictA + "[__k] = new System.Collections.Generic.List<" + elFqn + ">();");
+                w.Open($"for (int __i = 0; __i < {aArr}.Length; __i++)");
+                w.Line($"var {tmpA} = {aArr}[__i];");
+                w.Line($"var __k = {string.Format(keyExprFmt, tmpA)};");
+                w.Open($"if (!{dictA}.TryGetValue(__k, out var __lst))");
+                w.Line($"__lst = {dictA}[__k] = new System.Collections.Generic.List<{elFqn}>();");
                 w.Close();
-                w.Line("__lst.Add(" + tmpA + ");");
+                w.Line($"__lst.Add({tmpA});");
                 w.Close();
 
                 // Build B buckets
-                w.Open("for (int __j = 0; __j < " + bArr + ".Length; __j++)");
-                w.Line("var " + tmpB + " = " + bArr + "[__j];");
-                w.Line("var __k = " + string.Format(keyExprFmt, tmpB) + ";");
-                w.Open("if (!" + dictB + ".TryGetValue(__k, out var __lst))");
-                w.Line("__lst = " + dictB + "[__k] = new System.Collections.Generic.List<" + elFqn + ">();");
+                w.Open($"for (int __j = 0; __j < {bArr}.Length; __j++)");
+                w.Line($"var {tmpB} = {bArr}[__j];");
+                w.Line($"var __k = {string.Format(keyExprFmt, tmpB)};");
+                w.Open($"if (!{dictB}.TryGetValue(__k, out var __lst))");
+                w.Line($"__lst = {dictB}[__k] = new System.Collections.Generic.List<{elFqn}>();");
                 w.Close();
-                w.Line("__lst.Add(" + tmpB + ");");
+                w.Line($"__lst.Add({tmpB});");
                 w.Close();
 
-                w.Line("if (" + dictA + ".Count != " + dictB + ".Count) return false;");
-                w.Open("foreach (var __kv in " + dictA + ")");
-                w.Open("if (!" + dictB + ".TryGetValue(__kv.Key, out var __lstB))");
+                w.Line($"if ({dictA}.Count != {dictB}.Count) return false;");
+                w.Open($"foreach (var __kv in {dictA})");
+                w.Open($"if (!{dictB}.TryGetValue(__kv.Key, out var __lstB))");
                 w.Line("return false;");
                 w.Close();
 
                 w.Line("if (__kv.Value.Count != __lstB.Count) return false;");
 
                 // match within each bucket using element comparer
-                var matchMask = "__m_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" + GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + matchMask + " = new bool[__lstB.Count];");
-                w.Line("var __cmp = new " + cmpName + "(" + (elemCustomVar ?? "") + ");");
+                var matchMask =
+                    $"__m_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line($"var {matchMask} = new bool[__lstB.Count];");
+                w.Line($"var __cmp = new {cmpName}({(elemCustomVar ?? "")});");
 
                 w.Open("for (int __x = 0; __x < __kv.Value.Count; __x++)");
                 w.Line("bool __f = false;");
                 w.Open("for (int __y = 0; __y < __lstB.Count; __y++)");
-                w.Open("if (!" + matchMask + "[__y])");
+                w.Open($"if (!{matchMask}[__y])");
                 w.Open("if (__cmp.Invoke(__kv.Value[__x], __lstB[__y], context))");
-                w.Line(matchMask + "[__y] = (__f = true);");
+                w.Line($"{matchMask}[__y] = (__f = true);");
                 w.Close();
                 w.Close();
                 w.Close();
@@ -1656,17 +1639,18 @@ internal sealed class EqualityEmitter
                 // Fast multiset compare for hash-friendly elements (string/primitive/enums etc.)
                 var eqExpr = GenCommon.GetEqualityComparerExprForHash(el, "context", elemCustomVar);
 
-                w.Open("if (!object.ReferenceEquals(" + leftExpr + ", " + rightExpr + "))");
-                w.Open("if (" + leftExpr + " is null || " + rightExpr + " is null)");
+                w.Open($"if (!object.ReferenceEquals({leftExpr}, {rightExpr}))");
+                w.Open($"if ({leftExpr} is null || {rightExpr} is null)");
                 w.Line("return false;");
                 w.Close();
-                w.Open("if (" + leftExpr + ".Length != " + rightExpr + ".Length)");
+                w.Open($"if ({leftExpr}.Length != {rightExpr}.Length)");
                 w.Line("return false;");
                 w.Close();
 
-                w.Line("var __ra = new System.Collections.Generic.List<" + elFqn + ">(" + leftExpr + ");");
-                w.Line("var __rb = new System.Collections.Generic.List<" + elFqn + ">(" + rightExpr + ");");
-                w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnorderedHash(__ra, __rb, " + eqExpr + "))");
+                w.Line($"var __ra = new System.Collections.Generic.List<{elFqn}>({leftExpr});");
+                w.Line($"var __rb = new System.Collections.Generic.List<{elFqn}>({rightExpr});");
+                w.Open(
+                    $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnorderedHash(__ra, __rb, {eqExpr}))");
                 w.Line("return false;");
                 w.Close();
                 w.Close();
@@ -1676,19 +1660,15 @@ internal sealed class EqualityEmitter
                 // Ordered comparison; use array helpers
                 if (arr.Rank == 1)
                 {
-                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualArrayRank1<" + elFqn + ", " + cmpName + ">("
-                           + leftExpr + " as " + elFqn + "[], "
-                           + rightExpr + " as " + elFqn + "[], "
-                           + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                    w.Open(
+                        $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualArrayRank1<{elFqn}, {cmpName}>({leftExpr} as {elFqn}[], {rightExpr} as {elFqn}[], new {cmpName}({(elemCustomVar ?? "")}), context))");
                     w.Line("return false;");
                     w.Close();
                 }
                 else
                 {
-                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualArray<" + elFqn + ", " + cmpName + ">("
-                           + "(Array?)" + leftExpr + ", "
-                           + "(Array?)" + rightExpr + ", "
-                           + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                    w.Open(
+                        $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualArray<{elFqn}, {cmpName}>((Array?){leftExpr}, (Array?){rightExpr}, new {cmpName}({(elemCustomVar ?? "")}), context))");
                     w.Line("return false;");
                     w.Close();
                 }
@@ -1710,23 +1690,20 @@ internal sealed class EqualityEmitter
             if (valCustomCmpT is not null)
             {
                 var cmpFqn = valCustomCmpT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                valCustomVar = "__cmpV_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                               GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + valCustomVar + " = (System.Collections.Generic.IEqualityComparer<" + vFqn +
-                       ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!");
+                valCustomVar =
+                    $"__cmpV_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line(
+                    $"var {valCustomVar} = (System.Collections.Generic.IEqualityComparer<{vFqn}>)System.Activator.CreateInstance(typeof({cmpFqn}))!");
             }
 
             var cmpAny = GenCommon.EnsureComparerStruct(
                 emittedComparers, comparerDeclarations, valT, vKind,
-                "M_" + GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
-                "_" +
-                equalityMember.Name + "_Val",
+                $"M_{GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}_{equalityMember.Name}_Val",
                 valCustomVar
             );
 
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDictionariesAny<" + kFqn + ", " + vFqn +
-                   ", " + cmpAny + ">(" +
-                   leftExpr + ", " + rightExpr + ", new " + cmpAny + "(" + (valCustomVar ?? "") + "), context))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDictionariesAny<{kFqn}, {vFqn}, {cmpAny}>({leftExpr}, {rightExpr}, new {cmpAny}({(valCustomVar ?? "")}), context))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1744,71 +1721,68 @@ internal sealed class EqualityEmitter
             if (elemCustomCmpT is not null)
             {
                 var cmpFqn = elemCustomCmpT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                elemCustomVar = "__cmpE_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                                GenCommon.SanitizeIdentifier(equalityMember.Name);
-                w.Line("var " + elemCustomVar + " = (System.Collections.Generic.IEqualityComparer<" + elFqn +
-                       ">)System.Activator.CreateInstance(typeof(" + cmpFqn + "))!;");
+                elemCustomVar =
+                    $"__cmpE_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                w.Line(
+                    $"var {elemCustomVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cmpFqn}))!;");
             }
 
             if (unordered &&
                 GenCommon.TryGetKeySpec(elT, deepAttr, root, out var keyTypeFqn2, out var keyExprFmt2) &&
                 GenCommon.IsUserObjectType(elT))
             {
-                var la = "__seqA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                         GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var lb = "__seqB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                         GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var da = "__dictA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                         GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var db = "__dictB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                         GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var tmpA = "__eA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                           GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var tmpB = "__eB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                           GenCommon.SanitizeIdentifier(equalityMember.Name);
+                var la =
+                    $"__seqA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var lb =
+                    $"__seqB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var da =
+                    $"__dictA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var db =
+                    $"__dictB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var tmpA =
+                    $"__eA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var tmpB =
+                    $"__eB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
                 var cmpName = GenCommon.EnsureComparerStruct(
                     emittedComparers, comparerDeclarations, elT, elKind,
-                    "M_" +
-                    GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
-                    "_" +
-                    equalityMember.Name,
+                    $"M_{GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}_{equalityMember.Name}",
                     elemCustomVar);
 
-                w.Line("var " + la + " = " + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">;");
-                w.Line("var " + lb + " = " + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">;");
+                w.Line($"var {la} = {leftExpr} as System.Collections.Generic.IEnumerable<{elFqn}>;");
+                w.Line($"var {lb} = {rightExpr} as System.Collections.Generic.IEnumerable<{elFqn}>;");
 
-                w.Open("if (!object.ReferenceEquals(" + la + ", " + lb + "))");
-                w.Open("if (" + la + " is null || " + lb + " is null)");
+                w.Open($"if (!object.ReferenceEquals({la}, {lb}))");
+                w.Open($"if ({la} is null || {lb} is null)");
                 w.Line("return false;");
                 w.Close();
 
-                w.Line("var " + da + " = new System.Collections.Generic.Dictionary<" + keyTypeFqn2 +
-                       ", System.Collections.Generic.List<" + elFqn + ">>();");
-                w.Line("var " + db + " = new System.Collections.Generic.Dictionary<" + keyTypeFqn2 +
-                       ", System.Collections.Generic.List<" + elFqn + ">>();");
+                w.Line(
+                    $"var {da} = new System.Collections.Generic.Dictionary<{keyTypeFqn2}, System.Collections.Generic.List<{elFqn}>>();");
+                w.Line(
+                    $"var {db} = new System.Collections.Generic.Dictionary<{keyTypeFqn2}, System.Collections.Generic.List<{elFqn}>>();");
 
-                w.Open("foreach (var " + tmpA + " in " + la + ")");
-                w.Line("var __k = " + string.Format(keyExprFmt2, tmpA) + ";");
-                w.Open("if (!" + da + ".TryGetValue(__k, out var __lst))");
-                w.Line("__lst = " + da + "[__k] = new System.Collections.Generic.List<" + elFqn + ">();");
+                w.Open($"foreach (var {tmpA} in {la})");
+                w.Line($"var __k = {string.Format(keyExprFmt2, tmpA)};");
+                w.Open($"if (!{da}.TryGetValue(__k, out var __lst))");
+                w.Line($"__lst = {da}[__k] = new System.Collections.Generic.List<{elFqn}>();");
                 w.Close();
-                w.Line("__lst.Add(" + tmpA + ");");
+                w.Line($"__lst.Add({tmpA});");
                 w.Close();
-                w.Open("foreach (var " + tmpB + " in " + lb + ")");
-                w.Line("var __k = " + string.Format(keyExprFmt2, tmpB) + ";");
-                w.Open("if (!" + db + ".TryGetValue(__k, out var __lst))");
-                w.Line("__lst = " + db + "[__k] = new System.Collections.Generic.List<" + elFqn + ">();");
+                w.Open($"foreach (var {tmpB} in {lb})");
+                w.Line($"var __k = {string.Format(keyExprFmt2, tmpB)};");
+                w.Open($"if (!{db}.TryGetValue(__k, out var __lst))");
+                w.Line($"__lst = {db}[__k] = new System.Collections.Generic.List<{elFqn}>();");
                 w.Close();
-                w.Line("__lst.Add(" + tmpB + ");");
+                w.Line($"__lst.Add({tmpB});");
                 w.Close();
-                w.Line("if (" + da + ".Count != " + db + ".Count) return false;");
-                w.Open("foreach (var __kv in " + da + ")");
-                w.Open("if (!" + db + ".TryGetValue(__kv.Key, out var __lstB))");
+                w.Line($"if ({da}.Count != {db}.Count) return false;");
+                w.Open($"foreach (var __kv in {da})");
+                w.Open($"if (!{db}.TryGetValue(__kv.Key, out var __lstB))");
                 w.Line("return false;");
                 w.Close();
                 w.Line("if (__kv.Value.Count != __lstB.Count) return false;");
                 w.Line("var __m = new bool[__lstB.Count];");
-                w.Line("var __cmp = new " + cmpName + "(" + (elemCustomVar ?? "") + ");");
+                w.Line($"var __cmp = new {cmpName}({(elemCustomVar ?? "")});");
 
                 w.Open("for (int __x = 0; __x < __kv.Value.Count; __x++)");
                 w.Line("bool __f = false;");
@@ -1831,22 +1805,22 @@ internal sealed class EqualityEmitter
 
             if (unordered && GenCommon.IsHashFriendly(elT))
             {
-                var la = "__seqA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                         GenCommon.SanitizeIdentifier(equalityMember.Name);
-                var lb = "__seqB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                         GenCommon.SanitizeIdentifier(equalityMember.Name);
+                var la =
+                    $"__seqA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                var lb =
+                    $"__seqB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
                 var eqExpr = GenCommon.GetEqualityComparerExprForHash(elT, "context", elemCustomVar);
 
-                w.Line("var " + la + " = " + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">;");
-                w.Line("var " + lb + " = " + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">;");
+                w.Line($"var {la} = {leftExpr} as System.Collections.Generic.IEnumerable<{elFqn}>;");
+                w.Line($"var {lb} = {rightExpr} as System.Collections.Generic.IEnumerable<{elFqn}>;");
 
-                w.Open("if (!object.ReferenceEquals(" + la + ", " + lb + "))");
-                w.Open("if (" + la + " is null || " + lb + " is null)");
+                w.Open($"if (!object.ReferenceEquals({la}, {lb}))");
+                w.Open($"if ({la} is null || {lb} is null)");
                 w.Line("return false;");
                 w.Close();
 
-                w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnorderedHash<" + elFqn +
-                       ">(" + la + ", " + lb + ", " + eqExpr + "))");
+                w.Open(
+                    $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnorderedHash<{elFqn}>({la}, {lb}, {eqExpr}))");
                 w.Line("return false;");
                 w.Close();
 
@@ -1856,57 +1830,46 @@ internal sealed class EqualityEmitter
             {
                 var cmpName = GenCommon.EnsureComparerStruct(
                     emittedComparers, comparerDeclarations, elT, elKind,
-                    "M_" +
-                    GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
-                    "_" +
-                    equalityMember.Name,
+                    $"M_{GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))}_{equalityMember.Name}",
                     elemCustomVar);
 
                 if (unordered)
                 {
-                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnordered<" + elFqn +
-                           ", " + cmpName + ">("
-                           + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
-                           + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
-                           + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                    w.Open(
+                        $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesUnordered<{elFqn}, {cmpName}>({leftExpr} as System.Collections.Generic.IEnumerable<{elFqn}>, {rightExpr} as System.Collections.Generic.IEnumerable<{elFqn}>, new {cmpName}({(elemCustomVar ?? "")}), context))");
                     w.Line("return false;");
                     w.Close();
                 }
                 else
                 {
-                    var roListA = "__roA_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                                  GenCommon.SanitizeIdentifier(equalityMember.Name);
-                    var roListB = "__roB_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                                  GenCommon.SanitizeIdentifier(equalityMember.Name);
+                    var roListA =
+                        $"__roA_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
+                    var roListB =
+                        $"__roB_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}";
 
-                    w.Line("var " + roListA + " = " + leftExpr + " as System.Collections.Generic.IReadOnlyList<" +
-                           elFqn + ">;");
-                    w.Line("var " + roListB + " = " + rightExpr + " as System.Collections.Generic.IReadOnlyList<" +
-                           elFqn + ">;");
-                    w.Open("if (" + roListA + " is not null && " + roListB + " is not null)");
-                    w.Open("if (" + roListA + ".Count != " + roListB + ".Count)");
+                    w.Line($"var {roListA} = {leftExpr} as System.Collections.Generic.IReadOnlyList<{elFqn}>;");
+                    w.Line($"var {roListB} = {rightExpr} as System.Collections.Generic.IReadOnlyList<{elFqn}>;");
+                    w.Open($"if ({roListA} is not null && {roListB} is not null)");
+                    w.Open($"if ({roListA}.Count != {roListB}.Count)");
                     w.Line("return false;");
                     w.Close();
-                    w.Line("var __cmp = new " + cmpName + "(" + (elemCustomVar ?? "") + ");");
-                    w.Line("var __n = " + roListA + ".Count;");
+                    w.Line($"var __cmp = new {cmpName}({(elemCustomVar ?? "")});");
+                    w.Line($"var __n = {roListA}.Count;");
                     w.Open("for (int __i = 0; __i < __n; __i++)");
-                    w.Open("if (!__cmp.Invoke(" + roListA + "[__i], " + roListB + "[__i], context))");
+                    w.Open($"if (!__cmp.Invoke({roListA}[__i], {roListB}[__i], context))");
                     w.Line("return false;");
                     w.Close();
                     w.Close();
-                    w.Line("goto __SEQ_OK_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                           GenCommon.SanitizeIdentifier(equalityMember.Name) + ";");
+                    w.Line(
+                        $"goto __SEQ_OK_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)};");
                     w.Close();
-                    w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesOrdered<" + elFqn +
-                           ", " + cmpName + ">("
-                           + leftExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
-                           + rightExpr + " as System.Collections.Generic.IEnumerable<" + elFqn + ">, "
-                           + "new " + cmpName + "(" + (elemCustomVar ?? "") + "), context))");
+                    w.Open(
+                        $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualSequencesOrdered<{elFqn}, {cmpName}>({leftExpr} as System.Collections.Generic.IEnumerable<{elFqn}>, {rightExpr} as System.Collections.Generic.IEnumerable<{elFqn}>, new {cmpName}({(elemCustomVar ?? "")}), context))");
                     w.Line("return false;");
                     w.Close();
 
-                    w.Line("__SEQ_OK_" + GenCommon.SanitizeIdentifier(owner.Name) + "_" +
-                           GenCommon.SanitizeIdentifier(equalityMember.Name) + ":;");
+                    w.Line(
+                        $"__SEQ_OK_{GenCommon.SanitizeIdentifier(owner.Name)}_{GenCommon.SanitizeIdentifier(equalityMember.Name)}:;");
                 }
 
                 w.Line();
@@ -1924,8 +1887,8 @@ internal sealed class EqualityEmitter
                  GenCommon.TryGetEnumerableInterface(equalityMember.Type, out _)))
         {
             var declFqn = equalityMember.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<" + declFqn + ">(" +
-                   leftExpr + ", " + rightExpr + ", context))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic<{declFqn}>({leftExpr}, {rightExpr}, context))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1934,8 +1897,8 @@ internal sealed class EqualityEmitter
 
         if (equalityMember.Type.SpecialType == SpecialType.System_Object)
         {
-            w.Open("if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic(" + leftExpr + ", " +
-                   rightExpr + ", context))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.DynamicDeepComparer.AreEqualDynamic({leftExpr}, {rightExpr}, context))");
             w.Line("return false;");
             w.Close();
             w.Line();
@@ -1945,15 +1908,15 @@ internal sealed class EqualityEmitter
         if (equalityMember.Type is INamedTypeSymbol nts && GenCommon.IsUserObjectType(nts)
                                                         && !(nts.IsAbstract || nts.TypeKind == TypeKind.Interface))
         {
-            var helperExpr = GenCommon.GetHelperMethodName(nts) + "(" + leftExpr + ", " + rightExpr + ", context)";
-            w.Open("if (!" + helperExpr + ")");
+            var helperExpr = $"{GenCommon.GetHelperMethodName(nts)}({leftExpr}, {rightExpr}, context)";
+            w.Open($"if (!{helperExpr})");
             w.Line("return false;");
             w.Close();
             w.Line();
             return;
         }
 
-        w.Open("if (!object.Equals(" + leftExpr + ", " + rightExpr + "))");
+        w.Open($"if (!object.Equals({leftExpr}, {rightExpr}))");
         w.Line("return false;");
         w.Close();
         w.Line();
@@ -1962,13 +1925,13 @@ internal sealed class EqualityEmitter
     private void EmitNullableValueCompare_NoCustom(CodeWriter w, string leftExpr, string rightExpr,
         ITypeSymbol valueType)
     {
-        if (GenCommon.TryEmitWellKnownStructCompare(w, leftExpr + ".Value", rightExpr + ".Value", valueType)) return;
+        if (GenCommon.TryEmitWellKnownStructCompare(w, $"{leftExpr}.Value", $"{rightExpr}.Value", valueType)) return;
 
         if (valueType.TypeKind == TypeKind.Enum)
         {
             var enumFqn = valueType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<" + enumFqn + ">(" + leftExpr +
-                   ".Value, " + rightExpr + ".Value))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualEnum<{enumFqn}>({leftExpr}.Value, {rightExpr}.Value))");
             w.Line("return false;");
             w.Close();
             return;
@@ -1976,8 +1939,8 @@ internal sealed class EqualityEmitter
 
         if (valueType.SpecialType == SpecialType.System_String)
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings(" + leftExpr + ".Value, " +
-                   rightExpr + ".Value, context))");
+            w.Open(
+                $"if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualStrings({leftExpr}.Value, {rightExpr}.Value, context))");
             w.Line("return false;");
             w.Close();
             return;
@@ -1985,8 +1948,8 @@ internal sealed class EqualityEmitter
 
         if (GenCommon.IsNumericWithTolerance(valueType))
         {
-            var call = GenCommon.GetNumericCall(valueType, leftExpr + ".Value", rightExpr + ".Value", "context");
-            w.Open("if (!" + call + ")");
+            var call = GenCommon.GetNumericCall(valueType, $"{leftExpr}.Value", $"{rightExpr}.Value", "context");
+            w.Open($"if (!{call})");
             w.Line("return false;");
             w.Close();
             return;
@@ -1994,7 +1957,7 @@ internal sealed class EqualityEmitter
 
         if (valueType.IsValueType && valueType.SpecialType != SpecialType.None)
         {
-            w.Open("if (!" + leftExpr + ".Value.Equals(" + rightExpr + ".Value))");
+            w.Open($"if (!{leftExpr}.Value.Equals({rightExpr}.Value))");
             w.Line("return false;");
             w.Close();
             return;
@@ -2004,16 +1967,16 @@ internal sealed class EqualityEmitter
                                                           && !(namedTypeSymbol.IsAbstract ||
                                                                namedTypeSymbol.TypeKind == TypeKind.Interface))
         {
-            var helperExpr = GenCommon.GetHelperMethodName(namedTypeSymbol) + "(" + leftExpr + ".Value, " + rightExpr +
-                             ".Value, context)";
-            w.Open("if (!" + helperExpr + ")");
+            var helperExpr =
+                $"{GenCommon.GetHelperMethodName(namedTypeSymbol)}({leftExpr}.Value, {rightExpr}.Value, context)";
+            w.Open($"if (!{helperExpr})");
             w.Line("return false;");
             w.Close();
             return;
         }
 
 
-        w.Open("if (!object.Equals(" + leftExpr + ".Value, " + rightExpr + ".Value))");
+        w.Open($"if (!object.Equals({leftExpr}.Value, {rightExpr}.Value))");
         w.Line("return false;");
         w.Close();
     }
@@ -2102,8 +2065,8 @@ internal sealed class DiffDeltaEmitter
             : root.Type.ContainingNamespace.ToDisplayString();
 
         var rootFqn = root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var helperClass = root.Type.Name + "DeepOps";
-        var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + "_DeepOps.g.cs");
+        var helperClass = $"{root.Type.Name}DeepOps";
+        var hintName = hintOverride ?? GenCommon.SanitizeFileName($"{rootFqn}_DeepOps.g.cs");
 
         var reachable = BuildReachableTypeClosure(root);
 
@@ -2116,29 +2079,29 @@ internal sealed class DiffDeltaEmitter
         w.Line("using DeepEqual.Generator.Shared;");
         w.Line();
 
-        if (ns is not null) w.Open("namespace " + ns);
+        if (ns is not null) w.Line($"namespace {ns};");
 
         var accessibility = root.IncludeInternals || root.Type.DeclaredAccessibility != Accessibility.Public
             ? "internal"
             : "public";
 
         var typeParams = root.Type.Arity > 0
-            ? "<" + string.Join(",", root.Type.TypeArguments.Select(a => a.Name)) + ">"
+            ? $"<{string.Join(",", root.Type.TypeArguments.Select(a => a.Name))}>"
             : "";
 
-        w.Open(accessibility + " static class " + helperClass + typeParams);
+        w.Open($"{accessibility} static class {helperClass}{typeParams}");
 
-        w.Open("static " + helperClass + "()");
+        w.Open($"static {helperClass}()");
         foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                      StringComparer.Ordinal))
         {
             var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             if (root.GenerateDiff)
-                w.Line("GeneratedHelperRegistry.RegisterDiff<" + fqn + ">((l, r, c) => TryGetDiff__" +
-                       GenCommon.SanitizeIdentifier(fqn) + "(l, r, c));");
+                w.Line(
+                    $"GeneratedHelperRegistry.RegisterDiff<{fqn}>((l, r, c) => TryGetDiff__{GenCommon.SanitizeIdentifier(fqn)}(l, r, c));");
             if (root.GenerateDelta)
-                w.Line("GeneratedHelperRegistry.RegisterDelta<" + fqn + ">(ComputeDelta__" +
-                       GenCommon.SanitizeIdentifier(fqn) + ", ApplyDelta__" + GenCommon.SanitizeIdentifier(fqn) + ");");
+                w.Line(
+                    $"GeneratedHelperRegistry.RegisterDelta<{fqn}>(ComputeDelta__{GenCommon.SanitizeIdentifier(fqn)}, ApplyDelta__{GenCommon.SanitizeIdentifier(fqn)});");
         }
 
         w.Close();
@@ -2157,18 +2120,18 @@ internal sealed class DiffDeltaEmitter
 
             if (arity == 1) return "<>";
 
-            return "<" + new string(',', arity - 1) + ">";
+            return $"<{new string(',', arity - 1)}>";
         }
 
         var openSuffix = OpenGenericSuffix(root.Type.Arity);
-        var initTypeName = "__" + GenCommon.SanitizeIdentifier(helperClass) + "_ModuleInit_" +
-                           Math.Abs(root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode());
+        var initTypeName =
+            $"__{GenCommon.SanitizeIdentifier(helperClass)}_ModuleInit_{Math.Abs(root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode())}";
 
-        w.Open("internal static class " + initTypeName);
+        w.Open($"internal static class {initTypeName}");
         w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
         w.Open("internal static void Init()");
-        w.Line("System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(" + helperClass + openSuffix +
-               ").TypeHandle);");
+        w.Line(
+            $"System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof({helperClass}{openSuffix}).TypeHandle);");
         w.Close();
         w.Close();
         if (ns is not null) w.Close();
@@ -2260,8 +2223,8 @@ internal sealed class DiffDeltaEmitter
             w.Line(
                 "/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
             w.Line("/// </list>");
-            w.Line("/// This mirrors <see cref=\"ApplyDelta(ref " + fqn + nullSuffix +
-                   ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
+            w.Line(
+                $"/// This mirrors <see cref=\"ApplyDelta(ref {fqn}{nullSuffix}, DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
             w.Open(
                 $"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
             w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
@@ -2327,8 +2290,8 @@ internal sealed class DiffDeltaEmitter
     {
         var ns = type.ContainingNamespace.IsGlobalNamespace ? null : type.ContainingNamespace.ToDisplayString();
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var typeParams = type.Arity > 0 ? "<" + string.Join(",", type.TypeArguments.Select(a => a.Name)) + ">" : "";
-        var hint = GenCommon.SanitizeFileName(fqn + ".__DeltaTrack.g.cs");
+        var typeParams = type.Arity > 0 ? $"<{string.Join(",", type.TypeArguments.Select(a => a.Name))}>" : "";
+        var hint = GenCommon.SanitizeFileName($"{fqn}.__DeltaTrack.g.cs");
 
         var threadSafe = false;
         foreach (var a in type.GetAttributes())
@@ -2352,10 +2315,10 @@ internal sealed class DiffDeltaEmitter
         w.Line("using System.Runtime.CompilerServices;");
         w.Line("using System.Threading;");
 
-        if (ns is not null) w.Open("namespace " + ns);
+        if (ns is not null) w.Line($"namespace {ns};");
 
         var decl = type.DeclaredAccessibility == Accessibility.Public ? "public" : "internal";
-        w.Open(decl + " partial class " + type.Name + typeParams);
+        w.Open($"{decl} partial class {type.Name}{typeParams}");
 
         w.Line("private long __dirty0;");
         w.Line("private long[]? __dirtyEx;");
@@ -2609,8 +2572,8 @@ internal sealed class DiffDeltaEmitter
                 {
                     var mem = ordered[idx];
                     var stable = GetStableMemberIndex(type, mem);
-                    var leftExpr = "left." + mem.Name;
-                    var rightExpr = "right." + mem.Name;
+                    var leftExpr = $"left.{mem.Name}";
+                    var rightExpr = $"right.{mem.Name}";
 
                     // In your original code, unordered/keyed lists were forced to Set; keep same behavior here
                     var (kind, orderInsensitive, keys, dShallow, dSkip) = ResolveEffectiveSettings(mem);
@@ -2621,7 +2584,7 @@ internal sealed class DiffDeltaEmitter
                         continue;
                     }
 
-                    w.Open("case " + idx + ":");
+                    w.Open($"case {idx}:");
 
                     if (kind == CompareKind.Skip || dSkip)
                     {
@@ -2664,7 +2627,7 @@ internal sealed class DiffDeltaEmitter
                         if (custom != null)
                         {
                             var cfqn = custom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                            var cmpVar = "__cmpE_" + SanitizeIdentifier(type.Name) + "_" + SanitizeIdentifier(mem.Name);
+                            var cmpVar = $"__cmpE_{SanitizeIdentifier(type.Name)}_{SanitizeIdentifier(mem.Name)}";
                             w.Line($"var {cmpVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cfqn}))!;");
                             w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}, DeepEqual.Generator.Shared.DelegatingElementComparer<{elFqn}>>({leftExpr}, {rightExpr}, {stable}, ref writer, new DeepEqual.Generator.Shared.DelegatingElementComparer<{elFqn}>({cmpVar}), context);");
                         }
@@ -2743,7 +2706,7 @@ internal sealed class DiffDeltaEmitter
                         if (!dSkip2 && (ordIns || keyMembers.Length > 0))
                         {
                             var stable = GetStableMemberIndex(type, mem);
-                            var rightExpr = "right." + mem.Name;
+                            var rightExpr = $"right.{mem.Name}";
                             w.Open($"if (!__emitted_m{stable})");
                             w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
                             w.Close();
@@ -2903,7 +2866,7 @@ internal sealed class DiffDeltaEmitter
             {
                 var m = t2.ms;
                 var idx = t2.idx;
-                var propAccess = "target." + m.Name;
+                var propAccess = $"target.{m.Name}";
 
                 if (TryGetListInterface(m.Type, out var elTypeForPresize) && m.Type is not IArrayTypeSymbol)
                 {
@@ -2942,14 +2905,14 @@ internal sealed class DiffDeltaEmitter
                 var member = t2.ms;
                 var ordinal = t2.i;
                 var memberIdx = GetStableMemberIndex(type, member);
-                var propAccess = "target." + member.Name;
+                var propAccess = $"target.{member.Name}";
                 var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var nullableQ = member.Type.IsReferenceType ? "?" : "";
                 var hasSetterForMember = member.Symbol is IPropertySymbol __ps2 && __ps2.SetMethod is not null;
 
                 w.Open($"case {memberIdx}:");
                 w.Open("switch (op.Kind)");
-             
+
                 if (IsExpando(member.Type)) // you already have IsExpando(ITypeSymbol) in this file
                 {
                     // emit only the expando cases, then close and continue
@@ -3107,7 +3070,7 @@ internal sealed class DiffDeltaEmitter
         foreach (var k in dictCases)
         {
             w.Open($"case DeepEqual.Generator.Shared.DeltaKind.{k}:");
-            w.Line("object? __tmp = " + propAccess + ";");
+            w.Line($"object? __tmp = {propAccess};");
             w.Line("DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<string, object>(ref __tmp, in op);");
             w.Line("var __src = (System.Collections.Generic.IDictionary<string, object?>)__tmp!;");
             w.Line("var __exp = new global::System.Dynamic.ExpandoObject();");
@@ -3124,8 +3087,8 @@ internal sealed class DiffDeltaEmitter
     private void EmitMemberDiff(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member, DiffDeltaTarget root)
     {
         var idx = GetStableMemberIndex(owner, member);
-        var left = "left." + member.Name;
-        var right = "right." + member.Name;
+        var left = $"left.{member.Name}";
+        var right = $"right.{member.Name}";
 
         var (effKind, orderInsensitive, _, deltaShallow, deltaSkip) = ResolveEffectiveSettings(member);
         if (effKind == CompareKind.Skip || deltaSkip) return;
@@ -3228,14 +3191,14 @@ internal sealed class DiffDeltaEmitter
 
             w.Open("else");
             w.Line($"changes.Add(new DeepEqual.Generator.Shared.MemberChange({idx}, DeepEqual.Generator.Shared.MemberChangeKind.Set, {right}));");
-            w.Line("goto __end_dict_" + idx + ";");
+            w.Line($"goto __end_dict_{idx};");
             w.Close();
 
             w.Open("if (!__doc.IsEmpty)");
             w.Line($"changes.Add(new DeepEqual.Generator.Shared.MemberChange({idx}, DeepEqual.Generator.Shared.MemberChangeKind.CollectionOps, __doc));");
             w.Close();
 
-            w.Line("__end_dict_" + idx + ": ;");
+            w.Line($"__end_dict_{idx}: ;");
             w.Close(); // else non-null
             w.Close();
             return;
@@ -3261,7 +3224,7 @@ internal sealed class DiffDeltaEmitter
             if (orderInsensitive && IsValueLike(elemType))
             {
                 // local multiset compare without extra helpers
-                var mapVar = "__ms_" + idx;
+                var mapVar = $"__ms_{idx}";
                 w.Line($"var __ena_{idx} = {la} as System.Collections.Generic.IEnumerable<{elFqn}>;");
                 w.Line($"var __enb_{idx} = {lb} as System.Collections.Generic.IEnumerable<{elFqn}>;");
                 w.Open($"if (__ena_{idx} is not null && __enb_{idx} is not null)");
@@ -3330,10 +3293,13 @@ internal sealed class DiffDeltaEmitter
             w.Line($"    changes.Add(new DeepEqual.Generator.Shared.MemberChange({idx}, DeepEqual.Generator.Shared.MemberChangeKind.Set, {right}));");
             w.Close();
             w.Line("    else {");
-            w.Line("        if (GeneratedHelperRegistry.TryGetDiffSameType(__tL, " + ltmp + ", " + rtmp + ", context, out var __idiff)) {");
-            w.Line("            if (!__idiff.IsEmpty) changes.Add(new DeepEqual.Generator.Shared.MemberChange(" + idx + ", DeepEqual.Generator.Shared.MemberChangeKind.Nested, __idiff));");
+            w.Line(
+                $"        if (GeneratedHelperRegistry.TryGetDiffSameType(__tL, {ltmp}, {rtmp}, context, out var __idiff)) {{");
+            w.Line(
+                $"            if (!__idiff.IsEmpty) changes.Add(new DeepEqual.Generator.Shared.MemberChange({idx}, DeepEqual.Generator.Shared.MemberChangeKind.Nested, __idiff));");
             w.Line("        } else {");
-            w.Open("            if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(" + ltmp + ", " + rtmp + ", context))");
+            w.Open(
+                $"            if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic({ltmp}, {rtmp}, context))");
             w.Line($"            changes.Add(new DeepEqual.Generator.Shared.MemberChange({idx}, DeepEqual.Generator.Shared.MemberChangeKind.Set, {right}));");
             w.Close();
             w.Line("        }");
@@ -3345,8 +3311,8 @@ internal sealed class DiffDeltaEmitter
     private void EmitMemberDelta(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member, DiffDeltaTarget root)
     {
         var idx = GetStableMemberIndex(owner, member);
-        var left = "left." + member.Name;
-        var right = "right." + member.Name;
+        var left = $"left.{member.Name}";
+        var right = $"right.{member.Name}";
         var hasSetterForMember = member.Symbol is IPropertySymbol ps && ps.SetMethod is not null;
         var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
@@ -3555,8 +3521,8 @@ internal sealed class DiffDeltaEmitter
 
         // ============== Other reference / polymorphic ==============
         {
-            var ltmp = "__l_" + SanitizeIdentifier(owner.Name) + "_" + SanitizeIdentifier(member.Name);
-            var rtmp = "__r_" + SanitizeIdentifier(owner.Name) + "_" + SanitizeIdentifier(member.Name);
+            var ltmp = $"__l_{SanitizeIdentifier(owner.Name)}_{SanitizeIdentifier(member.Name)}";
+            var rtmp = $"__r_{SanitizeIdentifier(owner.Name)}_{SanitizeIdentifier(member.Name)}";
             w.Line($"var {ltmp} = {left};");
             w.Line($"var {rtmp} = {right};");
 
@@ -3840,7 +3806,7 @@ internal sealed class DiffDeltaEmitter
             nt.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::System.Nullable<T>")
         {
             var u = nt.TypeArguments[0];
-            var inner = GetValueLikeEqualsInvocation(u, leftExpr + ".Value", rightExpr + ".Value");
+            var inner = GetValueLikeEqualsInvocation(u, $"{leftExpr}.Value", $"{rightExpr}.Value");
             // equal when both null, or both have value and inner compares equal
             return $"(({leftExpr}.HasValue == {rightExpr}.HasValue) && (!{leftExpr}.HasValue || ({inner})))";
         }
@@ -4057,6 +4023,317 @@ internal readonly record struct EqualityMemberSymbol(string Name, ITypeSymbol Ty
 
 internal sealed record EqualityTypeSchema(IReadOnlyList<string> IncludeMembers, IReadOnlyList<string> IgnoreMembers);
 
+
+internal sealed class UnifiedExtensionsEmitter
+{
+    public void Emit(SourceProductionContext spc, DiffDeltaTarget ddRoot, EqualityTarget eqRoot)
+    {
+        var ns = ddRoot.Type.ContainingNamespace.IsGlobalNamespace
+            ? null
+            : ddRoot.Type.ContainingNamespace.ToDisplayString();
+
+        var rootFqn = ddRoot.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var hintName = GenCommon.SanitizeFileName(rootFqn + "_ExtensionsOnly.g.cs");
+
+        var w = new CodeWriter();
+        w.Line("// <auto-generated/>");
+        w.Line("#pragma warning disable");
+        w.Line("using System;");
+        w.Line("using DeepEqual.Generator.Shared;");
+        w.Line();
+
+        if (ns is not null) w.Open("namespace " + ns);
+
+        // ====================== Extensions class ======================
+        var clsName = ddRoot.Type.Name + "DeepExtensions";
+        var eqFqn = rootFqn;
+        var nullSuffix = ddRoot.Type.IsValueType ? "" : "?";
+        var eqHelper = ddRoot.Type.Name + "DeepEqual";
+        var opsHelper = ddRoot.Type.Name + "DeepOps";
+
+        w.Open("public static class " + clsName);
+
+        // AreDeepEqual (ctx created)
+        w.Open($"public static bool AreDeepEqual(this {eqFqn}{nullSuffix} left, {eqFqn}{nullSuffix} right)");
+        w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
+        w.Line($"return {eqHelper}.AreDeepEqual(left, right, ctx);");
+        w.Close();
+        w.Line();
+
+        // AreDeepEqual (ctx provided)
+        w.Open($"public static bool AreDeepEqual(this {eqFqn}{nullSuffix} left, {eqFqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+        w.Line($"return {eqHelper}.AreDeepEqual(left, right, context);");
+        w.Close();
+        w.Line();
+
+        // GetDiff (ctx created)
+        w.Open($"public static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{eqFqn}>) GetDiff(this {eqFqn}{nullSuffix} left, {eqFqn}{nullSuffix} right)");
+        w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
+        w.Line($"return {opsHelper}.GetDiff(left, right, ctx);");
+        w.Close();
+        w.Line();
+
+        // GetDiff (ctx provided)
+        w.Open($"public static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{eqFqn}>) GetDiff(this {eqFqn}{nullSuffix} left, {eqFqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+        w.Line($"return {opsHelper}.GetDiff(left, right, context);");
+        w.Close();
+        w.Line();
+
+        // ComputeDelta (ctx created)
+        w.Open($"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta(this {eqFqn}{nullSuffix} left, {eqFqn}{nullSuffix} right)");
+        w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
+        w.Line($"return {opsHelper}.ComputeDelta(left, right, ctx);");
+        w.Close();
+        w.Line();
+
+        // ComputeDelta (ctx provided)
+        w.Open($"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta(this {eqFqn}{nullSuffix} left, {eqFqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+        w.Line($"return {opsHelper}.ComputeDelta(left, right, context);");
+        w.Close();
+        w.Line();
+
+        // ApplyDelta
+        if (ddRoot.Type.IsValueType)
+        {
+            w.Open($"public static void ApplyDelta(this ref {eqFqn}{nullSuffix} target, DeepEqual.Generator.Shared.DeltaDocument delta)");
+            w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
+            w.Line($"{opsHelper}.ApplyDelta(ref target, ref reader);");
+            w.Close();
+        }
+        else
+        {
+            w.Open($"public static {eqFqn}{nullSuffix} ApplyDelta(this {eqFqn}{nullSuffix} target, DeepEqual.Generator.Shared.DeltaDocument delta)");
+            w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
+            w.Line("var tmp = target;");
+            w.Line($"{opsHelper}.ApplyDelta(ref tmp, ref reader);");
+            w.Line("return tmp;");
+            w.Close();
+        }
+
+        w.Close(); // end Extensions class
+
+        // ====================== DeepEqual helper (standalone) ======================
+        {
+            var rootType = eqRoot.Type;
+            var rootFqn2 = rootType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var helperClass = rootType.Name + "DeepEqual";
+            var accessibility = eqRoot.IncludeInternals || rootType.DeclaredAccessibility != Accessibility.Public
+                ? "internal" : "public";
+            var typeParams = rootType.Arity > 0 ? "<" + string.Join(",", rootType.TypeArguments.Select(a => a.Name)) + ">" : "";
+
+            w.Open(accessibility + " static class " + helperClass + typeParams);
+
+            // static ctor: register reachable comparers
+            var reachable = GenCommon.BuildReachableTypeClosure(eqRoot);
+            w.Open("static " + helperClass + "()");
+            foreach (var t in reachable.Where(t => GenCommon.IsTypeAccessibleFromRoot(t, eqRoot))
+                         .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+            {
+                var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var helper = GenCommon.GetHelperMethodName(t);
+                w.Line($"GeneratedHelperRegistry.RegisterComparer<{fqn}>((l, r, c) => {helper}(l, r, c));");
+            }
+            w.Close();
+            w.Line();
+
+            // public entrypoint
+            if (rootType.IsValueType)
+                w.Open($"public static bool AreDeepEqual({rootFqn2} left, {rootFqn2} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            else
+                w.Open($"public static bool AreDeepEqual({rootFqn2}? left, {rootFqn2}? right, DeepEqual.Generator.Shared.ComparisonContext context)");
+
+            if (!rootType.IsValueType)
+            {
+                w.Line("if (object.ReferenceEquals(left, right)) return true;");
+                w.Line("if (left is null || right is null) return false;");
+            }
+            w.Line($"return {GenCommon.GetHelperMethodName(rootType)}(left, right, context);");
+            w.Close();
+            w.Line();
+
+            // minimal per-type comparers -> polymorphic fallback
+            foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+            {
+                var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var helper = GenCommon.GetHelperMethodName(t);
+                w.Open($"private static bool {helper}({fqn} left, {fqn} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+                if (!t.IsValueType)
+                {
+                    w.Line("if (object.ReferenceEquals(left, right)) return true;");
+                    w.Line("if (left is null || right is null) return false;");
+                }
+                w.Line("return DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context);");
+                w.Close();
+                w.Line();
+            }
+
+            // module initializer to force static ctor
+            string OpenGenericSuffix(int arity) => arity <= 0 ? "" : (arity == 1 ? "<>" : "<" + new string(',', arity - 1) + ">");
+            var openSuffix = OpenGenericSuffix(rootType.Arity);
+            var initTypeName = "__" + GenCommon.SanitizeIdentifier(helperClass) + "_ModuleInit_" +
+                               Math.Abs(rootType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode());
+            w.Open("internal static class " + initTypeName);
+            w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
+            w.Open("internal static void Init()");
+            w.Line($"System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof({helperClass}{openSuffix}).TypeHandle);");
+            w.Close(); // Init
+            w.Close(); // initTypeName
+
+            w.Close(); // end DeepEqual helper class
+        }
+
+        // ====================== DeepOps helper (standalone) ======================
+        {
+            var helperClass = ddRoot.Type.Name + "DeepOps";
+            var accessibility = ddRoot.IncludeInternals || ddRoot.Type.DeclaredAccessibility != Accessibility.Public
+                ? "internal" : "public";
+            var typeParams = ddRoot.Type.Arity > 0 ? "<" + string.Join(",", ddRoot.Type.TypeArguments.Select(a => a.Name)) + ">" : "";
+            var fqn = ddRoot.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var nullSuffix2 = ddRoot.Type.IsValueType ? "" : "?";
+            var id = GenCommon.SanitizeIdentifier(fqn); // <<< id defined here
+
+            w.Open(accessibility + " static class " + helperClass + typeParams);
+
+            // static registrations use ref-style methods (__{id})
+            w.Open("static " + helperClass + "()");
+            if (ddRoot.GenerateDiff)
+                w.Line($"GeneratedHelperRegistry.RegisterDiff<{fqn}>((l, r, c) => GetDiff(l, r, c));");
+            if (ddRoot.GenerateDelta)
+                w.Line($"GeneratedHelperRegistry.RegisterDelta<{fqn}>(ComputeDelta__{id}, ApplyDelta__{id});");
+            w.Close();
+            w.Line();
+
+            // AreDeepEqual via diff when available; otherwise polymorphic
+            w.Open($"public static bool AreDeepEqual({fqn}{nullSuffix2} left, {fqn}{nullSuffix2} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            if (!ddRoot.Type.IsValueType)
+            {
+                w.Line("if (object.ReferenceEquals(left, right)) return true;");
+                w.Line("if (left is null || right is null) return false;");
+            }
+            if (ddRoot.GenerateDiff && !ddRoot.Type.IsValueType && ddRoot.CycleTrackingEnabled)
+            {
+                w.Line("if (!context.Enter(left!, right!)) return true;");
+                w.Open("try");
+                w.Line("var r = GetDiff(left, right, context);");
+                w.Line("return !r.hasDiff;");
+                w.Close(); // try
+                w.Open("finally");
+                w.Line("context.Exit(left!, right!);");
+                w.Close(); // finally
+            }
+            else if (ddRoot.GenerateDiff)
+            {
+                w.Line("var r = GetDiff(left, right, context);");
+                w.Line("return !r.hasDiff;");
+            }
+            else
+            {
+                w.Line("return DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context);");
+            }
+            w.Close();
+            w.Line();
+
+            // GetDiff: if feature off -> fallback replacement-on-inequality
+            w.Open($"public static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}>) GetDiff({fqn}{nullSuffix2} left, {fqn}{nullSuffix2} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            if (!ddRoot.GenerateDiff)
+            {
+                w.Line("if (object.ReferenceEquals(left, right)) return (false, DeepEqual.Generator.Shared.Diff<" + fqn + ">.Empty);");
+                if (!ddRoot.Type.IsValueType)
+                {
+                    w.Line("if (left is null && right is null) return (false, DeepEqual.Generator.Shared.Diff<" + fqn + ">.Empty);");
+                    w.Line("if (left is null || right is null) return (true, DeepEqual.Generator.Shared.Diff<" + fqn + ">.Replacement(right));");
+                }
+                w.Line("var eq = DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context);");
+                w.Line("return eq ? (false, DeepEqual.Generator.Shared.Diff<" + fqn + ">.Empty) : (true, DeepEqual.Generator.Shared.Diff<" + fqn + ">.Replacement(right));");
+            }
+            else
+            {
+                if (!ddRoot.Type.IsValueType && ddRoot.CycleTrackingEnabled)
+                {
+                    w.Line("if (!context.Enter(left!, right!)) return (false, DeepEqual.Generator.Shared.Diff<" + fqn + ">.Empty);");
+                    w.Open("try");
+                }
+
+                w.Line("var changes = new System.Collections.Generic.List<DeepEqual.Generator.Shared.MemberChange>();");
+                w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context))");
+                w.Line("changes.Add(new DeepEqual.Generator.Shared.MemberChange(-1, DeepEqual.Generator.Shared.MemberChangeKind.Set, right));");
+                w.Close();
+                w.Line("var d = changes.Count == 0 ? DeepEqual.Generator.Shared.Diff<" + fqn + ">.Empty : DeepEqual.Generator.Shared.Diff<" + fqn + ">.Members(changes);");
+                w.Line("return (changes.Count != 0, d);");
+
+                if (!ddRoot.Type.IsValueType && ddRoot.CycleTrackingEnabled)
+                {
+                    w.Close(); // try
+                    w.Open("finally");
+                    w.Line("context.Exit(left!, right!);");
+                    w.Close(); // finally
+                }
+            }
+            w.Close();
+            w.Line();
+
+            // Public convenience: ComputeDelta returns document, calls ref version
+            w.Open($"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta({fqn}{nullSuffix2} left, {fqn}{nullSuffix2} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
+            w.Line("var writer = new DeepEqual.Generator.Shared.DeltaWriter(doc);");
+            w.Line($"ComputeDelta__{id}(left, right, context, ref writer);");
+            w.Line("return doc;");
+            w.Close();
+            w.Line();
+
+            // Public convenience: ApplyDelta calls ref version
+            w.Open($"public static void ApplyDelta(ref {fqn}{nullSuffix2} target, ref DeepEqual.Generator.Shared.DeltaReader reader)");
+            w.Line($"ApplyDelta__{id}(ref target, ref reader);");
+            w.Close();
+            w.Line();
+
+            // Ref implementations that match the registry delegate types
+            w.Open($"private static void ComputeDelta__{id}({fqn}{nullSuffix2} left, {fqn}{nullSuffix2} right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
+            if (!ddRoot.Type.IsValueType)
+            {
+                w.Line("if (object.ReferenceEquals(left, right)) return;");
+                w.Line("if (left is null && right is not null) { writer.WriteReplaceObject(right); return; }");
+                w.Line("if (left is not null && right is null) { writer.WriteReplaceObject(right); return; }");
+            }
+            if (!ddRoot.Type.IsValueType && ddRoot.CycleTrackingEnabled)
+            {
+                w.Line("if (!context.Enter(left!, right!)) return;");
+                w.Open("try");
+            }
+            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context))");
+            w.Line("writer.WriteReplaceObject(right);");
+            w.Close();
+            if (!ddRoot.Type.IsValueType && ddRoot.CycleTrackingEnabled)
+            {
+                w.Close(); // try
+                w.Open("finally");
+                w.Line("context.Exit(left!, right!);");
+                w.Close(); // finally
+            }
+            w.Close();
+            w.Line();
+
+            w.Open($"private static void ApplyDelta__{id}(ref {fqn}{nullSuffix2} target, ref DeepEqual.Generator.Shared.DeltaReader reader)");
+            w.Line("var ops = reader.AsSpan();");
+            w.Open("for (int i = 0; i < ops.Length; i++)");
+            w.Line("ref readonly var op = ref ops[i];");
+            w.Open("if (op.MemberIndex == -1 && op.Kind == DeepEqual.Generator.Shared.DeltaKind.ReplaceObject)");
+            w.Line($"target = ({fqn}{nullSuffix2})op.Value;");
+            w.Line("return;");
+            w.Close();
+            w.Close();
+            w.Close();
+
+            w.Close(); // end DeepOps helper class
+        }
+
+        if (ns is not null) w.Close(); // end namespace
+
+        spc.AddSource(hintName, Microsoft.CodeAnalysis.Text.SourceText.From(w.ToString(), System.Text.Encoding.UTF8));
+    }
+
+
+}
 internal enum EffectiveKind
 {
     Deep = 0,
