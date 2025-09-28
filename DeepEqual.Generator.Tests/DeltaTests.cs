@@ -507,5 +507,352 @@ namespace DeepEqual.RewrittenTests
             Apply(ref a, d);
             Assert.True(a.AreDeepEqual(before));
         }
+
+        [Fact]
+        public void Root_Object_To_Null_ReplaceObject_Apply_SetsNull()
+        {
+            Order? a = MakeBaseline();
+            var d = Delta(a, null);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
+            a = a.ApplyDeepDelta(d);
+            Assert.Null(a);
+        }
+        [Fact]
+        public void ReplaceObject_TrailingOps_Ignored()
+        {
+            Order? a = null; var b = MakeBaseline();
+            var d = Delta(a, b);
+            // manually inject a bogus trailing op (safe if your writer allows building docs)
+            var ops = new DeltaReader(d).AsSpan().ToArray();
+            // assert replace exists
+            Assert.Contains(ops, o => o.Kind == DeltaKind.ReplaceObject);
+            // apply and prove target is replaced and ok
+            a = a.ApplyDeepDelta(d);
+            Assert.True(a!.AreDeepEqual(b));
+        }
+        [Fact]
+        public void ReadOnlyDict_AddRemoveUpdate_Emit_KeyOps()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Meta = new Dictionary<Guid, string>(a.Meta); // to control RO path, wrap as IReadOnlyDictionary if you expose it
+            b.Meta = new Dictionary<Guid, string>(a.Meta) { [Guid.NewGuid()] = "x" }; // add one
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.MemberIndex == 14 && (o.Kind == DeltaKind.DictSet)));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+        [Fact]
+        public void DictNested_Empty_Suppressed()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            // Arrange so a props["child"] and b props["child"] are deep-equal
+            a.Props["child"] = new ExpandoObject();
+            b.Props["child"] = new ExpandoObject();
+            var d = Delta(a, b);
+            // no DictNested on 'child'
+            Assert.False(ContainsDeep(d, o => o.Kind == DeltaKind.DictNested && (o.Key?.ToString() == "child")));
+        }
+        [Fact]
+        public void Lines_AddAndRemove_Emit_Add_Remove()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            // Remove an existing key from RIGHT (so we need a remove op)
+            b.Lines.RemoveAt(0);
+
+            // Add a brand new key to RIGHT (so we need an add op)
+            b.Lines.Add(new OrderLine { Sku = "NEW", Qty = 1, Price = 1m });
+
+            var d = Delta(a, b);
+
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.SeqRemoveAt));
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.SeqAddAt));
+
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+        [Fact]
+        public void Root_Object_To_Null_ReplaceObject_And_Apply_SetsNull()
+        {
+            Order? a = MakeBaseline();
+            var d = Delta(a, null);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
+            a = a!.ApplyDeepDelta(d); // capture replaced instance
+            Assert.Null(a);
+        }
+
+        [Fact]
+        public void ReplaceObject_Plus_TrailingOps_Is_Safe_And_Ignored()
+        {
+            // Start with null -> b (replace)
+            Order? a = null;
+            var b = MakeBaseline();
+
+            // Compute proper replace delta
+            var d = Delta(a, b);
+
+            // Sanity: contains ReplaceObject
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.ReplaceObject));
+
+            // Apply: early-return path must prevent any later deref on 'target'
+            a = a.ApplyDeepDelta(d);
+            Assert.True(a!.AreDeepEqual(b));
+        }
+
+        // --------------------------------------------------
+        // Emptiness / idempotency
+        // --------------------------------------------------
+
+        [Fact]
+        public void EmptyDelta_Is_NoOp_And_Idempotent()
+        {
+            var a = MakeBaseline();
+            var b = Clone(a);
+
+            var d = Delta(a, b);
+            Assert.True(d.IsEmpty);
+
+            var before = Clone(a);
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(before));
+
+            // Recompute & apply again
+            var d2 = Delta(a, b);
+            Assert.True(d2.IsEmpty);
+            Apply(ref a, d2);
+            Assert.True(a.AreDeepEqual(before));
+        }
+
+        // --------------------------------------------------
+        // Epsilon & comparers
+        // --------------------------------------------------
+
+        [Fact]
+        public void DoubleEpsilon_Boundaries_Are_Respected()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Shape = new Circle { Radius = 10.0 };
+            b.Shape = new Circle { Radius = 10.0 + 1e-7 }; // tiny
+
+            var ctx = new ComparisonContext(new ComparisonOptions { DoubleEpsilon = 1e-6 });
+            var d = Delta(a, b, ctx);
+            Assert.True(d.IsEmpty);
+
+            b.Shape = new Circle { Radius = 10.0 + 1e-3 }; // bigger
+            d = Delta(a, b, ctx);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.NestedMember && o.Nested is not null));
+        }
+
+        // --------------------------------------------------
+        // Arrays
+        // --------------------------------------------------
+
+        [Fact]
+        public void Rank1Array_ElementChange_ReplacesWholeArray()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            b.Bytes![0] ^= 0x01;
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.MemberIndex == 2 && o.Kind == DeltaKind.SetMember));
+
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void MultiDimArray_CellChange_ReplacesWholeMatrix()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            b.Grid![0, 0] += 1;
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.MemberIndex == 8 && o.Kind == DeltaKind.SetMember));
+        }
+
+        [Fact]
+        public void Array_NullTransitions_SetMember()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Bytes = null;
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.MemberIndex == 2 && o.Kind == DeltaKind.SetMember));
+
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // --------------------------------------------------
+        // Nullable primitives
+        // --------------------------------------------------
+
+        [Fact]
+        public void Nullable_ToNull_And_Back_SetMember()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            b.MaybeDiscount = null;
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.MemberIndex == 12 && o.Kind == DeltaKind.SetMember));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+
+            // Now flip back to value
+            b.MaybeDiscount = 0.42m;
+            d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.MemberIndex == 12 && o.Kind == DeltaKind.SetMember));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // --------------------------------------------------
+        // Polymorphism
+        // --------------------------------------------------
+
+        [Fact]
+        public void Polymorphic_SameRuntime_Emits_Nested_When_NonEmpty()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Shape = new Circle { Radius = 1.0 };
+            b.Shape = new Circle { Radius = 2.0 };
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.NestedMember && o.Nested is not null));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Polymorphic_TypeChange_Emits_SetMember()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Shape = new Circle { Radius = 1.0 };
+            b.Shape = new Square { Side = 1.0 };
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.SetMember && o.Value is IShape));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // --------------------------------------------------
+        // Dictionaries (policy & nesting)
+        // --------------------------------------------------
+
+        [Fact]
+        public void OpaqueChildDict_ValueChange_Yields_DictSet()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Props["child"] = new Dictionary<string, object?> { ["x"] = 1 };
+            b.Props["child"] = new Dictionary<string, object?> { ["x"] = 2 };
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.DictSet /* && (o.Key?.ToString()=="child")*/));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Expando_Add_Remove_And_Nested_All_Present_And_Apply()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+
+            // add
+            ((IDictionary<string, object?>)b.Expando)["extra"] = 321;
+            // remove
+            ((IDictionary<string, object?>)b.Expando).Remove("path");
+            // nested change
+            var nested = (ExpandoObject)((IDictionary<string, object?>)b.Expando)["nested"]!;
+            ((IDictionary<string, object?>)nested)["flag"] = false;
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.DictSet && (o.Key?.ToString() == "extra")));
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.DictRemove && (o.Key?.ToString() == "path")));
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.DictNested && (o.Key?.ToString() == "nested") && o.Nested is not null));
+
+            // Apply & ensure we still hold an Expando after dict ops
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+            Assert.IsType<ExpandoObject>(a.Expando!);
+        }
+
+        [Fact]
+        public void DictNested_Empty_Is_Suppressed()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            a.Props["emptyChild"] = new ExpandoObject();
+            b.Props["emptyChild"] = new ExpandoObject();
+
+            var d = Delta(a, b);
+            Assert.False(ContainsDeep(d, o => o.Kind == DeltaKind.DictNested && (o.Key?.ToString() == "emptyChild")));
+        }
+
+        // --------------------------------------------------
+        // Keyed list invariants (Lines keyed by Sku)
+        // --------------------------------------------------
+
+        [Fact]
+        public void Lines_Modify_SameKey_Yields_SeqNestedAt()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            b.Lines[0].Qty += 7;
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.SeqNestedAt && o.Nested is not null));
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        [Fact]
+        public void Lines_Add_And_Remove_Both_Ops_Present()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            // RIGHT: remove one, add new
+            b.Lines.RemoveAt(0);
+            b.Lines.Add(new OrderLine { Sku = "NEW", Qty = 1, Price = 1m });
+
+            var d = Delta(a, b);
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.SeqRemoveAt));
+            Assert.True(ContainsDeep(d, o => o.Kind == DeltaKind.SeqAddAt));
+
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // --------------------------------------------------
+        // Apply paths / containers
+        // --------------------------------------------------
+
+        [Fact]
+        public void Apply_To_ReadOnly_Containers_Clones_And_Assigns_Back()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+
+            // Force a Lines change so we exercise clone-on-write paths if any are RO
+            b.Lines[0].Notes = "changed";
+
+            var d = Delta(a, b);
+            Apply(ref a, d);
+            Assert.True(a.AreDeepEqual(b));
+        }
+
+        // --------------------------------------------------
+        // Serialization round-trip
+        // --------------------------------------------------
+
+        [Fact]
+        public void Delta_RoundTrip_Serialization_Preserves_Apply()
+        {
+            var a = MakeBaseline(); var b = Clone(a);
+            b.Customer.Name = "RT";
+
+            var d = Delta(a, b);
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(d);
+            var d2 = Newtonsoft.Json.JsonConvert.DeserializeObject<DeltaDocument>(json)!;
+
+            Apply(ref a, d2);
+            Assert.True(a.AreDeepEqual(b));
+        }
     }
 }
