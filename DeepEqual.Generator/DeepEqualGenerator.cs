@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -198,6 +198,81 @@ internal static class GenCommon
     internal static bool IsNumericWithTolerance(ITypeSymbol type)
     {
         return type.SpecialType is SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal;
+    }
+
+
+    internal static IEnumerable<ITypeParameterSymbol> EnumerateAllTypeParameters(INamedTypeSymbol type)
+    {
+        if (type.ContainingType is not null)
+        {
+            foreach (var tp in EnumerateAllTypeParameters(type.ContainingType))
+                yield return tp;
+        }
+
+        foreach (var tp in type.TypeParameters)
+            yield return tp;
+    }
+
+    internal static string GetTypeParameterList(INamedTypeSymbol type)
+    {
+        return GetTypeParameterList(EnumerateAllTypeParameters(type));
+    }
+
+    internal static string GetTypeParameterList(IEnumerable<ITypeParameterSymbol> typeParameters)
+    {
+        var array = typeParameters as ITypeParameterSymbol[] ?? typeParameters.ToArray();
+        if (array.Length == 0) return string.Empty;
+        return "<" + string.Join(", ", array.Select(tp => tp.Name)) + ">";
+    }
+
+    internal static string GetTypeConstraintClauses(INamedTypeSymbol type)
+    {
+        return GetTypeConstraintClauses(EnumerateAllTypeParameters(type));
+    }
+
+    internal static string GetTypeConstraintClauses(IEnumerable<ITypeParameterSymbol> typeParameters)
+    {
+        var sb = new StringBuilder();
+        foreach (var tp in typeParameters)
+        {
+            var clause = GetTypeParameterConstraintClause(tp);
+            if (!string.IsNullOrEmpty(clause)) sb.Append(clause);
+        }
+
+        return sb.ToString();
+    }
+
+    internal static string GetTypeParameterConstraintClause(ITypeParameterSymbol typeParameter)
+    {
+        var parts = new List<string>();
+
+        if (typeParameter.HasNotNullConstraint)
+            parts.Add("notnull");
+
+        if (typeParameter.HasReferenceTypeConstraint)
+        {
+            var suffix = typeParameter.ReferenceTypeConstraintNullableAnnotation == NullableAnnotation.Annotated
+                ? "?"
+                : string.Empty;
+            parts.Add("class" + suffix);
+        }
+        else if (typeParameter.HasUnmanagedTypeConstraint)
+        {
+            parts.Add("unmanaged");
+        }
+        else if (typeParameter.HasValueTypeConstraint)
+        {
+            parts.Add("struct");
+        }
+
+        foreach (var constraint in typeParameter.ConstraintTypes)
+            parts.Add(constraint.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+
+        if (typeParameter.HasConstructorConstraint)
+            parts.Add("new()");
+
+        if (parts.Count == 0) return string.Empty;
+        return " where " + typeParameter.Name + " : " + string.Join(", ", parts);
     }
 
     internal static EqualityTypeSchema GetTypeSchema(INamedTypeSymbol type)
@@ -1097,24 +1172,27 @@ internal readonly record struct RootRequest(
 internal sealed class EqualityEmitter
 {
     private const string DeepCompareAttributeName = GenCommon.DeepCompareAttributeMetadataName;
+    private readonly HashSet<string> _emittedHelpers = new(StringComparer.Ordinal);
 
     public void EmitForRoot(SourceProductionContext spc, EqualityTarget root, string? hintOverride = null)
     {
-        var ns = root.Type.ContainingNamespace.IsGlobalNamespace
-            ? null
-            : root.Type.ContainingNamespace.ToDisplayString();
         var rootFqn = root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var helperClass = root.Type.Name + "DeepEqual";
-        var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + "_DeepEqual.g.cs");
+        var sanitizedId = GenCommon.SanitizeIdentifier(rootFqn);
+        var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + ".DeepOpsExtensions.Equality.g.cs");
 
         var reachable = GenCommon.BuildReachableTypeClosure(root);
         var trackCycles = root.CycleTrackingEnabled;
         var accessibility = root.IncludeInternals || root.Type.DeclaredAccessibility != Accessibility.Public
             ? "internal"
             : "public";
-        var typeParams = root.Type.Arity > 0
-            ? "<" + string.Join(",", root.Type.TypeArguments.Select(a => a.Name)) + ">"
-            : "";
+        var methodTypeParameters = GenCommon.GetTypeParameterList(root.Type);
+        var methodConstraints = GenCommon.GetTypeConstraintClauses(root.Type);
+        var nullSuffix = root.Type.IsReferenceType ? "?" : string.Empty;
+        var ensureMethodName = "__EnsureEquality__" + sanitizedId;
+        var guardFieldName = "__eqInit__" + sanitizedId;
+        var lockFieldName = "__eqLock__" + sanitizedId;
+        var moduleInitName = "__ModuleInit_Eq__" + sanitizedId;
+        var helperName = GenCommon.GetHelperMethodName(root.Type);
 
         var w = new CodeWriter();
         w.Line("// <auto-generated/>");
@@ -1125,12 +1203,21 @@ internal sealed class EqualityEmitter
         w.Line("using DeepEqual.Generator.Shared;");
         w.Line();
 
-        if (ns is not null) w.Open("namespace " + ns);
+        w.Open("namespace DeepEqual");
+        w.Open("public static partial class DeepOpsExtensions");
 
-        w.Open(accessibility + " static class " + helperClass + typeParams);
+        w.Line("private static int " + guardFieldName + ";");
+        w.Line("private static readonly object " + lockFieldName + " = new object();");
+        w.Line();
 
-
-        w.Open("static " + helperClass + "()");
+        w.Open("private static void " + ensureMethodName + "()");
+        w.Open("if (System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1)");
+        w.Line("return;");
+        w.Close();
+        w.Open("lock (" + lockFieldName + ")");
+        w.Open("if (System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1)");
+        w.Line("return;");
+        w.Close();
         foreach (var t in reachable.Where(t => GenCommon.IsTypeAccessibleFromRoot(t, root))
                      .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
         {
@@ -1139,14 +1226,25 @@ internal sealed class EqualityEmitter
             w.Line("GeneratedHelperRegistry.RegisterComparer<" + fqn + ">((l, r, c) => " + helper + "(l, r, c));");
         }
 
+        w.Line("System.Threading.Volatile.Write(ref " + guardFieldName + ", 1);");
+        w.Close();
         w.Close();
         w.Line();
 
-        if (root.Type.IsValueType)
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + " left, " + rootFqn + " right)");
-        else
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + "? left, " + rootFqn + "? right)");
+        w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
+        w.Open("internal static void " + moduleInitName + "()");
+        w.Line(ensureMethodName + "();");
+        w.Close();
+        w.Line();
 
+        var defaultContextExpr = trackCycles
+            ? "new DeepEqual.Generator.Shared.ComparisonContext()"
+            : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking";
+
+        var methodSignature = accessibility + " static bool AreDeepEqual" + methodTypeParameters +
+                              "(this " + rootFqn + nullSuffix + " left, " + rootFqn + nullSuffix +
+                              " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
+        w.Open(methodSignature);
         if (!root.Type.IsValueType)
         {
             w.Open("if (object.ReferenceEquals(left, right))");
@@ -1157,54 +1255,18 @@ internal sealed class EqualityEmitter
             w.Close();
         }
 
-        w.Line("var context = " +
-               (trackCycles
-                   ? "new DeepEqual.Generator.Shared.ComparisonContext()"
-                   : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking") + ";");
-        w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
+        w.Line(ensureMethodName + "();");
+        w.Line("var context = ctx ?? " + defaultContextExpr + ";");
+        w.Line("return " + helperName + "(left, right, context);");
         w.Close();
         w.Line();
 
-        if (root.Type.IsValueType)
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + " left, " + rootFqn +
-                   " right, DeepEqual.Generator.Shared.ComparisonOptions options)");
-        else
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + "? left, " + rootFqn +
-                   "? right, DeepEqual.Generator.Shared.ComparisonOptions options)");
-
-        if (!root.Type.IsValueType)
-        {
-            w.Open("if (object.ReferenceEquals(left, right))");
-            w.Line("return true;");
-            w.Close();
-            w.Open("if (left is null || right is null)");
-            w.Line("return false;");
-            w.Close();
-        }
-
+        var optionsSignature = accessibility + " static bool AreDeepEqual" + methodTypeParameters +
+                               "(this " + rootFqn + nullSuffix + " left, " + rootFqn + nullSuffix +
+                               " right, DeepEqual.Generator.Shared.ComparisonOptions options)" + methodConstraints;
+        w.Open(optionsSignature);
         w.Line("var context = new DeepEqual.Generator.Shared.ComparisonContext(options);");
-        w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
-        w.Close();
-        w.Line();
-
-        if (root.Type.IsValueType)
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + " left, " + rootFqn +
-                   " right, DeepEqual.Generator.Shared.ComparisonContext context)");
-        else
-            w.Open(accessibility + " static bool AreDeepEqual(" + rootFqn + "? left, " + rootFqn +
-                   "? right, DeepEqual.Generator.Shared.ComparisonContext context)");
-
-        if (!root.Type.IsValueType)
-        {
-            w.Open("if (object.ReferenceEquals(left, right))");
-            w.Line("return true;");
-            w.Close();
-            w.Open("if (left is null || right is null)");
-            w.Line("return false;");
-            w.Close();
-        }
-
-        w.Line("return " + GenCommon.GetHelperMethodName(root.Type) + "(left, right, context);");
+        w.Line("return AreDeepEqual(left, right, context);");
         w.Close();
         w.Line();
 
@@ -1213,7 +1275,11 @@ internal sealed class EqualityEmitter
 
         foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                      StringComparer.Ordinal))
+        {
+            var helperKey = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (!_emittedHelpers.Add(helperKey)) continue;
             EmitHelperForType(w, t, root, trackCycles, emittedComparers, comparerDeclarations, spc);
+        }
 
         if (comparerDeclarations.Count > 0)
             foreach (var block in comparerDeclarations)
@@ -1221,30 +1287,9 @@ internal sealed class EqualityEmitter
                     w.Line(line);
 
         w.Close();
-
-        string OpenGenericSuffix(int arity)
-        {
-            if (arity <= 0) return "";
-            if (arity == 1) return "<>";
-            return "<" + new string(',', arity - 1) + ">";
-        }
-
-        var openSuffix = OpenGenericSuffix(root.Type.Arity);
-        var initTypeName = "__" + GenCommon.SanitizeIdentifier(helperClass) + "_ModuleInit_" +
-                           Math.Abs(root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode());
-
-        w.Open("internal static class " + initTypeName);
-        w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
-        w.Open("internal static void Init()");
-        w.Line("System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(" + helperClass + openSuffix +
-               ").TypeHandle);");
-        w.Close();
         w.Close();
 
-        if (ns is not null) w.Close();
         var text = w.ToString();
-
-
         spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
     }
 
@@ -1253,8 +1298,11 @@ internal sealed class EqualityEmitter
     {
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var helper = GenCommon.GetHelperMethodName(type);
-        w.Open("private static bool " + helper + "(" + fqn + " left, " + fqn +
-               " right, DeepEqual.Generator.Shared.ComparisonContext context)");
+        var helperTypeParameters = GenCommon.EnumerateAllTypeParameters(type).ToArray();
+        var helperTypeParameterList = GenCommon.GetTypeParameterList(helperTypeParameters);
+        var helperConstraints = GenCommon.GetTypeConstraintClauses(helperTypeParameters);
+        w.Open("private static bool " + helper + helperTypeParameterList + "(" + fqn + " left, " + fqn +
+               " right, DeepEqual.Generator.Shared.ComparisonContext context)" + helperConstraints);
 
         if (!type.IsValueType)
         {
@@ -1567,7 +1615,7 @@ internal sealed class EqualityEmitter
                 "M_" + GenCommon.SanitizeIdentifier(owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)) +
                 "_" + equalityMember.Name, elemCustomVar);
 
-            // Keyed unordered (rank==1 only) — compare arrays by grouping on the key, no IReadOnlyList casts.
+            // Keyed unordered (rank==1 only) � compare arrays by grouping on the key, no IReadOnlyList casts.
             if (unordered && GenCommon.TryGetKeySpec(el, deepAttr, root, out var keyTypeFqn, out var keyExprFmt))
             {
                 // a[] / b[] strong-typed views
@@ -2084,6 +2132,7 @@ internal sealed class DiffDeltaEmitter
 
     private readonly Dictionary<INamedTypeSymbol, Dictionary<string, int>> _stableIndexTables =
         new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<string, (bool Diff, bool Delta)> _emittedDiffDelta = new(StringComparer.Ordinal);
 
 
     private bool _useStableIndices;
@@ -2092,18 +2141,14 @@ internal sealed class DiffDeltaEmitter
     {
         Diagnostics.DiagnosticPass(spc, root.Type);
 
-
         _useStableIndices = root.GenerateDelta &&
                             (root.StableMode == StableMemberIndexMode.On ||
                              root.StableMode == StableMemberIndexMode.Auto);
         _stableIndexTables.Clear();
-        var ns = root.Type.ContainingNamespace.IsGlobalNamespace
-            ? null
-            : root.Type.ContainingNamespace.ToDisplayString();
 
         var rootFqn = root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var helperClass = root.Type.Name + "DeepOps";
-        var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + "_DeepOps.g.cs");
+        var sanitizedId = GenCommon.SanitizeIdentifier(rootFqn);
+        var hintName = hintOverride ?? GenCommon.SanitizeFileName(rootFqn + ".DeepOpsExtensions.Diff.g.cs");
 
         var reachable = BuildReachableTypeClosure(root);
 
@@ -2116,64 +2161,60 @@ internal sealed class DiffDeltaEmitter
         w.Line("using DeepEqual.Generator.Shared;");
         w.Line();
 
-        if (ns is not null) w.Open("namespace " + ns);
+        w.Open("namespace DeepEqual");
+        w.Open("public static partial class DeepOpsExtensions");
 
-        var accessibility = root.IncludeInternals || root.Type.DeclaredAccessibility != Accessibility.Public
-            ? "internal"
-            : "public";
+        var ensureEqualityName = "__EnsureEquality__" + sanitizedId;
+        var ensureDiffName = "__EnsureDiffDelta__" + sanitizedId;
+        var guardFieldName = "__ddInit__" + sanitizedId;
+        var lockFieldName = "__ddLock__" + sanitizedId;
+        var moduleInitName = "__ModuleInit_Diff__" + sanitizedId;
 
-        var typeParams = root.Type.Arity > 0
-            ? "<" + string.Join(",", root.Type.TypeArguments.Select(a => a.Name)) + ">"
-            : "";
+        w.Line("private static int " + guardFieldName + ";");
+        w.Line("private static readonly object " + lockFieldName + " = new object();");
+        w.Line();
 
-        w.Open(accessibility + " static class " + helperClass + typeParams);
-
-        w.Open("static " + helperClass + "()");
+        w.Open("private static void " + ensureDiffName + "()");
+        w.Open("if (System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1)");
+        w.Line("return;");
+        w.Close();
+        w.Open("lock (" + lockFieldName + ")");
+        w.Open("if (System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1)");
+        w.Line("return;");
+        w.Close();
+        w.Line(ensureEqualityName + "();");
         foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                      StringComparer.Ordinal))
         {
             var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var id = GenCommon.SanitizeIdentifier(fqn);
             if (root.GenerateDiff)
-                w.Line("GeneratedHelperRegistry.RegisterDiff<" + fqn + ">((l, r, c) => TryGetDiff__" +
-                       GenCommon.SanitizeIdentifier(fqn) + "(l, r, c));");
+                w.Line("GeneratedHelperRegistry.RegisterDiff<" + fqn + ">((l, r, c) => TryGetDiff__" + id + "(l, r, c));");
             if (root.GenerateDelta)
-                w.Line("GeneratedHelperRegistry.RegisterDelta<" + fqn + ">(ComputeDelta__" +
-                       GenCommon.SanitizeIdentifier(fqn) + ", ApplyDelta__" + GenCommon.SanitizeIdentifier(fqn) + ");");
+                w.Line("GeneratedHelperRegistry.RegisterDelta<" + fqn + ">(ComputeDelta__" + id + ", ApplyDelta__" + id + ");");
         }
 
+        w.Line("System.Threading.Volatile.Write(ref " + guardFieldName + ", 1);");
+        w.Close();
         w.Close();
         w.Line();
 
-        EmitRootApis(w, root.Type, root.CycleTrackingEnabled, root.GenerateDiff, root.GenerateDelta);
+        w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
+        w.Open("internal static void " + moduleInitName + "()");
+        w.Line(ensureDiffName + "();");
+        w.Close();
+        w.Line();
+
+        EmitRootApis(w, root.Type, root.CycleTrackingEnabled, root.GenerateDiff, root.GenerateDelta, ensureDiffName);
 
         foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                      StringComparer.Ordinal)) EmitImplementationsForType(w, t, root);
 
         w.Close();
-
-        string OpenGenericSuffix(int arity)
-        {
-            if (arity <= 0) return "";
-
-            if (arity == 1) return "<>";
-
-            return "<" + new string(',', arity - 1) + ">";
-        }
-
-        var openSuffix = OpenGenericSuffix(root.Type.Arity);
-        var initTypeName = "__" + GenCommon.SanitizeIdentifier(helperClass) + "_ModuleInit_" +
-                           Math.Abs(root.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).GetHashCode());
-
-        w.Open("internal static class " + initTypeName);
-        w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
-        w.Open("internal static void Init()");
-        w.Line("System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(" + helperClass + openSuffix +
-               ").TypeHandle);");
         w.Close();
-        w.Close();
-        if (ns is not null) w.Close();
 
-        spc.AddSource(hintName, w.ToString());
+        var text = w.ToString();
+        spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
 
         if (HasDeltaTrack(root.Type)) EmitDeltaTrackPart(spc, root.Type, root);
     }
@@ -2183,90 +2224,49 @@ internal sealed class DiffDeltaEmitter
         INamedTypeSymbol rootType,
         bool cycleTrackingEnabled,
         bool generateDiff,
-        bool generateDelta)
+        bool generateDelta,
+        string ensureMethodName)
     {
         var fqn = rootType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var id = GenCommon.SanitizeIdentifier(fqn);
-        var nullSuffix = rootType.IsValueType ? "" : "?";
-
-        w.Open(
-            $"public static bool AreDeepEqual({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
-        if (!rootType.IsValueType)
-        {
-            w.Line("if (object.ReferenceEquals(left, right)) return true;");
-            w.Line("if (left is null || right is null) return false;");
-        }
+        var nullSuffix = rootType.IsValueType ? string.Empty : "?";
+        var methodTypeParameters = GenCommon.GetTypeParameterList(rootType);
+        var methodConstraints = GenCommon.GetTypeConstraintClauses(rootType);
+        var defaultContextExpr = "ctx ?? new DeepEqual.Generator.Shared.ComparisonContext()";
 
         if (generateDiff)
         {
-            if (cycleTrackingEnabled && !rootType.IsValueType)
-            {
-                w.Line("if (!context.Enter(left!, right!)) return true;");
-                w.Open("try");
-            }
-
-            w.Line($"var r = TryGetDiff__{id}(left, right, context);");
-            w.Line("return !r.hasDiff;");
-            if (cycleTrackingEnabled && !rootType.IsValueType)
-            {
-                w.Close();
-                w.Open("finally");
-                w.Line("context.Exit(left!, right!);");
-                w.Close();
-            }
-        }
-        else
-        {
-            if (cycleTrackingEnabled && !rootType.IsValueType)
-            {
-                w.Line("if (!context.Enter(left!, right!)) return true;");
-                w.Open("try");
-            }
-
-            w.Line("// Fallback: deep-compare via polymorphic helper");
-            w.Line("return DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic(left, right, context);");
-            if (cycleTrackingEnabled && !rootType.IsValueType)
-            {
-                w.Close();
-                w.Open("finally");
-                w.Line("context.Exit(left!, right!);");
-                w.Close();
-            }
-        }
-
-        w.Close();
-        w.Line();
-
-        if (generateDiff)
-        {
-            w.Open(
-                $"public static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) GetDiff({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
-            w.Line($"return TryGetDiff__{id}(left, right, context);");
+            var diffSignature = "public static (bool has, DeepEqual.Generator.Shared.Diff<" + fqn + "> diff) GetDeepDiff" +
+                                methodTypeParameters + "(this " + fqn + nullSuffix + " left, " + fqn + nullSuffix +
+                                " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
+            w.Open(diffSignature);
+            w.Line(ensureMethodName + "();");
+            w.Line("var context = " + defaultContextExpr + ";");
+            w.Line("return TryGetDiff__" + id + "(left, right, context);");
             w.Close();
             w.Line();
         }
 
         if (generateDelta)
         {
-            w.Line(
-                "/// <summary>Computes a delta (patch) from <paramref name=\"left\"/> to <paramref name=\"right\"/>.</summary>");
+            w.Line("/// <summary>Computes a delta (patch) from <paramref name=\"left\"/> to <paramref name=\"right\"/>.</summary>");
             w.Line("/// <remarks>");
             w.Line("/// Collections policy:");
             w.Line("/// <list type=\"bullet\">");
-            w.Line(
-                "/// <item><description><b>Arrays</b>: treated as replace-on-change. Any detected difference emits a single <c>SetMember</c> for that member.</description></item>");
-            w.Line(
-                "/// <item><description><b>IList&lt;T&gt;</b>: granular sequence ops (<c>SeqReplaceAt</c>/<c>SeqAddAt</c>/<c>SeqRemoveAt</c>) are emitted.</description></item>");
-            w.Line(
-                "/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
+            w.Line("/// <item><description><b>Arrays</b>: treated as replace-on-change. Any detected difference emits a single <c>SetMember</c> for that member.</description></item>");
+            w.Line("/// <item><description><b>IList&lt;T&gt;</b>: granular sequence ops (<c>SeqReplaceAt</c>/<c>SeqAddAt</c>/<c>SeqRemoveAt</c>) are emitted.</description></item>");
+            w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
             w.Line("/// </list>");
-            w.Line("/// This mirrors <see cref=\"ApplyDelta(ref " + fqn + nullSuffix +
-                   ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
-            w.Open(
-                $"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+            w.Line("/// This mirrors <see cref=\"ApplyDeepDelta(ref " + fqn + nullSuffix + ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
+            var computeSignature = "public static DeepEqual.Generator.Shared.DeltaDocument ComputeDeepDelta" +
+                                   methodTypeParameters + "(this " + fqn + nullSuffix + " left, " + fqn + nullSuffix +
+                                   " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
+            w.Open(computeSignature);
+            w.Line(ensureMethodName + "();");
+            w.Line("var context = " + defaultContextExpr + ";");
             w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
             w.Line("var writer = new DeepEqual.Generator.Shared.DeltaWriter(doc);");
-            w.Line($"ComputeDelta__{id}(left, right, context, ref writer);");
+            w.Line("ComputeDelta__" + id + "(left, right, context, ref writer);");
             w.Line("return doc;");
             w.Close();
             w.Line();
@@ -2275,46 +2275,54 @@ internal sealed class DiffDeltaEmitter
             w.Line("/// <remarks>");
             w.Line("/// Collections policy during application:");
             w.Line("/// <list type=\"bullet\">");
-            w.Line(
-                "/// <item><description><b>Arrays</b>: always replaced as a whole when a <c>SetMember</c> op is present. Sequence ops are ignored for arrays.</description></item>");
-            w.Line(
-                "/// <item><description><b>IList&lt;T&gt;</b>: sequence ops are applied in-place (replace/add/remove).</description></item>");
-            w.Line(
-                "/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: key ops are applied (set/remove) and nested deltas are applied when present.</description></item>");
+            w.Line("/// <item><description><b>Arrays</b>: always replaced as a whole when a <c>SetMember</c> op is present. Sequence ops are ignored for arrays.</description></item>");
+            w.Line("/// <item><description><b>IList&lt;T&gt;</b>: sequence ops are applied in-place (replace/add/remove).</description></item>");
+            w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: key ops are applied (set/remove) and nested deltas are applied when present.</description></item>");
             w.Line("/// </list>");
-            w.Line("/// This matches the generator’s policy in delta computation.</remarks>");
-            w.Open(
-                $"public static void ApplyDelta(ref {fqn}{nullSuffix} target, DeepEqual.Generator.Shared.DeltaDocument delta)");
-            w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
-            w.Line($"ApplyDelta__{id}(ref target, ref reader);");
-            w.Close();
-            w.Line();
-        }
+            w.Line("/// This matches the generator's policy in delta computation.</remarks>");
 
-        w.Open($"public static bool AreDeepEqual({fqn}{nullSuffix} left, {fqn}{nullSuffix} right)");
-        w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
-        w.Line("return AreDeepEqual(left, right, ctx);");
-        w.Close();
-        w.Line();
+            if (!rootType.IsValueType)
+            {
+                var applyReaderSignature = "public static " + fqn + nullSuffix + " ApplyDeepDelta" + methodTypeParameters +
+                                           "(this " + fqn + nullSuffix + " target, in DeepEqual.Generator.Shared.DeltaReader reader)" + methodConstraints;
+                w.Open(applyReaderSignature);
+                w.Line(ensureMethodName + "();");
+                w.Line("var localReader = reader;");
+                w.Line("ApplyDelta__" + id + "(ref target, ref localReader);");
+                w.Line("return target;");
+                w.Close();
+                w.Line();
 
-        if (generateDiff)
-        {
-            w.Open(
-                $"public static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) GetDiff({fqn}{nullSuffix} left, {fqn}{nullSuffix} right)");
-            w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
-            w.Line("return GetDiff(left, right, ctx);");
-            w.Close();
-            w.Line();
-        }
+                var applyDocSignature = "public static " + fqn + nullSuffix + " ApplyDeepDelta" + methodTypeParameters +
+                                        "(this " + fqn + nullSuffix + " target, DeepEqual.Generator.Shared.DeltaDocument delta)" + methodConstraints;
+                w.Open(applyDocSignature);
+                w.Line(ensureMethodName + "();");
+                w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
+                w.Line("ApplyDelta__" + id + "(ref target, ref reader);");
+                w.Line("return target;");
+                w.Close();
+                w.Line();
+            }
+            else
+            {
+                var applyReaderSignature = "public static void ApplyDeepDelta" + methodTypeParameters +
+                                           "(this ref " + fqn + " target, in DeepEqual.Generator.Shared.DeltaReader reader)" + methodConstraints;
+                w.Open(applyReaderSignature);
+                w.Line(ensureMethodName + "();");
+                w.Line("var localReader = reader;");
+                w.Line("ApplyDelta__" + id + "(ref target, ref localReader);");
+                w.Close();
+                w.Line();
 
-        if (generateDelta)
-        {
-            w.Open(
-                $"public static DeepEqual.Generator.Shared.DeltaDocument ComputeDelta({fqn}{nullSuffix} left, {fqn}{nullSuffix} right)");
-            w.Line("var ctx = new DeepEqual.Generator.Shared.ComparisonContext();");
-            w.Line("return ComputeDelta(left, right, ctx);");
-            w.Close();
-            w.Line();
+                var applyDocSignature = "public static void ApplyDeepDelta" + methodTypeParameters +
+                                        "(this ref " + fqn + " target, DeepEqual.Generator.Shared.DeltaDocument delta)" + methodConstraints;
+                w.Open(applyDocSignature);
+                w.Line(ensureMethodName + "();");
+                w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
+                w.Line("ApplyDelta__" + id + "(ref target, ref reader);");
+                w.Close();
+                w.Line();
+            }
         }
     }
 
@@ -2496,9 +2504,18 @@ internal sealed class DiffDeltaEmitter
     {
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var id = GenCommon.SanitizeIdentifier(fqn);
+        var key = fqn;
+        _emittedDiffDelta.TryGetValue(key, out var emittedState);
+        var needDiff = root.GenerateDiff && !emittedState.Diff;
+        var needDelta = root.GenerateDelta && !emittedState.Delta;
+        if (!needDiff && !needDelta) return;
+
         var nullSuffix = type.IsValueType ? "" : "?";
         var schema = GetTypeSchema(type);
         var deltaTracked = HasDeltaTrack(type);
+        var helperTypeParameters = GenCommon.EnumerateAllTypeParameters(type).ToArray();
+        var helperTypeParameterList = GenCommon.GetTypeParameterList(helperTypeParameters);
+        var helperConstraints = GenCommon.GetTypeConstraintClauses(helperTypeParameters);
 
         // Stable indices table (if needed for delta)
         if (_useStableIndices && !_stableIndexTables.ContainsKey(type))
@@ -2510,10 +2527,10 @@ internal sealed class DiffDeltaEmitter
         }
 
         // -------- DIFF: TryGetDiff__{id} --------
-        if (root.GenerateDiff)
+        if (needDiff)
         {
             w.Open(
-                $"private static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) TryGetDiff__{id}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context)");
+                $"private static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) TryGetDiff__{id}{helperTypeParameterList}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context){helperConstraints}");
 
             if (!type.IsValueType)
             {
@@ -2560,10 +2577,10 @@ internal sealed class DiffDeltaEmitter
         }
 
         // -------- DELTA: ComputeDelta__{id} --------
-        if (root.GenerateDelta)
+        if (needDelta)
         {
             w.Open(
-                $"private static void ComputeDelta__{id}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer)");
+                $"private static void ComputeDelta__{id}{helperTypeParameterList}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer){helperConstraints}");
 
             if (!type.IsValueType)
             {
@@ -2774,7 +2791,7 @@ internal sealed class DiffDeltaEmitter
         }
 
         // -------- DELTA: ApplyDelta__{id} --------
-        if (root.GenerateDelta)
+        if (needDelta)
         {
             // Local helpers (inside emitted method scope)
             void EmitInPlaceReplaceForGetOnlyCollection(string targetExpr, string elFqn, string kind)
@@ -2850,7 +2867,7 @@ internal sealed class DiffDeltaEmitter
             }
 
             w.Open(
-                $"private static void ApplyDelta__{id}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader)");
+                $"private static void ApplyDelta__{id}{helperTypeParameterList}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader){helperConstraints}");
             w.Line("var __ops = reader.AsSpan();");
             // Handle root-level ReplaceObject *before* any access to 'target'
             w.Open("for (int __ri = 0; __ri < __ops.Length; __ri++)");
@@ -3091,6 +3108,7 @@ internal sealed class DiffDeltaEmitter
             w.Close(); // ApplyDelta
             w.Line();
         }
+        _emittedDiffDelta[key] = (emittedState.Diff || needDiff, emittedState.Delta || needDelta);
     }
     // Emits the ApplyDelta cases for a property of type global::System.Dynamic.ExpandoObject
     private static void EmitApplyForExpando(CodeWriter w, string propAccess, bool clearDirty, int ordinal)
@@ -3194,7 +3212,7 @@ internal sealed class DiffDeltaEmitter
         }
 
         // Dictionary: allow structural ops only if settable or concrete Dictionary<,>, otherwise SetMember or nested-only
-        // ✅ Dictionaries → build DeltaDocument and emit CollectionOps
+        // ? Dictionaries ? build DeltaDocument and emit CollectionOps
         if (TryGetDictionaryTypes(member.Type, out var kType, out var vType))
         {
             var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -3242,7 +3260,7 @@ internal sealed class DiffDeltaEmitter
         }
 
 
-        // ✅ List-like (IList<T> / IReadOnlyList<T> / IEnumerable<T>) → CollectionOps
+        // ? List-like (IList<T> / IReadOnlyList<T> / IEnumerable<T>) ? CollectionOps
         if (TryGetEnumerableElement(member.Type, out var elemType) && member.Type is not IArrayTypeSymbol)
         {
             var elFqn = elemType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -3308,7 +3326,7 @@ internal sealed class DiffDeltaEmitter
             return;
         }
 
-        // Objects → try nested typed diff; only emit when non-empty
+        // Objects ? try nested typed diff; only emit when non-empty
         {
             var ltmp = $"__l_{idx}";
             var rtmp = $"__r_{idx}";
@@ -3450,7 +3468,7 @@ internal sealed class DiffDeltaEmitter
             // Expando / IDictionary<string, object?>
             if (isExpando || isStringObjectDict)
             {
-                w.Open("else"); // important — don't fall through after the null branch
+                w.Open("else"); // important � don't fall through after the null branch
                 w.Line($"var __ida = (System.Collections.Generic.IDictionary<string, object?>){la};");
                 w.Line($"var __idb = (System.Collections.Generic.IDictionary<string, object?>){lb};");
 
@@ -3471,7 +3489,7 @@ internal sealed class DiffDeltaEmitter
             }
             else
             {
-                // IReadOnlyDictionary<K,V> — we still emit granular key ops; Apply will clone/assign as needed
+                // IReadOnlyDictionary<K,V> � we still emit granular key ops; Apply will clone/assign as needed
                 w.Open($"else if ({la} is System.Collections.Generic.IReadOnlyDictionary<{kFqn}, {vFqn}> __roa && {lb} is System.Collections.Generic.IReadOnlyDictionary<{kFqn}, {vFqn}> __rob)");
                 w.Line("bool __eq = __roa.Count == __rob.Count;");
                 w.Open("if (__eq)");
@@ -3525,7 +3543,7 @@ internal sealed class DiffDeltaEmitter
             }
             if (orderInsensitive || keys.Length > 0)
             {
-                // Unordered/keyed: if equal → no op; else replace (safe)
+                // Unordered/keyed: if equal ? no op; else replace (safe)
                 w.Open($"if (!DeepEqual.Generator.Shared.ComparisonHelpers.DeepComparePolymorphic({left}, {right}, context))");
                 w.Line($"writer.WriteSetMember({idx}, {right});");
                 w.Close();
@@ -3918,31 +3936,31 @@ internal sealed class DiffDeltaEmitter
         {
             var cur = q.Dequeue();
 
-            // Arrays → element
+            // Arrays ? element
             if (cur is IArrayTypeSymbol at)
             {
                 Enq(at.ElementType);
                 continue;
             }
 
-            // Dict → key, value
+            // Dict ? key, value
             if (TryGetDictionaryTypes(cur, out var kT, out var vT))
             {
                 Enq(kT); Enq(vT);
                 continue;
             }
 
-            // IEnumerable<T> → T
+            // IEnumerable<T> ? T
             if (TryGetEnumerableElement(cur, out var elT))
                 Enq(elT);
 
-            // Memory<T> / ReadOnlyMemory<T> → T
+            // Memory<T> / ReadOnlyMemory<T> ? T
             if (GenCommon.TryGetReadOnlyMemory(cur, out var romT))
                 Enq(romT!);
             if (GenCommon.TryGetMemory(cur, out var memT))
                 Enq(memT!);
 
-            // If it's a concrete user object, accessible in the same assembly → include and traverse its members
+            // If it's a concrete user object, accessible in the same assembly ? include and traverse its members
             if (cur is INamedTypeSymbol user &&
                 GenCommon.IsUserObjectType(user) &&
                 IsTypeAccessibleFromRoot(user, root) &&
