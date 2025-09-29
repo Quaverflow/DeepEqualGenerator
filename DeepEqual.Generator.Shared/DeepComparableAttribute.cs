@@ -3,16 +3,6 @@
 namespace DeepEqual.Generator.Shared;
 
 /// <summary>
-///     Controls whether member indices used in deltas are stable across builds.
-/// </summary>
-public enum StableMemberIndexMode
-{
-    Auto = 0,
-    On = 1,
-    Off = 2
-}
-
-/// <summary>
 ///     Marks a class or struct as a root for generated deep comparison helpers and sets defaults for that type.
 /// </summary>
 /// <remarks>
@@ -63,48 +53,4 @@ public class DeepComparableAttribute : Attribute
     public StableMemberIndexMode StableMemberIndex { get; set; } = StableMemberIndexMode.Auto;
 
     public bool EmitSchemaSnapshot { get; set; } = false;
-}
-
-/// <summary>
-///     Assembly-scoped: acts like [DeepComparable] but targets a 3rd-party root type.
-/// </summary>
-[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
-public sealed class ExternalDeepComparableAttribute(Type root) : DeepComparableAttribute
-{
-    /// <summary>The external root type you're "adopting". Required.</summary>
-    public Type Root { get; } = root ?? throw new ArgumentNullException(nameof(root));
-}
-
-/// <summary>
-///     Assembly-scoped: acts like [DeepCompare] but applies to a member reached via Root + Path.
-/// </summary>
-[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
-public sealed class ExternalDeepCompareAttribute(Type root, string path) : DeepCompareAttribute
-{
-    /// <summary>The external root type where the path starts. Required.</summary>
-    public Type Root { get; } = root ?? throw new ArgumentNullException(nameof(root));
-
-    /// <summary>
-    ///     Member path, e.g. "Nested.MoreNested.Prop", or for dictionaries:
-    ///     "SomeDictionary&lt;Key&gt;.Id" / "SomeDictionary&lt;Value&gt;.Name".
-    /// </summary>
-    public string Path { get; } =
-        !string.IsNullOrWhiteSpace(path) ? path : throw new ArgumentNullException(nameof(path));
-}
-
-/// <summary>
-///     Opts a user type into generator-emitted dirty-bit tracking for member changes.
-/// </summary>
-/// <remarks>
-///     When applied, the source generator emits per-member bit offsets and internal methods
-///     on the annotated type so property setters can mark members dirty efficiently.
-/// </remarks>
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-public sealed class DeltaTrackAttribute : Attribute
-{
-    /// <summary>
-    ///     Enables interlocked operations for dirty-bit updates. When <c>false</c>, updates are not
-    ///     thread-safe but are faster. Default is <c>false</c>.
-    /// </summary>
-    public bool ThreadSafe { get; set; } = false;
 }
