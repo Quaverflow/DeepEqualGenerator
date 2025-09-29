@@ -165,6 +165,147 @@ public sealed class DirtyTrackTests
     }
 
     [Fact]
+    public void Initialization_SuppressesDirtyMarks()
+    {
+        var model = new DirtyTrackedModel();
+        model.Initialize(
+            a: 42,
+            name: "init",
+            numbers: new[] { 1, 2, 3 },
+            map: new Dictionary<string, int> { ["alpha"] = 1 },
+            child: new DirtyTrackedChild());
+
+        Assert.False(model.__HasAnyDirty());
+        Assert.False(model.__TryPopNextDirty(out _));
+    }
+
+    [Fact]
+    public void DirtyFlags_DeduplicateRepeatedMarks()
+    {
+        var baseline = MakeBaseline();
+        var right = baseline.Clone();
+        right.ForceDirtyA();
+        right.ForceDirtyA();
+
+        var bits = new List<int>();
+        while (right.__TryPopNextDirty(out var bit))
+            bits.Add(bit);
+
+        Assert.Equal(new[] { DirtyTrackedModel.__Bit_A }, bits);
+        Assert.False(right.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void DirtyFlags_PopInAscendingOrder()
+    {
+        var mutated = MakeBaseline().Clone();
+        mutated.ForceDirtyA();
+        mutated.Name = "order-check";
+        mutated.AddNumber(999);
+        mutated.MarkChildDirty();
+
+        var popped = new List<int>();
+        while (mutated.__TryPopNextDirty(out var bit))
+            popped.Add(bit);
+
+        var expected = new[]
+        {
+            DirtyTrackedModel.__Bit_A,
+            DirtyTrackedModel.__Bit_Name,
+            DirtyTrackedModel.__Bit_Numbers,
+            DirtyTrackedModel.__Bit_Child
+        }.OrderBy(x => x).ToArray();
+
+        Assert.Equal(expected, popped.ToArray());
+        Assert.False(mutated.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void DirtyTrack_MixedMutations_EmitsOnlyMutatedMembers()
+    {
+        var left = MakeBaseline();
+        var right = left.Clone();
+        right.A += 7;
+        right.Name = "mutated";
+        right.ReplaceNumber(0, 77);
+        right.AddNumber(500);
+        right.SetMap("gamma", 9);
+        right.RemoveMap("alpha");
+        right.Child.Score += 3;
+        right.MarkChildDirty();
+
+        var doc = Delta(left, right);
+        var rootOps = RootOps(doc);
+        var expectedMembers = new HashSet<int>
+        {
+            DirtyTrackedModel.__Bit_A,
+            DirtyTrackedModel.__Bit_Name,
+            DirtyTrackedModel.__Bit_Numbers,
+            DirtyTrackedModel.__Bit_Map,
+            DirtyTrackedModel.__Bit_Child
+        };
+
+        Assert.NotEmpty(rootOps);
+        Assert.All(rootOps, op => Assert.Contains(op.MemberIndex, expectedMembers));
+        foreach (var member in expectedMembers)
+            Assert.Contains(rootOps, op => op.MemberIndex == member);
+
+        Assert.False(right.__HasAnyDirty());
+        var applied = left.Clone().ApplyDeepDelta(doc)!;
+        Assert.True(applied.AreDeepEqual(right));
+    }
+
+    [Fact]
+    public void ValidateDirtyOnEmit_StillProducesDelta()
+    {
+        var left = MakeBaseline();
+        var right = left.Clone();
+        right.Name = "validated";
+        right.ReplaceNumber(1, 404);
+        right.Child.Score += 11;
+
+        var ctx = new ComparisonContext(new ComparisonOptions { ValidateDirtyOnEmit = true });
+        var doc = Delta(left, right, ctx);
+
+        var rootOps = RootOps(doc);
+        Assert.Contains(rootOps, op => op.MemberIndex == DirtyTrackedModel.__Bit_Name);
+
+        var seqOps = EnumerateDeep(doc)
+            .Where(op => op.MemberIndex == DirtyTrackedModel.__Bit_Numbers && op.Kind is DeltaKind.SeqReplaceAt)
+            .ToList();
+        Assert.NotEmpty(seqOps);
+
+        var nestedChild = EnumerateDeep(doc)
+            .FirstOrDefault(op => op.MemberIndex == DirtyTrackedChild.__Bit_Score && op.Kind == DeltaKind.SetMember);
+        Assert.NotNull(nestedChild);
+
+        Assert.False(right.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void DirtyBitArray_MultipleHighBits_PopAscendingAndClear()
+    {
+        var wide = new DirtyTrackedWide();
+        wide.__MarkDirty(DirtyTrackedWide.__Bit_F65);
+        wide.__MarkDirty(DirtyTrackedWide.__Bit_F68);
+        wide.SetHighField(456);
+
+        var bits = new List<int>();
+        while (wide.__TryPopNextDirty(out var bit))
+            bits.Add(bit);
+
+        var expected = new[]
+        {
+            DirtyTrackedWide.__Bit_F65,
+            DirtyTrackedWide.__Bit_F68,
+            DirtyTrackedWide.__Bit_F70
+        }.OrderBy(x => x).ToArray();
+
+        Assert.Equal(expected, bits.ToArray());
+        Assert.False(wide.__HasAnyDirty());
+    }
+
+    [Fact]
     public void DirtyBitArray_SupportsHighIndices()
     {
         var wide = new DirtyTrackedWide();
