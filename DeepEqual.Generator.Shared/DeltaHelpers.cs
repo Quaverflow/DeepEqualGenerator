@@ -31,10 +31,34 @@ public static class DeltaHelpers
                     return;
 
                 case DeltaKind.SeqAddAt:
-                    if (list.Count + 1 > list.Capacity)
-                        list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
-                    list.Insert(op.Index, (T)op.Value!);
+                {
+                    var idx = op.Index;
+                    var value = (T)op.Value!;
+
+                    if ((uint)idx <= (uint)list.Count)
+                    {
+                        if ((uint)idx < (uint)list.Count && EqualityComparer<T>.Default.Equals(list[idx], value))
+                            return;
+
+                        if (list.Count + 1 > list.Capacity)
+                            list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
+
+                        if (idx == list.Count)
+                        {
+                            list.Add(value);
+                        }
+                        else
+                        {
+                            list.Insert(idx, value);
+                        }
+                    }
+                    else
+                    {
+                        list.Add(value);
+                    }
+
                     return;
+                }
 
                 case DeltaKind.SeqRemoveAt:
                     list.RemoveAt(op.Index);
@@ -71,8 +95,24 @@ public static class DeltaHelpers
                     return;
 
                 case DeltaKind.SeqAddAt:
-                    ilist.Insert(op.Index, (T)op.Value!);
+                {
+                    var idx = op.Index;
+                    var value = (T)op.Value!;
+
+                    if ((uint)idx <= (uint)ilist.Count)
+                    {
+                        if ((uint)idx < (uint)ilist.Count && EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                            return;
+
+                        ilist.Insert(idx, value);
+                    }
+                    else
+                    {
+                        ilist.Insert(ilist.Count, value);
+                    }
+
                     return;
+                }
 
                 case DeltaKind.SeqRemoveAt:
                     ilist.RemoveAt(op.Index);

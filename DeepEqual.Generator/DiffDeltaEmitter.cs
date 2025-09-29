@@ -490,15 +490,22 @@ internal sealed class DiffDeltaEmitter
 
             if (deltaTracked && !type.IsValueType)
             {
-                // Dirty-track emission (unchanged from your version; shortened comment)
+                // Dirty-track emission:
+                // - Validated mode: drain bits so the right object is no longer "dirty", but DO NOT emit via fast loop.
+                // - Fast mode: run the existing dirty-bit loop + catch-up exactly as before.
+                // - After that: if validated OR there were no dirty bits, run per-member comparisons (EmitMemberDelta).
+
                 w.Line("var __validate = context.Options.ValidateDirtyOnEmit;");
                 w.Line("var __r = right;");
                 w.Line("var __hasDirty = __r is not null && __r.__HasAnyDirty();");
-                w.Open("if (__hasDirty)");
-                w.Open("if (__validate)");
-                w.Line("while (__r.__TryPopNextDirty(out _)) { }");
+
+                // VALIDATED MODE: clear flags, do not emit from fast loop
+                w.Open("if (__hasDirty && __validate)");
+                w.Line("while (__r.__TryPopNextDirty(out _)) { }"); // drain
                 w.Close();
-                w.Open("else");
+
+                // FAST MODE: original dirty-bit loop + catch-up
+                w.Open("if (__hasDirty && !__validate)");
                 foreach (var m in ordered)
                 {
                     var idx = GetStableMemberIndex(type, m);
@@ -513,7 +520,7 @@ internal sealed class DiffDeltaEmitter
                     var leftExpr = "left." + mem.Name;
                     var rightExpr = "right." + mem.Name;
 
-                    // In your original code, unordered/keyed lists were forced to Set; keep same behavior here
+                    // Unordered/keyed lists forced to Set
                     var (kind, orderInsensitive, keys, dShallow, dSkip) = ResolveEffectiveSettings(mem);
                     if (!dSkip && (orderInsensitive || keys.Length > 0))
                     {
@@ -633,7 +640,7 @@ internal sealed class DiffDeltaEmitter
                 w.Close(); // switch
                 w.Close(); // while
 
-                // Post-loop catch-up for unordered/keyed lists (unchanged policy)
+                // Post-loop catch-up for unordered/keyed lists
                 foreach (var mem in ordered)
                 {
                     if (TryGetEnumerableElement(mem.Type, out _) && TryGetListInterface(mem.Type, out _))
@@ -649,18 +656,19 @@ internal sealed class DiffDeltaEmitter
                         }
                     }
                 }
-                w.Close(); // if tracked
-                w.Close();
+                w.Close(); // if (__hasDirty && !__validate)
+
+                // Validated mode OR no-dirty: per-member comparison (suppresses reverts)
                 w.Open("if (!__hasDirty || __validate)");
                 foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
                 w.Close();
-
             }
             else
             {
-                // No dirty-track: just emit member delta for each
+                // No dirty-track: per-member compare only
                 foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
             }
+
 
             if (!type.IsValueType && root.CycleTrackingEnabled)
             {
