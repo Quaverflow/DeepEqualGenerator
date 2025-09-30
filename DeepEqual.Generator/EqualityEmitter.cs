@@ -41,77 +41,81 @@ internal sealed class EqualityEmitter
         w.Line("using DeepEqual.Generator.Shared;");
         w.Line();
 
-        w.Open("namespace DeepEqual");
-        w.Open("public static partial class DeepOpsExtensions");
-
-        EmitterCommon.EmitEnsureOnce(
-            w,
-            ensureMethodName,
-            guardFieldName,
-            lockFieldName,
-            writer =>
+        w.Open("namespace DeepEqual", () =>
+        {
+            w.Open("public static partial class DeepOpsExtensions", () =>
             {
-                foreach (var t in reachable.Where(t => GenCommon.IsTypeAccessibleFromRoot(t, root))
-                             .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+                EmitterCommon.EmitEnsureOnce(
+                    w,
+                    ensureMethodName,
+                    guardFieldName,
+                    lockFieldName,
+                    writer =>
+                    {
+                        foreach (var t in reachable.Where(t => GenCommon.IsTypeAccessibleFromRoot(t, root))
+                                     .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+                        {
+                            var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                            var helper = GenCommon.GetHelperMethodName(t);
+                            writer.Line("GeneratedHelperRegistry.RegisterComparer<" + fqn + ">((l, r, c) => " + helper + "(l, r, c));");
+                        }
+                    });
+                EmitterCommon.EmitModuleInitializer(w, moduleInitName, ensureMethodName);
+
+                var defaultContextExpr = trackCycles
+                    ? "new DeepEqual.Generator.Shared.ComparisonContext()"
+                    : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking";
+
+                var methodSignature = accessibility + " static bool AreDeepEqual" + methodTypeParameters +
+                                      "(this " + rootFqn + nullSuffix + " left, " + rootFqn + nullSuffix +
+                                      " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
+
+                w.Open(methodSignature, () =>
                 {
-                    var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var helper = GenCommon.GetHelperMethodName(t);
-                    writer.Line("GeneratedHelperRegistry.RegisterComparer<" + fqn + ">((l, r, c) => " + helper + "(l, r, c));");
+                    if (!root.Type.IsValueType)
+                    {
+                        w.Open("if (object.ReferenceEquals(left, right))");
+                        w.Line("return true;");
+                        w.Close();
+                        w.Open("if (left is null || right is null)");
+                        w.Line("return false;");
+                        w.Close();
+                    }
+
+                    w.Line(ensureMethodName + "();");
+                    w.Line("var context = ctx ?? " + defaultContextExpr + ";");
+                    w.Line("return " + helperName + "(left, right, context);");
+                });
+                w.Line();
+
+                var optionsSignature = accessibility + " static bool AreDeepEqual" + methodTypeParameters +
+                                       "(this " + rootFqn + nullSuffix + " left, " + rootFqn + nullSuffix +
+                                       " right, DeepEqual.Generator.Shared.ComparisonOptions options)" + methodConstraints;
+
+                w.Open(optionsSignature, () =>
+                {
+                    w.Line("var context = new DeepEqual.Generator.Shared.ComparisonContext(options);");
+                    w.Line("return AreDeepEqual(left, right, context);");
+                });
+                w.Line();
+
+                var emittedComparers = new HashSet<string>(StringComparer.Ordinal);
+                var comparerDeclarations = new List<string[]>();
+
+                foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                             StringComparer.Ordinal))
+                {
+                    var helperKey = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    if (!_emittedHelpers.Add(helperKey)) continue;
+                    EmitHelperForType(w, t, root, trackCycles, emittedComparers, comparerDeclarations, spc);
                 }
+
+                if (comparerDeclarations.Count > 0)
+                    foreach (var block in comparerDeclarations)
+                        foreach (var line in block)
+                            w.Line(line);
             });
-        EmitterCommon.EmitModuleInitializer(w, moduleInitName, ensureMethodName);
-
-        var defaultContextExpr = trackCycles
-            ? "new DeepEqual.Generator.Shared.ComparisonContext()"
-            : "DeepEqual.Generator.Shared.ComparisonContext.NoTracking";
-
-        var methodSignature = accessibility + " static bool AreDeepEqual" + methodTypeParameters +
-                              "(this " + rootFqn + nullSuffix + " left, " + rootFqn + nullSuffix +
-                              " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
-        w.Open(methodSignature);
-        if (!root.Type.IsValueType)
-        {
-            w.Open("if (object.ReferenceEquals(left, right))");
-            w.Line("return true;");
-            w.Close();
-            w.Open("if (left is null || right is null)");
-            w.Line("return false;");
-            w.Close();
-        }
-
-        w.Line(ensureMethodName + "();");
-        w.Line("var context = ctx ?? " + defaultContextExpr + ";");
-        w.Line("return " + helperName + "(left, right, context);");
-        w.Close();
-        w.Line();
-
-        var optionsSignature = accessibility + " static bool AreDeepEqual" + methodTypeParameters +
-                               "(this " + rootFqn + nullSuffix + " left, " + rootFqn + nullSuffix +
-                               " right, DeepEqual.Generator.Shared.ComparisonOptions options)" + methodConstraints;
-        w.Open(optionsSignature);
-        w.Line("var context = new DeepEqual.Generator.Shared.ComparisonContext(options);");
-        w.Line("return AreDeepEqual(left, right, context);");
-        w.Close();
-        w.Line();
-
-        var emittedComparers = new HashSet<string>(StringComparer.Ordinal);
-        var comparerDeclarations = new List<string[]>();
-
-        foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                     StringComparer.Ordinal))
-        {
-            var helperKey = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (!_emittedHelpers.Add(helperKey)) continue;
-            EmitHelperForType(w, t, root, trackCycles, emittedComparers, comparerDeclarations, spc);
-        }
-
-        if (comparerDeclarations.Count > 0)
-            foreach (var block in comparerDeclarations)
-            foreach (var line in block)
-                w.Line(line);
-
-        w.Close();
-        w.Close();
+        });
 
         var text = w.ToString();
         spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
@@ -867,7 +871,6 @@ internal sealed class EqualityEmitter
             w.Close();
             return;
         }
-
 
         w.Open("if (!object.Equals(" + leftExpr + ".Value, " + rightExpr + ".Value))");
         w.Line("return false;");

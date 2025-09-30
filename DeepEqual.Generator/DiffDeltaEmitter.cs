@@ -15,7 +15,6 @@ internal sealed class DiffDeltaEmitter
         new(SymbolEqualityComparer.Default);
     private readonly Dictionary<string, (bool Diff, bool Delta)> _emittedDiffDelta = new(StringComparer.Ordinal);
 
-
     private bool _useStableIndices;
 
     public void EmitForRoot(SourceProductionContext spc, DiffDeltaTarget root, string? hintOverride = null)
@@ -42,47 +41,53 @@ internal sealed class DiffDeltaEmitter
         w.Line("using DeepEqual.Generator.Shared;");
         w.Line();
 
-        w.Open("namespace DeepEqual");
-        w.Open("public static partial class DeepOpsExtensions");
-
-        var ensureEqualityName = "__EnsureEquality__" + sanitizedId;
-        var ensureDiffName = "__EnsureDiffDelta__" + sanitizedId;
-        var guardFieldName = "__ddInit__" + sanitizedId;
-        var lockFieldName = "__ddLock__" + sanitizedId;
-        var moduleInitName = "__ModuleInit_Diff__" + sanitizedId;
-
-        EmitterCommon.EmitEnsureOnce(
-            w,
-            ensureDiffName,
-            guardFieldName,
-            lockFieldName,
-            writer =>
+        // namespace + class wrapped with lambda Open so braces are guaranteed correct
+        w.Open("namespace DeepEqual", () =>
+        {
+            w.Open("public static partial class DeepOpsExtensions", () =>
             {
-                foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+                var ensureEqualityName = "__EnsureEquality__" + sanitizedId;
+                var ensureDiffName = "__EnsureDiffDelta__" + sanitizedId;
+                var guardFieldName = "__ddInit__" + sanitizedId;
+                var lockFieldName = "__ddLock__" + sanitizedId;
+                var moduleInitName = "__ModuleInit_Diff__" + sanitizedId;
+
+                EmitterCommon.EmitEnsureOnce(
+                    w,
+                    ensureDiffName,
+                    guardFieldName,
+                    lockFieldName,
+                    writer =>
+                    {
+                        foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal))
+                        {
+                            var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                            var id = GenCommon.SanitizeIdentifier(fqn);
+                            if (root.GenerateDiff)
+                                writer.Line("GeneratedHelperRegistry.RegisterDiff<" + fqn + ">((l, r, c) => TryGetDiff__" + id + "(l, r, c));");
+                            if (root.GenerateDelta)
+                                writer.Line("GeneratedHelperRegistry.RegisterDelta<" + fqn + ">(ComputeDelta__" + id + ", ApplyDelta__" + id + ");");
+                        }
+                    },
+                    ensureEqualityName + "();");
+
+                EmitterCommon.EmitModuleInitializer(w, moduleInitName, ensureDiffName);
+
+                EmitRootApis(w, root.Type, root.CycleTrackingEnabled, root.GenerateDiff, root.GenerateDelta, ensureDiffName);
+
+                foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                         StringComparer.Ordinal))
                 {
-                    var fqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var id = GenCommon.SanitizeIdentifier(fqn);
-                    if (root.GenerateDiff)
-                        writer.Line("GeneratedHelperRegistry.RegisterDiff<" + fqn + ">((l, r, c) => TryGetDiff__" + id + "(l, r, c));");
-                    if (root.GenerateDelta)
-                        writer.Line("GeneratedHelperRegistry.RegisterDelta<" + fqn + ">(ComputeDelta__" + id + ", ApplyDelta__" + id + ");");
+                    EmitImplementationsForType(w, t, root);
                 }
-            },
-            ensureEqualityName + "();");
-        EmitterCommon.EmitModuleInitializer(w, moduleInitName, ensureDiffName);
-
-        EmitRootApis(w, root.Type, root.CycleTrackingEnabled, root.GenerateDiff, root.GenerateDelta, ensureDiffName);
-
-        foreach (var t in reachable.OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                     StringComparer.Ordinal)) EmitImplementationsForType(w, t, root);
-
-        w.Close();
-        w.Close();
+            });
+        });
 
         var text = w.ToString();
         spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
 
-        if (HasDeltaTrack(root.Type)) EmitDeltaTrackPart(spc, root.Type, root);
+        if (HasDeltaTrack(root.Type))
+            EmitDeltaTrackPart(spc, root.Type, root);
     }
 
     private static void EmitRootApis(
@@ -102,14 +107,17 @@ internal sealed class DiffDeltaEmitter
 
         if (generateDiff)
         {
-            var diffSignature = "public static (bool has, DeepEqual.Generator.Shared.Diff<" + fqn + "> diff) GetDeepDiff" +
-                                methodTypeParameters + "(this " + fqn + nullSuffix + " left, " + fqn + nullSuffix +
-                                " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
-            w.Open(diffSignature);
-            w.Line(ensureMethodName + "();");
-            w.Line("var context = " + defaultContextExpr + ";");
-            w.Line("return TryGetDiff__" + id + "(left, right, context);");
-            w.Close();
+            var diffSignature =
+                "public static (bool has, DeepEqual.Generator.Shared.Diff<" + fqn + "> diff) GetDeepDiff" +
+                methodTypeParameters + "(this " + fqn + nullSuffix + " left, " + fqn + nullSuffix +
+                " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
+
+            w.Open(diffSignature, () =>
+            {
+                w.Line(ensureMethodName + "();");
+                w.Line("var context = " + defaultContextExpr + ";");
+                w.Line("return TryGetDiff__" + id + "(left, right, context);");
+            });
             w.Line();
         }
 
@@ -124,17 +132,21 @@ internal sealed class DiffDeltaEmitter
             w.Line("/// <item><description><b>IDictionary</b>/<b>IReadOnlyDictionary</b>: granular key ops (<c>DictSet</c>/<c>DictRemove</c>/<c>DictNested</c>) are emitted.</description></item>");
             w.Line("/// </list>");
             w.Line("/// This mirrors <see cref=\"ApplyDeepDelta(ref " + fqn + nullSuffix + ", DeepEqual.Generator.Shared.DeltaDocument)\"/> behavior, where arrays are not patched item-by-item.</remarks>");
-            var computeSignature = "public static DeepEqual.Generator.Shared.DeltaDocument ComputeDeepDelta" +
-                                   methodTypeParameters + "(this " + fqn + nullSuffix + " left, " + fqn + nullSuffix +
-                                   " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
-            w.Open(computeSignature);
-            w.Line(ensureMethodName + "();");
-            w.Line("var context = " + defaultContextExpr + ";");
-            w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
-            w.Line("var writer = new DeepEqual.Generator.Shared.DeltaWriter(doc);");
-            w.Line("ComputeDelta__" + id + "(left, right, context, ref writer);");
-            w.Line("return doc;");
-            w.Close();
+
+            var computeSignature =
+                "public static DeepEqual.Generator.Shared.DeltaDocument ComputeDeepDelta" +
+                methodTypeParameters + "(this " + fqn + nullSuffix + " left, " + fqn + nullSuffix +
+                " right, DeepEqual.Generator.Shared.ComparisonContext? ctx = null)" + methodConstraints;
+
+            w.Open(computeSignature, () =>
+            {
+                w.Line(ensureMethodName + "();");
+                w.Line("var context = " + defaultContextExpr + ";");
+                w.Line("var doc = new DeepEqual.Generator.Shared.DeltaDocument();");
+                w.Line("var writer = new DeepEqual.Generator.Shared.DeltaWriter(doc);");
+                w.Line("ComputeDelta__" + id + "(left, right, context, ref writer);");
+                w.Line("return doc;");
+            });
             w.Line();
 
             w.Line("/// <summary>Applies a previously computed delta to <paramref name=\"target\"/>.</summary>");
@@ -149,44 +161,56 @@ internal sealed class DiffDeltaEmitter
 
             if (!rootType.IsValueType)
             {
-                var applyReaderSignature = "public static " + fqn + nullSuffix + " ApplyDeepDelta" + methodTypeParameters +
-                                           "(this " + fqn + nullSuffix + " target, in DeepEqual.Generator.Shared.DeltaReader reader)" + methodConstraints;
-                w.Open(applyReaderSignature);
-                w.Line(ensureMethodName + "();");
-                w.Line("var localReader = reader;");
-                w.Line("ApplyDelta__" + id + "(ref target, ref localReader);");
-                w.Line("return target;");
-                w.Close();
+                var applyReaderSignature =
+                    "public static " + fqn + nullSuffix + " ApplyDeepDelta" + methodTypeParameters +
+                    "(this " + fqn + nullSuffix + " target, in DeepEqual.Generator.Shared.DeltaReader reader)" + methodConstraints;
+
+                w.Open(applyReaderSignature, () =>
+                {
+                    w.Line(ensureMethodName + "();");
+                    w.Line("var localReader = reader;");
+                    w.Line("ApplyDelta__" + id + "(ref target, ref localReader);");
+                    w.Line("return target;");
+                });
                 w.Line();
 
-                var applyDocSignature = "public static " + fqn + nullSuffix + " ApplyDeepDelta" + methodTypeParameters +
-                                        "(this " + fqn + nullSuffix + " target, DeepEqual.Generator.Shared.DeltaDocument delta)" + methodConstraints;
-                w.Open(applyDocSignature);
-                w.Line(ensureMethodName + "();");
-                w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
-                w.Line("ApplyDelta__" + id + "(ref target, ref reader);");
-                w.Line("return target;");
-                w.Close();
+                var applyDocSignature =
+                    "public static " + fqn + nullSuffix + " ApplyDeepDelta" + methodTypeParameters +
+                    "(this " + fqn + nullSuffix + " target, DeepEqual.Generator.Shared.DeltaDocument delta)" + methodConstraints;
+
+                w.Open(applyDocSignature, () =>
+                {
+                    w.Line(ensureMethodName + "();");
+                    w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
+                    w.Line("ApplyDelta__" + id + "(ref target, ref reader);");
+                    w.Line("return target;");
+                });
                 w.Line();
             }
             else
             {
-                var applyReaderSignature = "public static void ApplyDeepDelta" + methodTypeParameters +
-                                           "(this ref " + fqn + " target, in DeepEqual.Generator.Shared.DeltaReader reader)" + methodConstraints;
-                w.Open(applyReaderSignature);
-                w.Line(ensureMethodName + "();");
-                w.Line("var localReader = reader;");
-                w.Line("ApplyDelta__" + id + "(ref target, ref localReader);");
-                w.Close();
+                var applyReaderSignature =
+                    "public static void ApplyDeepDelta" + methodTypeParameters +
+                    "(this ref " + fqn + " target, in DeepEqual.Generator.Shared.DeltaReader reader)" + methodConstraints;
+
+                w.Open(applyReaderSignature, () =>
+                {
+                    w.Line(ensureMethodName + "();");
+                    w.Line("var localReader = reader;");
+                    w.Line("ApplyDelta__" + id + "(ref target, ref localReader);");
+                });
                 w.Line();
 
-                var applyDocSignature = "public static void ApplyDeepDelta" + methodTypeParameters +
-                                        "(this ref " + fqn + " target, DeepEqual.Generator.Shared.DeltaDocument delta)" + methodConstraints;
-                w.Open(applyDocSignature);
-                w.Line(ensureMethodName + "();");
-                w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
-                w.Line("ApplyDelta__" + id + "(ref target, ref reader);");
-                w.Close();
+                var applyDocSignature =
+                    "public static void ApplyDeepDelta" + methodTypeParameters +
+                    "(this ref " + fqn + " target, DeepEqual.Generator.Shared.DeltaDocument delta)" + methodConstraints;
+
+                w.Open(applyDocSignature, () =>
+                {
+                    w.Line(ensureMethodName + "();");
+                    w.Line("var reader = new DeepEqual.Generator.Shared.DeltaReader(delta);");
+                    w.Line("ApplyDelta__" + id + "(ref target, ref reader);");
+                });
                 w.Line();
             }
         }
@@ -199,6 +223,7 @@ internal sealed class DiffDeltaEmitter
 
     private void EmitDeltaTrackPart(SourceProductionContext spc, INamedTypeSymbol type, DiffDeltaTarget root)
     {
+        // (kept logic identical; we can migrate inner regions later if you want)
         var ns = type.ContainingNamespace.IsGlobalNamespace ? null : type.ContainingNamespace.ToDisplayString();
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var typeParams = type.Arity > 0 ? "<" + string.Join(",", type.TypeArguments.Select(a => a.Name)) + ">" : "";
@@ -229,6 +254,10 @@ internal sealed class DiffDeltaEmitter
 
         var decl = type.DeclaredAccessibility == Accessibility.Public ? "public" : "internal";
         w.Open(decl + " partial class " + type.Name + typeParams);
+
+        // ... (unchanged writer usage below)
+        // Keeping existing Open/Close pairs here for now (they are correctly paired).
+        // If you want, I can do a second pass to convert these to lambda forms as well.
 
         w.Line("private long __dirty0;");
         w.Line("private long[]? __dirtyEx;");
@@ -365,19 +394,6 @@ internal sealed class DiffDeltaEmitter
         if (ns is not null) w.Close();
 
         spc.AddSource(hint, w.ToString());
-    }
-
-    private static bool HasDeltaTrack(INamedTypeSymbol type)
-    {
-        const string deltaTrackAttr = "DeepEqual.Generator.Shared.DeltaTrackAttribute";
-        foreach (var a in type.GetAttributes())
-        {
-            var n1 = a.AttributeClass?.ToDisplayString();
-            var n2 = a.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (n1 == deltaTrackAttr || n2 == deltaTrackAttr) return true;
-        }
-
-        return false;
     }
     private void EmitImplementationsForType(CodeWriter w, INamedTypeSymbol type, DiffDeltaTarget root)
     {
@@ -857,7 +873,7 @@ internal sealed class DiffDeltaEmitter
 
                 w.Open($"case {memberIdx}:");
                 w.Open("switch (op.Kind)");
-             
+
                 if (IsExpando(member.Type)) // you already have IsExpando(ITypeSymbol) in this file
                 {
                     // emit only the expando cases, then close and continue
@@ -1501,6 +1517,17 @@ internal sealed class DiffDeltaEmitter
         }
     }
 
+    private static bool HasDeltaTrack(INamedTypeSymbol type)
+    {
+        const string deltaTrackAttr = "DeepEqual.Generator.Shared.DeltaTrackAttribute";
+        foreach (var a in type.GetAttributes())
+        {
+            var n1 = a.AttributeClass?.ToDisplayString();
+            var n2 = a.AttributeClass?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (n1 == deltaTrackAttr || n2 == deltaTrackAttr) return true;
+        }
+        return false;
+    }
 
     private static AttributeData? GetDeepCompareAttribute(ISymbol symbol)
     {
@@ -1802,7 +1829,6 @@ internal sealed class DiffDeltaEmitter
         return sb.ToString();
     }
 
-
     // In DiffDeltaEmitter (or the class that builds the set of types to generate)
     private static HashSet<INamedTypeSymbol> BuildReachableTypeClosure(DiffDeltaTarget root)
     {
@@ -1936,6 +1962,4 @@ internal sealed class DiffDeltaEmitter
                 }
         }
     }
-
-
 }
