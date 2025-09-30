@@ -516,10 +516,33 @@ internal sealed class DiffDeltaEmitter
                 w.Line("var __hasDirty = __r is not null && __r.__HasAnyDirty();");
 
                 // VALIDATED MODE: clear flags, do not emit from fast loop
-                w.Open("if (__hasDirty && __validate)");
-                w.Line("while (__r.__TryPopNextDirty(out _)) { }"); // drain
-                w.Close();
+                w.Open("if (__hasDirty && __validate)", () =>
+                {
+                    w.Line("while (__r.__TryPopNextDirty(out _)) { }");
+                });
+                w.Open("if (__validate && right is not null)", () =>
+                {
+                    // For each reference-type member that itself is [DeltaTrack], flush its queue
+                    foreach (var m in ordered)
+                    {
+                        // Only reference-like, non-array, non-list, non-dictionary members
+                        bool isPlainRef =
+                            m.Type.IsReferenceType &&
+                            m.Type.SpecialType != SpecialType.System_String &&
+                            !(m.Type is IArrayTypeSymbol) &&
+                            !TryGetListInterface(m.Type, out _) &&
+                            !TryGetDictionaryTypes(m.Type, out _, out _);
 
+                        if (isPlainRef && m.Type is INamedTypeSymbol nt && HasDeltaTrack(nt))
+                        {
+                            var rightExpr = "right." + m.Name;
+                            w.Open($"if ({rightExpr} is not null && {rightExpr}.__HasAnyDirty())", () =>
+                            {
+                                w.Line($"while ({rightExpr}.__TryPopNextDirty(out _)) {{ }}");
+                            });
+                        }
+                    }
+                });
                 // FAST MODE: original dirty-bit loop + catch-up
                 w.Open("if (__hasDirty && !__validate)");
                 foreach (var m in ordered)
@@ -1506,9 +1529,23 @@ internal sealed class DiffDeltaEmitter
                         w.Line("var __had = !__w.Document.IsEmpty;");
                         w.Line("__scope.Dispose();");
                         w.Open("if (!__had)");
-                        w.Line($"writer.WriteSetMember({idx}, {right});");
+                        {
+                            // Only emit this flush if the member's DECLARED type is DeltaTrack
+                            if (member.Type is INamedTypeSymbol nt && HasDeltaTrack(nt))
+                            {
+                                w.Open($"if (context.Options.ValidateDirtyOnEmit && {right} is not null && {right}.__HasAnyDirty())");
+                                {
+                                    w.Line($"while ({right}.__TryPopNextDirty(out _)) {{ }}");
+                                }
+                                w.Close();
+                            }
+
+                            w.Line($"writer.WriteSetMember({idx}, {right});");
+                        }
                         w.Close();
+
                     }
+
                     w.Close();
                 }
                 w.Close();

@@ -10,9 +10,6 @@ namespace DeepEqual.Generator.Shared;
 /// <summary>
 ///     Delta helper algorithms used by the generated code.
 /// </summary>
-/// <summary>
-///     Delta helper algorithms used by the generated code.
-/// </summary>
 public static class DeltaHelpers
 {
     // ------------------------------------------------------------
@@ -27,60 +24,67 @@ public static class DeltaHelpers
             switch (op.Kind)
             {
                 case DeltaKind.SeqReplaceAt:
-                    list[op.Index] = (T)op.Value!;
-                    return;
+                    {
+                        if ((uint)op.Index < (uint)list.Count)
+                            list[op.Index] = (T)op.Value!;
+                        return;
+                    }
 
                 case DeltaKind.SeqAddAt:
-                {
-                    var idx = op.Index;
-                    var value = (T)op.Value!;
-
-                    if ((uint)idx <= (uint)list.Count)
                     {
-                        if ((uint)idx < (uint)list.Count && EqualityComparer<T>.Default.Equals(list[idx], value))
-                            return;
+                        var idx = op.Index;
+                        var value = (T)op.Value!;
 
-                        if (list.Count + 1 > list.Capacity)
-                            list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
-
-                        if (idx == list.Count)
+                        if ((uint)idx <= (uint)list.Count)
                         {
-                            list.Add(value);
+                            if ((uint)idx < (uint)list.Count && EqualityComparer<T>.Default.Equals(list[idx], value))
+                                return;
+
+                            if (list.Count + 1 > list.Capacity)
+                                list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
+
+                            if (idx == list.Count)
+                            {
+                                list.Add(value);
+                            }
+                            else
+                            {
+                                list.Insert(idx, value);
+                            }
                         }
                         else
                         {
-                            list.Insert(idx, value);
+                            // out-of-range adds are clamped to end (ignore index)
+                            list.Add(value);
                         }
-                    }
-                    else
-                    {
-                        list.Add(value);
-                    }
 
-                    return;
-                }
+                        return;
+                    }
 
                 case DeltaKind.SeqRemoveAt:
-                    list.RemoveAt(op.Index);
-                    return;
-
-                case DeltaKind.SeqNestedAt:
-                {
-                    var idx = op.Index;
-                    if ((uint)idx < (uint)list.Count)
                     {
-                        var cur = list[idx];
-                        if (cur is not null)
-                        {
-                            object? obj = cur!;
-                            var subReader = new DeltaReader(op.Nested!);
-                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                            list[idx] = (T)obj!;
-                        }
+                        if ((uint)op.Index < (uint)list.Count)
+                            list.RemoveAt(op.Index);
+                        return;
                     }
 
-                    return;
-                }
+                case DeltaKind.SeqNestedAt:
+                    {
+                        var idx = op.Index;
+                        if ((uint)idx < (uint)list.Count)
+                        {
+                            var cur = list[idx];
+                            if (cur is not null)
+                            {
+                                object? obj = cur!;
+                                var subReader = new DeltaReader(op.Nested!);
+                                GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                                list[idx] = (T)obj!;
+                            }
+                        }
+
+                        return;
+                    }
             }
 
             return;
@@ -91,50 +95,57 @@ public static class DeltaHelpers
             switch (op.Kind)
             {
                 case DeltaKind.SeqReplaceAt:
-                    ilist[op.Index] = (T)op.Value!;
-                    return;
+                    {
+                        if ((uint)op.Index < (uint)ilist.Count)
+                            ilist[op.Index] = (T)op.Value!;
+                        return;
+                    }
 
                 case DeltaKind.SeqAddAt:
-                {
-                    var idx = op.Index;
-                    var value = (T)op.Value!;
-
-                    if ((uint)idx <= (uint)ilist.Count)
                     {
-                        if ((uint)idx < (uint)ilist.Count && EqualityComparer<T>.Default.Equals(ilist[idx], value))
-                            return;
+                        var idx = op.Index;
+                        var value = (T)op.Value!;
 
-                        ilist.Insert(idx, value);
-                    }
-                    else
-                    {
-                        ilist.Insert(ilist.Count, value);
-                    }
+                        if ((uint)idx <= (uint)ilist.Count)
+                        {
+                            if ((uint)idx < (uint)ilist.Count && EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                                return;
 
-                    return;
-                }
+                            ilist.Insert(idx, value);
+                        }
+                        else
+                        {
+                            // clamp to end
+                            ilist.Insert(ilist.Count, value);
+                        }
+
+                        return;
+                    }
 
                 case DeltaKind.SeqRemoveAt:
-                    ilist.RemoveAt(op.Index);
-                    return;
-
-                case DeltaKind.SeqNestedAt:
-                {
-                    var idx = op.Index;
-                    if ((uint)idx < (uint)ilist.Count)
                     {
-                        var cur = ilist[idx];
-                        if (cur is not null)
-                        {
-                            object? obj = cur!;
-                            var subReader = new DeltaReader(op.Nested!);
-                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                            ilist[idx] = (T)obj!;
-                        }
+                        if ((uint)op.Index < (uint)ilist.Count)
+                            ilist.RemoveAt(op.Index);
+                        return;
                     }
 
-                    return;
-                }
+                case DeltaKind.SeqNestedAt:
+                    {
+                        var idx = op.Index;
+                        if ((uint)idx < (uint)ilist.Count)
+                        {
+                            var cur = ilist[idx];
+                            if (cur is not null)
+                            {
+                                object? obj = cur!;
+                                var subReader = new DeltaReader(op.Nested!);
+                                GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                                ilist[idx] = (T)obj!;
+                            }
+                        }
+
+                        return;
+                    }
             }
 
             return;
@@ -160,34 +171,45 @@ public static class DeltaHelpers
         switch (op.Kind)
         {
             case DeltaKind.SeqReplaceAt:
-                clone[op.Index] = (T)op.Value!;
-                break;
-
-            case DeltaKind.SeqAddAt:
-                clone.Insert(op.Index, (T)op.Value!);
-                break;
-
-            case DeltaKind.SeqRemoveAt:
-                clone.RemoveAt(op.Index);
-                break;
-
-            case DeltaKind.SeqNestedAt:
-            {
-                var idx = op.Index;
-                if ((uint)idx < (uint)clone.Count)
                 {
-                    var cur = clone[idx];
-                    if (cur is not null)
-                    {
-                        object? obj = cur!;
-                        var subReader = new DeltaReader(op.Nested!);
-                        GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
-                        clone[idx] = (T)obj!;
-                    }
+                    if ((uint)op.Index < (uint)clone.Count)
+                        clone[op.Index] = (T)op.Value!;
+                    break;
                 }
 
-                break;
-            }
+            case DeltaKind.SeqAddAt:
+                {
+                    var ai = op.Index;
+                    if (ai < 0) ai = 0;
+                    if (ai > clone.Count) ai = clone.Count;
+                    clone.Insert(ai, (T)op.Value!);
+                    break;
+                }
+
+            case DeltaKind.SeqRemoveAt:
+                {
+                    if ((uint)op.Index < (uint)clone.Count)
+                        clone.RemoveAt(op.Index);
+                    break;
+                }
+
+            case DeltaKind.SeqNestedAt:
+                {
+                    var idx = op.Index;
+                    if ((uint)idx < (uint)clone.Count)
+                    {
+                        var cur = clone[idx];
+                        if (cur is not null)
+                        {
+                            object? obj = cur!;
+                            var subReader = new DeltaReader(op.Nested!);
+                            GeneratedHelperRegistry.TryApplyDeltaSameType(obj.GetType(), ref obj, ref subReader);
+                            clone[idx] = (T)obj!;
+                        }
+                    }
+
+                    break;
+                }
         }
 
         target = clone;
@@ -231,12 +253,13 @@ public static class DeltaHelpers
         if (ra == 0 && rb == 0)
             return;
 
+        // Duplicate-aware alignment (prefer largest k to capture pre-inserts)
         if (rb >= ra && ra > 0)
         {
             var addBudget = rb - ra;
             var chosenK = -1;
 
-            for (var k = 0; k <= addBudget; k++)
+            for (var k = addBudget; k >= 0; k--)
             {
                 var match = true;
                 for (var i = 0; i < ra; i++)
@@ -337,6 +360,48 @@ public static class DeltaHelpers
 
         var ra = la - prefix - suffix;
         var rb = lb - prefix - suffix;
+
+        // Duplicate-aware alignment (prefer largest k)
+        if (rb >= ra && ra > 0)
+        {
+            var addBudget = rb - ra;
+            var chosenK = -1;
+
+            for (var k = addBudget; k >= 0; k--)
+            {
+                var match = true;
+                for (var i = 0; i < ra; i++)
+                {
+                    if (!comparer.Invoke(left[prefix + i], right[prefix + k + i], context))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match)
+                {
+                    chosenK = k;
+                    break;
+                }
+            }
+
+            if (chosenK >= 0)
+            {
+                for (var i = 0; i < chosenK; i++)
+                    writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+
+                var alignedLen = ra;
+                var tailAdds = addBudget - chosenK;
+                for (var i = 0; i < tailAdds; i++)
+                {
+                    var insertIndex = prefix + chosenK + alignedLen + i;
+                    writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
+                }
+
+                return;
+            }
+        }
+
         var common = Math.Min(ra, rb);
 
         for (var i = 0; i < common; i++)
@@ -381,6 +446,48 @@ public static class DeltaHelpers
 
         var ra = la - prefix - suffix;
         var rb = lb - prefix - suffix;
+
+        // Duplicate-aware alignment (prefer largest k)
+        if (rb >= ra && ra > 0)
+        {
+            var addBudget = rb - ra;
+            var chosenK = -1;
+
+            for (var k = addBudget; k >= 0; k--)
+            {
+                var match = true;
+                for (var i = 0; i < ra; i++)
+                {
+                    if (!areEqual(left[prefix + i], right[prefix + k + i]))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match)
+                {
+                    chosenK = k;
+                    break;
+                }
+            }
+
+            if (chosenK >= 0)
+            {
+                for (var i = 0; i < chosenK; i++)
+                    writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+
+                var alignedLen = ra;
+                var tailAdds = addBudget - chosenK;
+                for (var i = 0; i < tailAdds; i++)
+                {
+                    var insertIndex = prefix + chosenK + alignedLen + i;
+                    writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
+                }
+
+                return;
+            }
+        }
+
         var common = Math.Min(ra, rb);
 
         for (var i = 0; i < common; i++)
@@ -396,6 +503,7 @@ public static class DeltaHelpers
             for (var i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
     }
+
     // =============================
     // LIST DELTA (keyed / order-insensitive)
     // =============================
@@ -744,28 +852,28 @@ public static class DeltaHelpers
             switch (op.Kind)
             {
                 case DeltaKind.DictSet:
-                {
-                    ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, (TKey)op.Key!, out _);
-                    slot = (TValue)op.Value!;
-                    return;
-                }
-                case DeltaKind.DictRemove:
-                {
-                    md.Remove((TKey)op.Key!);
-                    return;
-                }
-                case DeltaKind.DictNested:
-                {
-                    var k = (TKey)op.Key!;
-                    ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, k, out var existed);
-                    if (existed && slot is not null)
                     {
-                        object? cur = slot!;
-                        ApplyNestedDictOrSameType(ref cur, op.Nested!);
-                        slot = (TValue)cur!;
+                        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, (TKey)op.Key!, out _);
+                        slot = (TValue)op.Value!;
+                        return;
                     }
-                    return;
-                }
+                case DeltaKind.DictRemove:
+                    {
+                        md.Remove((TKey)op.Key!);
+                        return;
+                    }
+                case DeltaKind.DictNested:
+                    {
+                        var k = (TKey)op.Key!;
+                        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, k, out var existed);
+                        if (existed && slot is not null)
+                        {
+                            object? cur = slot!;
+                            ApplyNestedDictOrSameType(ref cur, op.Nested!);
+                            slot = (TValue)cur!;
+                        }
+                        return;
+                    }
             }
 
             return;
@@ -784,16 +892,16 @@ public static class DeltaHelpers
                     return;
 
                 case DeltaKind.DictNested:
-                {
-                    var k = (TKey)op.Key!;
-                    if (map.TryGetValue(k, out var oldVal) && oldVal is not null)
                     {
-                        object? cur = oldVal;
-                        ApplyNestedDictOrSameType(ref cur, op.Nested!);
-                        map[k] = (TValue)cur!;
+                        var k = (TKey)op.Key!;
+                        if (map.TryGetValue(k, out var oldVal) && oldVal is not null)
+                        {
+                            object? cur = oldVal;
+                            ApplyNestedDictOrSameType(ref cur, op.Nested!);
+                            map[k] = (TValue)cur!;
+                        }
+                        return;
                     }
-                    return;
-                }
             }
 
             return;
@@ -814,16 +922,16 @@ public static class DeltaHelpers
                 break;
 
             case DeltaKind.DictNested:
-            {
-                var k = (TKey)op.Key!;
-                if (clone.TryGetValue(k, out var oldVal) && oldVal is not null)
                 {
-                    object? cur = oldVal;
-                    ApplyNestedDictOrSameType(ref cur, op.Nested!);
-                    clone[k] = (TValue)cur!;
+                    var k = (TKey)op.Key!;
+                    if (clone.TryGetValue(k, out var oldVal) && oldVal is not null)
+                    {
+                        object? cur = oldVal;
+                        ApplyNestedDictOrSameType(ref cur, op.Nested!);
+                        clone[k] = (TValue)cur!;
+                    }
+                    break;
                 }
-                break;
-            }
         }
 
         target = clone;
