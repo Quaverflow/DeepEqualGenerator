@@ -4,16 +4,9 @@ using System.Text;
 
 namespace DeepEqual.Generator
 {
-    internal sealed class CodeWriter
+    public sealed class CodeWriter
     {
         private readonly StringBuilder _buffer = new();
-        private int _indent;
-        private readonly string _indentUnit;
-
-        public CodeWriter(string indentUnit = "    ")
-        {
-            _indentUnit = indentUnit ?? "    ";
-        }
 
         public override string ToString() => _buffer.ToString();
 
@@ -23,19 +16,12 @@ namespace DeepEqual.Generator
         public void WriteLine(string text = "")
         {
             if (text.Length > 0)
-                _buffer.Append(IndentString());
-            _buffer.AppendLine(text);
+                _buffer.AppendLine(text);
         }
 
         public void Line(string text = "") => WriteLine(text);
 
         public void BlankLine() => _buffer.AppendLine();
-
-        private string IndentString()
-        {
-            if (_indent == 0) return string.Empty;
-            return string.Concat(System.Linq.Enumerable.Repeat(_indentUnit, _indent));
-        }
 
         // ---- classic Open/Close ----
         public void Open(string header)
@@ -43,12 +29,10 @@ namespace DeepEqual.Generator
             if (!string.IsNullOrEmpty(header))
                 WriteLine(header);
             WriteLine("{");
-            _indent++;
         }
 
         public void Close()
         {
-            _indent = Math.Max(0, _indent - 1);
             WriteLine("}");
         }
 
@@ -61,113 +45,11 @@ namespace DeepEqual.Generator
             Close();
         }
 
-        public IDisposable Block(string header)
-        {
-            Open(header);
-            return new Scope(this);
-        }
-
-        /// <summary>Headerless braces: writes only '{ ... }' at the current indentation.</summary>
-        public void Braces(Action body)
-        {
-            if (body is null) throw new ArgumentNullException(nameof(body));
-            WriteLine("{");
-            _indent++;
-            try { body(); }
-            finally { Close(); }
-        }
-
-        public void Indent(Action body)
-        {
-            if (body is null) throw new ArgumentNullException(nameof(body));
-            _indent++;
-            try { body(); }
-            finally { _indent = Math.Max(0, _indent - 1); }
-        }
-
-        private sealed class Scope : IDisposable
-        {
-            private CodeWriter? _w;
-            public Scope(CodeWriter w) { _w = w; }
-            public void Dispose()
-            {
-                var w = System.Threading.Interlocked.Exchange(ref _w, null);
-                if (w != null) w.Close();
-            }
-        }
-
         // ---- structured helpers ----
 
         public void Method(string signature, Action body)
             => Open(signature, body);
 
-        public void If(string condition, Action thenBody)
-            => Open($"if ({condition})", thenBody);
-
-        public void If(string condition, Action thenBody, Action? elseBody)
-        {
-            If(condition, thenBody);
-            if (elseBody != null)
-            {
-                Line("else");
-                Braces(elseBody);
-            }
-        }
-
-        public IfChainBuilder IfChain(string condition, Action body)
-        {
-            Line($"if ({condition})");
-            WriteLine("{");
-            _indent++;
-            body();
-            _indent--;
-            WriteLine("}");
-            return new IfChainBuilder(this);
-        }
-
-        public sealed class IfChainBuilder
-        {
-            private readonly CodeWriter _w;
-            internal IfChainBuilder(CodeWriter w) { _w = w; }
-            public IfChainBuilder ElseIf(string condition, Action body)
-            {
-                _w.Line($"else if ({condition})");
-                _w.WriteLine("{");
-                _w._indent++;
-                body();
-                _w._indent--;
-                _w.WriteLine("}");
-                return this;
-            }
-            public void Else(Action body)
-            {
-                _w.Line("else");
-                _w.Braces(body);
-            }
-        }
-
-        public void Try(Action tryBody,
-                       IEnumerable<(string CatchHeader, Action Body)>? catches = null,
-                       Action? finallyBody = null)
-        {
-            Open("try", tryBody);
-            if (catches != null)
-            {
-                foreach (var (header, body) in catches)
-                {
-                    Open(header, body);
-                }
-            }
-            if (finallyBody != null)
-            {
-                Open("finally", finallyBody);
-            }
-        }
-
-        public void For(string init, string condition, string increment, Action body)
-            => Open($"for ({init}; {condition}; {increment})", body);
-
-        /// <summary>Use for already-composed for-clause: e.g. "int i=0; i<n; i++"</summary>
         public void ForRaw(string clause, Action body)
             => Open($"for ({clause})", body);
 
@@ -177,33 +59,139 @@ namespace DeepEqual.Generator
         public void Foreach(string type, string name, string enumerable, Action body)
             => Open($"foreach ({type} {name} in {enumerable})", body);
 
-        public void Switch(string expression, Action<SwitchBuilder> buildCases)
+        // New: while
+        public void While(string condition, Action body)
+            => Open($"while ({condition})", body);
+
+        // New: do { ... } while (cond);
+        public void DoWhile(string condition, Action body)
         {
-            if (buildCases is null) throw new ArgumentNullException(nameof(buildCases));
-            Line($"switch ({expression})");
+            if (body is null) throw new ArgumentNullException(nameof(body));
+            WriteLine("do");
             WriteLine("{");
-            _indent++;
-            var builder = new SwitchBuilder(this);
-            buildCases(builder);
-            _indent--;
-            WriteLine("}");
+            body();
+            WriteLine("} while (" + condition + ");");
         }
 
-        public sealed class SwitchBuilder
+        // New: using (...) { ... }
+        public void Using(string resource, Action body)
+            => Open($"using ({resource})", body);
+
+        // New: lock (...)
+        public void Lock(string expr, Action body)
+            => Open($"lock ({expr})", body);
+
+        // New: checked/unchecked
+        public void Checked(Action body)
+            => Open("checked", body);
+
+        public void Unchecked(Action body)
+            => Open("unchecked", body);
+
+        // Optional niceties for declarations
+        public void Namespace(string name, Action body)
+            => Open($"namespace {name}", body);
+
+        public void Class(string signature, Action body)
+            => Open(signature, body);
+
+        public void Struct(string signature, Action body)
+            => Open(signature, body);
+
+        public void Interface(string signature, Action body)
+            => Open(signature, body);
+    }
+
+    // ---------------- if / else-if / else (original pattern preserved) ----------------
+    public record IfBlock(CodeWriter Writer);
+    public static class IfChain
+    {
+        public static IfBlock If(this CodeWriter writer, string condition, Action thenBody)
         {
-            private readonly CodeWriter _w;
-            internal SwitchBuilder(CodeWriter w) { _w = w; }
-            public SwitchBuilder Case(string pattern, Action body)
-            {
-                _w.Line($"case {pattern}:");
-                _w.Indent(body);
-                return this;
-            }
-            public void Default(Action body)
-            {
-                _w.Line("default:");
-                _w.Indent(body);
-            }
+            writer.Open($"if ({condition})", thenBody);
+            return new IfBlock(writer);
+        }
+
+        public static IfBlock ElseIf(this IfBlock ifBlock, string condition, Action thenBody)
+        {
+            ifBlock.Writer.Open($"else if ({condition})", thenBody);
+            return ifBlock;
+        }
+
+        // NOTE: signature preserved exactly as provided (unused 'condition')
+        public static void Else(this IfBlock ifBlock, Action thenBody)
+            => ifBlock.Writer.Open("else", thenBody);
+    }
+
+    // ---------------- try / catch / finally ----------------
+    public record TryBlock(CodeWriter Writer);
+    public static class TryChain
+    {
+        public static TryBlock Try(this CodeWriter writer, Action tryBody)
+        {
+            writer.Open("try", tryBody);
+            return new TryBlock(writer);
+        }
+
+        // catch (Exception ex)
+        public static TryBlock Catch(this TryBlock blk, string exceptionDeclaration, Action catchBody)
+        {
+            blk.Writer.Open($"catch ({exceptionDeclaration})", catchBody);
+            return blk;
+        }
+
+        // catch when (...)
+        public static TryBlock CatchWhen(this TryBlock blk, string exceptionDeclaration, string whenCondition, Action catchBody)
+        {
+            blk.Writer.Open($"catch ({exceptionDeclaration}) when ({whenCondition})", catchBody);
+            return blk;
+        }
+
+        public static void Finally(this TryBlock blk, Action finallyBody)
+            => blk.Writer.Open("finally", finallyBody);
+    }
+
+    // ---------------- switch / case / default ----------------
+    public readonly record struct SwitchBlock(CodeWriter Writer);
+    public static class SwitchChain
+    {
+        // Usage:
+        // writer.Switch("expr", sw => {
+        //   sw.Case("1", () => { ... });
+        //   sw.Case("\"foo\"", () => { ... });
+        //   sw.Default(() => { ... });
+        // });
+        public static void Switch(this CodeWriter writer, string expression, Action<SwitchBlock> body)
+        {
+            if (body is null) throw new ArgumentNullException(nameof(body));
+            writer.Open($"switch ({expression})");
+            body(new SwitchBlock(writer));
+            writer.Close();
+        }
+
+        // Writes:
+        // case <label>:
+        // {
+        //    ...
+        //    break;
+        // }
+        public static SwitchBlock Case(this SwitchBlock sw, string label, Action body)
+        {
+            sw.Writer.WriteLine($"case {label}:");
+            sw.Writer.WriteLine("{");
+            body?.Invoke();
+            sw.Writer.WriteLine("break;");
+            sw.Writer.WriteLine("}");
+            return sw;
+        }
+
+        public static void Default(this SwitchBlock sw, Action body)
+        {
+            sw.Writer.WriteLine("default:");
+            sw.Writer.WriteLine("{");
+            body?.Invoke();
+            sw.Writer.WriteLine("break;");
+            sw.Writer.WriteLine("}");
         }
     }
 }
