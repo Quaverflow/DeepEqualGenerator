@@ -1020,7 +1020,7 @@ internal sealed class DiffDeltaEmitter
                                 {
                                     if (IsExpando(member.Type))
                                     {
-                                        EmitApplyForExpando(w, propAccess, clearDirty: !type.IsValueType && deltaTracked, ordinal);
+                                        EmitApplyForExpando(w, swKind, propAccess, clearDirty: !type.IsValueType && deltaTracked, ordinal);
                                         swKind.Default(() => { /* no-op */ });
                                     }
                                     else
@@ -1167,34 +1167,36 @@ internal sealed class DiffDeltaEmitter
 
         _emittedDiffDelta[key] = (emittedState.Diff || needDiff, emittedState.Delta || needDelta);
     }
-
-    private static void EmitApplyForExpando(CodeWriter w, string propAccess, bool clearDirty, int ordinal)
+    private static void EmitApplyForExpando(CodeWriter w, SwitchBlock swKind, string propAccess, bool clearDirty, int ordinal)
     {
-        // SetMember: assign the Expando directly
-        w.Open("case DeepEqual.Generator.Shared.DeltaKind.SetMember:");
-        w.Line($"{propAccess} = (global::System.Dynamic.ExpandoObject?)op.Value;");
-        if (clearDirty) w.Line($"target.__ClearDirtyBit({ordinal});");
-        w.Line("break;");
-        w.Close();
+        // case SetMember: assign the Expando directly
+        swKind.Case("DeepEqual.Generator.Shared.DeltaKind.SetMember", () =>
+        {
+            w.Line($"{propAccess} = (global::System.Dynamic.ExpandoObject?)op.Value;");
+            if (clearDirty) w.Line($"target.__ClearDirtyBit({ordinal});");
+        });
 
         // DictSet/DictRemove/DictNested: Apply op into a temp dict, then copy into a fresh Expando
-        string[] dictCases = { "DictSet", "DictRemove", "DictNested" };
-        foreach (var k in dictCases)
+        foreach (var k in new[] { "DictSet", "DictRemove", "DictNested" })
         {
-            w.Open($"case DeepEqual.Generator.Shared.DeltaKind.{k}:");
-            w.Line("object? __tmp = " + propAccess + ";");
-            w.Line("DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<string, object>(ref __tmp, in op);");
-            w.Line("var __src = (System.Collections.Generic.IDictionary<string, object?>)__tmp!;");
-            w.Line("var __exp = new global::System.Dynamic.ExpandoObject();");
-            w.Line("var __dst = (System.Collections.Generic.IDictionary<string, object?>)__exp;");
-            w.Line("__dst.Clear();");
-            w.Line("foreach (var __kv in __src) __dst[__kv.Key] = __kv.Value;");
-            w.Line($"{propAccess} = __exp;");
-            if (clearDirty) w.Line($"target.__ClearDirtyBit({ordinal});");
-            w.Line("break;");
-            w.Close();
+            swKind.Case($"DeepEqual.Generator.Shared.DeltaKind.{k}", () =>
+            {
+                w.Line($"object? __tmp = {propAccess};");
+                w.Line("DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<string, object>(ref __tmp, in op);");
+                w.Line("var __src = (System.Collections.Generic.IDictionary<string, object?>)__tmp!;");
+                w.Line("var __exp = new global::System.Dynamic.ExpandoObject();");
+                w.Line("var __dst = (System.Collections.Generic.IDictionary<string, object?>)__exp;");
+                w.Line("__dst.Clear();");
+                w.Foreach("var __kv", "__src", () =>
+                {
+                    w.Line("__dst[__kv.Key] = __kv.Value;");
+                });
+                w.Line($"{propAccess} = __exp;");
+                if (clearDirty) w.Line($"target.__ClearDirtyBit({ordinal});");
+            });
         }
     }
+
 
     private void EmitMemberDiff(CodeWriter w, INamedTypeSymbol owner, DiffDeltaMemberSymbol member, DiffDeltaTarget root)
     {
