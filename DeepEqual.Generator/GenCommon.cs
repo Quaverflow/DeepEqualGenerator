@@ -79,59 +79,60 @@ internal static class GenCommon
                 queue.Enqueue(n);
         }
     }
-
     internal static bool TryEmitWellKnownStructCompare(CodeWriter w, string leftExpr, string rightExpr, ITypeSymbol type)
     {
         if (type.SpecialType == SpecialType.System_DateTime)
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + leftExpr + ", " + rightExpr +
-                   "))");
-            w.Line("return false;");
-            w.Close();
+            w.If("!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTime(" + leftExpr + ", " + rightExpr + ")", () =>
+            {
+                w.Line("return false;");
+            });
             return true;
         }
 
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (fqn == "global::System.DateTimeOffset")
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + leftExpr + ", " +
-                   rightExpr + "))");
-            w.Line("return false;");
-            w.Close();
+            w.If("!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateTimeOffset(" + leftExpr + ", " + rightExpr + ")", () =>
+            {
+                w.Line("return false;");
+            });
             return true;
         }
 
         if (fqn == "global::System.TimeSpan")
         {
-            w.Open("if (" + leftExpr + ".Ticks != " + rightExpr + ".Ticks)");
-            w.Line("return false;");
-            w.Close();
+            w.If(leftExpr + ".Ticks != " + rightExpr + ".Ticks", () =>
+            {
+                w.Line("return false;");
+            });
             return true;
         }
 
         if (fqn == "global::System.Guid")
         {
-            w.Open("if (!" + leftExpr + ".Equals(" + rightExpr + "))");
-            w.Line("return false;");
-            w.Close();
+            w.If("!" + leftExpr + ".Equals(" + rightExpr + ")", () =>
+            {
+                w.Line("return false;");
+            });
             return true;
         }
 
         if (fqn == "global::System.DateOnly")
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + leftExpr + ", " + rightExpr +
-                   "))");
-            w.Line("return false;");
-            w.Close();
+            w.If("!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualDateOnly(" + leftExpr + ", " + rightExpr + ")", () =>
+            {
+                w.Line("return false;");
+            });
             return true;
         }
 
         if (fqn == "global::System.TimeOnly")
         {
-            w.Open("if (!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + leftExpr + ", " + rightExpr +
-                   "))");
-            w.Line("return false;");
-            w.Close();
+            w.If("!DeepEqual.Generator.Shared.ComparisonHelpers.AreEqualTimeOnly(" + leftExpr + ", " + rightExpr + ")", () =>
+            {
+                w.Line("return false;");
+            });
             return true;
         }
 
