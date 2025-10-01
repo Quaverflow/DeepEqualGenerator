@@ -346,6 +346,90 @@ public sealed class DirtyTrackTests
         Assert.True(mutated.AreDeepEqual(target));
         Assert.False(mutated.__HasAnyDirty());
     }
+    // 1) Double-append same value in one doc (should only append once)
+    [Fact]
+    public void ApplyDeepDelta_ListAppendSameValue_Twice_InOneDoc_IsIdempotent()
+    {
+        var baseline = MakeBaseline();
+        var target = baseline.Clone();
+
+        var end = baseline.Numbers.Count;
+
+        // Direct list ops at member index (NO NestedMember wrapper)
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers.Concat(new[] { 77 }).ToList(), target.Numbers);
+
+        // replay same doc
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers.Concat(new[] { 77 }).ToList(), target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    // 2) Replay/duplicate append (same recorded index at tail) — no double insert
+    [Fact]
+    public void ApplyDeepDelta_ListAppend_DuplicateIndex_NoDoubleInsert()
+    {
+        var baseline = MakeBaseline();
+        var target = baseline.Clone();
+        var end = baseline.Numbers.Count;
+
+        var doc = new DeltaDocument();
+        // both ops recorded as append-at-end
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers.Concat(new[] { 77 }).ToList(), target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers.Concat(new[] { 77 }).ToList(), target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    // 3) Out-of-range add clamps to end and is idempotent
+    [Fact]
+    public void ApplyDeepDelta_ListAdd_OutOfRange_ClampsToEnd_Idempotent()
+    {
+        var baseline = MakeBaseline();
+        var target = baseline.Clone();
+
+        var huge = baseline.Numbers.Count + 1000;
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: huge, key: null, value: 12345, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers.Concat(new[] { 12345 }).ToList(), target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers.Concat(new[] { 12345 }).ToList(), target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    // 4) Replace then Add for same list member: final state must reflect both
+    [Fact]
+    public void ApplyDeepDelta_ListReplaceThenAdd_SameMember_CorrectFinal()
+    {
+        var baseline = MakeBaseline();
+        var target = baseline.Clone();
+        var end = baseline.Numbers.Count;
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqReplaceAt, index: 1, key: null, value: 200, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { baseline.Numbers[0], 200, baseline.Numbers[2], 77 }, target.Numbers);
+
+        // replay is idempotent
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { baseline.Numbers[0], 200, baseline.Numbers[2], 77 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
 
     public static IEnumerable<object[]> DirtyBitShapeCases()
     {
@@ -959,6 +1043,234 @@ public sealed class DirtyTrackTests
         Assert.Contains(DirtyTrackedWide.__Bit_F70, bits);
         Assert.False(wide.__HasAnyDirty());
     }
+    [Fact]
+    public void ApplyDeepDelta_List_AddThenReplace_SameMember_FinalIsCorrect()
+    {
+        var baseline = MakeBaseline();           // Numbers: [1,2,3]
+        var target = baseline.Clone();
+        var end = baseline.Numbers.Count;
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null)); // append
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqReplaceAt, index: 1, key: null, value: 200, nested: null)); // replace original index 1 (middle)
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 200, 3, 77 }, target.Numbers);
+
+        // replay is idempotent
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 200, 3, 77 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void ApplyDeepDelta_List_ReplaceThenAdd_SameMember_FinalIsCorrect()
+    {
+        var baseline = MakeBaseline();           // Numbers: [1,2,3]
+        var target = baseline.Clone();
+        var end = baseline.Numbers.Count;
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqReplaceAt, index: 1, key: null, value: 200, nested: null)); // replace first
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: end, key: null, value: 77, nested: null)); // then append
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 200, 3, 77 }, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 200, 3, 77 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void ApplyDeepDelta_List_RemoveThenAdd_SameIndex_BehavesLikeReplace()
+    {
+        var baseline = MakeBaseline();           // Numbers: [1,2,3]
+        var target = baseline.Clone();
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, index: 1, key: null, value: null, nested: null)); // remove '2'
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: 1, key: null, value: 200, nested: null)); // add '200' at same index
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 200, 3 }, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!; // idempotent
+        Assert.Equal(new List<int> { 1, 200, 3 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+    [Fact]
+    public void ApplyDeepDelta_List_TwoAddsSameK_SameValue_DedupWithinPass()
+    {
+        var baseline = MakeBaseline();           // [1,2,3]
+        var target = baseline.Clone();
+
+        var k = 1; var v = 2; // duplicate insert next to existing equal
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k, key: null, value: v, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k, key: null, value: v, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 2, 2, 3 }, target.Numbers); // only one extra '2'
+
+        target = target.ApplyDeepDelta(doc)!; // still stable
+        Assert.Equal(new List<int> { 1, 2, 2, 3 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void ApplyDeepDelta_List_AddAtKThenAddAtKPlus1_SameValue_ResultsInTwo()
+    {
+        var baseline = MakeBaseline();           // [1,2,3]
+        var target = baseline.Clone();
+
+        var k = 1; var v = 99; // value not originally present at k
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k, key: null, value: v, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k + 1, key: null, value: v, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 99, 99, 2, 3 }, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!; // replay stable
+        Assert.Equal(new List<int> { 1, 99, 99, 2, 3 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+    [Fact]
+    public void ApplyDeepDelta_List_RemoveSameIndexTwice_NoThrow_NoExtraChange()
+    {
+        var baseline = MakeBaseline();           // Numbers: [1,2,3]
+        var target = baseline.Clone();
+
+        var doc = new DeltaDocument();
+        // include expected element value (2) for idempotency on re-apply
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, index: 1, key: null, value: 2, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, index: 1, key: null, value: 2, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 1, 3 }, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!; // replay stable
+        Assert.Equal(new List<int> { 1, 3 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void ApplyDeepDelta_List_Remove_OOR_NoOp()
+    {
+        var baseline = MakeBaseline();           // [1,2,3]
+        var target = baseline.Clone();
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, index: 99, key: null, value: null, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(baseline.Numbers, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+    [Fact]
+    public void ApplyDeepDelta_List_SeqThenSet_LastWins()
+    {
+        var baseline = MakeBaseline();           // [1,2,3]
+        var target = baseline.Clone();
+
+        var setTo = new List<int> { 7, 8 };
+        var doc = new DeltaDocument();
+        // seq first (will be overwritten by subsequent SetMember)
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: baseline.Numbers.Count, key: null, value: 77, nested: null));
+        // then replace whole member
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SetMember, index: -1, key: null, value: setTo, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(setTo, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!; // replay stable
+        Assert.Equal(setTo, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void ApplyDeepDelta_List_SetThenSeq_LastWins()
+    {
+        var baseline = MakeBaseline();           // [1,2,3]
+        var target = baseline.Clone();
+
+        var setTo = new List<int> { 7, 8 };
+        var doc = new DeltaDocument();
+        // set first
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SetMember, index: -1, key: null, value: setTo, nested: null));
+        // then seq op applies on top of set
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: setTo.Count, key: null, value: 99, nested: null));
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 7, 8, 99 }, target.Numbers);
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(new List<int> { 7, 8, 99 }, target.Numbers);
+        Assert.False(target.__HasAnyDirty());
+    }
+    [Fact]
+    public void ApplyDeepDelta_List_SeqNestedAt_OnInt_IsNoOp()
+    {
+        var baseline = MakeBaseline();           // [1,2,3]
+        var target = baseline.Clone();
+
+        var nested = new DeltaDocument();
+        nested.Ops.Add(new DeltaOp(0, DeltaKind.SetMember, index: 0, key: null, value: 123, nested: null)); // meaningless for int; just ensure handled
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqNestedAt, index: 1, key: null, value: null, nested: nested));
+
+        var applied = target.ApplyDeepDelta(doc)!;
+        Assert.Equal(target.Numbers, applied.Numbers);
+        Assert.False(applied.__HasAnyDirty());
+    }
+    [Fact]
+    public void ApplyDeepDelta_Dict_RemoveSameKeyTwice_NoThrow_NoChangeAfterFirst()
+    {
+        var baseline = MakeBaseline();
+        var target = baseline.Clone();
+
+        // ensure key exists then will be removed
+        var key = "beta";
+        Assert.True(target.Map.ContainsKey(key));
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Map, DeltaKind.DictRemove, index: -1, key: key, value: null, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Map, DeltaKind.DictRemove, index: -1, key: key, value: null, nested: null)); // second remove
+
+        target = target.ApplyDeepDelta(doc)!;
+        Assert.False(target.Map.ContainsKey(key));
+
+        target = target.ApplyDeepDelta(doc)!; // replay stable
+        Assert.False(target.Map.ContainsKey(key));
+        Assert.False(target.__HasAnyDirty());
+    }
+
+    [Fact]
+    public void ApplyDeepDelta_DictNested_OnMissingKey_NoCreation_NoCrash()
+    {
+        var baseline = MakeBaseline();
+        var target = baseline.Clone();
+
+        var missing = "zzz_missing";
+        Assert.False(target.Map.ContainsKey(missing));
+
+        var nested = new DeltaDocument();
+        nested.Ops.Add(new DeltaOp(0, DeltaKind.DictSet, index: -1, key: "inner", value: 1, nested: null)); // arbitrary inner op
+
+        var doc = new DeltaDocument();
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Map, DeltaKind.DictNested, index: -1, key: missing, value: null, nested: nested));
+
+        var applied = target.ApplyDeepDelta(doc)!;
+        // value not created by DictNested alone
+        Assert.False(applied.Map.ContainsKey(missing));
+        Assert.False(applied.__HasAnyDirty());
+    }
+
 }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true, StableMemberIndex = StableMemberIndexMode.Auto)]

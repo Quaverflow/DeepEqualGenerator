@@ -918,7 +918,15 @@ internal sealed class DiffDeltaEmitter
                             else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
                                 w.Line($"int __dictSets_m{idx} = 0;");
                         }
+                        foreach (var t2 in __preByOrdinal)
+                        {
+                            var m = t2.ms;
+                            var idx = t2.idx;
 
+                            // For list members only, we track same-index removes to no-op duplicates within one document
+                            if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
+                                w.Line($"var __seenRemoveIdx_m{idx} = new System.Collections.Generic.HashSet<int>();");
+                        }
                         w.ForRaw("int __i=0; __i<__ops.Length; __i++", () =>
                         {
                             w.Line("ref readonly var __o = ref __ops[__i];");
@@ -982,10 +990,10 @@ internal sealed class DiffDeltaEmitter
                 }
 
                 // apply pass
+                w.Line("var __seenRemoveIdx = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
                 w.ForRaw("int __ai=0; __ai<__ops.Length; __ai++", () =>
                 {
                     w.Line("ref readonly var op = ref __ops[__ai];");
-
                     SwitchChain.Switch(w, "op.MemberIndex", swOuter =>
                     {
                         // ReplaceObject
@@ -1016,6 +1024,7 @@ internal sealed class DiffDeltaEmitter
 
                             swOuter.Case(memberIdx.ToString(), () =>
                             {
+                                w.Line($"int __lastRemoveIdx_m{memberIdx} = int.MinValue;");
                                 SwitchChain.Switch(w, "op.Kind", swKind =>
                                 {
                                     if (IsExpando(member.Type))
@@ -1094,9 +1103,24 @@ internal sealed class DiffDeltaEmitter
 
                                             EmitListOp("SeqReplaceAt", "__obj_seq_r");
                                             EmitListOp("SeqAddAt", "__obj_seq_a");
-                                            EmitListOp("SeqRemoveAt", "__obj_seq_d");
+
+                                            swKind.Case("DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt", () =>
+                                            {
+                                                // One remove per (member, index) per document apply pass
+                                                w.Line($"if (!__seenRemoveIdx.TryGetValue({ordinal}, out var __set)) {{ __set = new System.Collections.Generic.HashSet<int>(); __seenRemoveIdx[{ordinal}] = __set; }}");
+                                                w.If("__set.Add(op.Index)", () =>
+                                                {
+                                                    w.Line($"object? __obj_seq_d = {propAccess};");
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref __obj_seq_d, in op);");
+                                                    if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn})__obj_seq_d;");
+                                                    if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                });
+                                            });
+
                                             EmitListOp("SeqNestedAt", "__obj_seq_n");
                                         }
+
+
 
                                         // Dict ops
                                         if (TryGetDictionaryTypes(member.Type, out var kType2, out var vType2))

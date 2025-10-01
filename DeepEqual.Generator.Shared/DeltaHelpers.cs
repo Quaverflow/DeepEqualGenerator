@@ -35,9 +35,9 @@ public static class DeltaHelpers
 
                         if ((uint)idx <= (uint)count)
                         {
-                            // Idempotency guards:
+                            // Idempotency & de-dup within a single apply pass
 
-                            // 1) If this add would start at an existing [v,v] pair, no-op
+                            // (A) If this add would start at an existing [v,v] pair, no-op
                             if (idx + 1 < count &&
                                 EqualityComparer<T>.Default.Equals(list[idx], value) &&
                                 EqualityComparer<T>.Default.Equals(list[idx + 1], value))
@@ -45,16 +45,24 @@ public static class DeltaHelpers
                                 return;
                             }
 
-                            // 2) If appending and the list already ends with v, no-op
+                            // (B) If appending and the list already ends with v, no-op
                             if (idx == count && count > 0 &&
                                 EqualityComparer<T>.Default.Equals(list[count - 1], value))
                             {
                                 return;
                             }
 
-                            // 3) If this op was recorded with old length: idx == count-1
-                            // and that slot already equals v (post first append), no-op
+                            // (C) Replays recorded with old length: idx == count-1 and that slot already == v
                             if (idx == count - 1 && idx >= 0 &&
+                                EqualityComparer<T>.Default.Equals(list[idx], value))
+                            {
+                                return;
+                            }
+
+                            // (D) No-triples guard around the boundary:
+                            // if left neighbor and current are already [v,v], inserting here would create a triple
+                            if (idx > 0 && idx < count &&
+                                EqualityComparer<T>.Default.Equals(list[idx - 1], value) &&
                                 EqualityComparer<T>.Default.Equals(list[idx], value))
                             {
                                 return;
@@ -70,7 +78,7 @@ public static class DeltaHelpers
                         }
                         else
                         {
-                            // clamp to end; avoid duplicate when last already equals v
+                            // idx beyond end: clamp to end; avoid duplicate when last already equals v
                             if (count == 0 || !EqualityComparer<T>.Default.Equals(list[count - 1], value))
                                 list.Add(value);
                         }
@@ -78,11 +86,26 @@ public static class DeltaHelpers
                     }
 
                 case DeltaKind.SeqRemoveAt:
+                {
+                    if ((uint)op.Index < (uint)list.Count)
                     {
-                        if ((uint)op.Index < (uint)list.Count)
+                        if (op.Value is null)
+                        {
+                            // legacy behavior (no expected value provided)
                             list.RemoveAt(op.Index);
-                        return;
+                        }
+                        else
+                        {
+                            // idempotent behavior: only remove if the element matches the expected value
+                            var expected = (T)op.Value!;
+                            if (EqualityComparer<T>.Default.Equals(list[op.Index], expected))
+                                list.RemoveAt(op.Index);
+                            // else no-op (already removed or different element now at that index)
+                        }
                     }
+                    return;
+                }
+
 
                 case DeltaKind.SeqNestedAt:
                     {
@@ -101,6 +124,7 @@ public static class DeltaHelpers
                         return;
                     }
             }
+
             return;
         }
 
@@ -124,21 +148,31 @@ public static class DeltaHelpers
 
                         if ((uint)idx <= (uint)count)
                         {
-                            // 1) duplicate already starting at idx
+                            // (A) duplicate starting at idx
                             if (idx + 1 < count &&
                                 EqualityComparer<T>.Default.Equals(ilist[idx], value) &&
                                 EqualityComparer<T>.Default.Equals(ilist[idx + 1], value))
                             {
                                 return;
                             }
-                            // 2) append-after-append
+
+                            // (B) append-after-append
                             if (idx == count && count > 0 &&
                                 EqualityComparer<T>.Default.Equals(ilist[count - 1], value))
                             {
                                 return;
                             }
-                            // 3) old-length index on second pass
+
+                            // (C) old-length index on second pass
                             if (idx == count - 1 && idx >= 0 &&
+                                EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                            {
+                                return;
+                            }
+
+                            // (D) no-triples guard around boundary
+                            if (idx > 0 && idx < count &&
+                                EqualityComparer<T>.Default.Equals(ilist[idx - 1], value) &&
                                 EqualityComparer<T>.Default.Equals(ilist[idx], value))
                             {
                                 return;
@@ -148,6 +182,7 @@ public static class DeltaHelpers
                         }
                         else
                         {
+                            // clamp to end; avoid duplicate when last already equals v
                             if (count == 0 || !EqualityComparer<T>.Default.Equals(ilist[count - 1], value))
                                 ilist.Insert(count, value);
                         }
@@ -155,11 +190,23 @@ public static class DeltaHelpers
                     }
 
                 case DeltaKind.SeqRemoveAt:
+                {
+                    if ((uint)op.Index < (uint)ilist.Count)
                     {
-                        if ((uint)op.Index < (uint)ilist.Count)
+                        if (op.Value is null)
+                        {
                             ilist.RemoveAt(op.Index);
-                        return;
+                        }
+                        else
+                        {
+                            var expected = (T)op.Value!;
+                            if (EqualityComparer<T>.Default.Equals(ilist[op.Index], expected))
+                                ilist.RemoveAt(op.Index);
+                        }
                     }
+                    return;
+                }
+
 
                 case DeltaKind.SeqNestedAt:
                     {
@@ -178,6 +225,7 @@ public static class DeltaHelpers
                         return;
                     }
             }
+
             return;
         }
 
@@ -206,11 +254,13 @@ public static class DeltaHelpers
                         clone[op.Index] = (T)op.Value!;
                     break;
                 }
+
             case DeltaKind.SeqAddAt:
                 {
                     int ai = op.Index;
                     if (ai < 0) ai = 0;
                     if (ai > clone.Count) ai = clone.Count;
+                    // Avoid duplicate when clamped to end if last already equals v
                     if (!(ai == clone.Count && clone.Count > 0 &&
                           EqualityComparer<T>.Default.Equals(clone[clone.Count - 1], (T)op.Value!)))
                     {
@@ -218,12 +268,14 @@ public static class DeltaHelpers
                     }
                     break;
                 }
+
             case DeltaKind.SeqRemoveAt:
                 {
                     if ((uint)op.Index < (uint)clone.Count)
                         clone.RemoveAt(op.Index);
                     break;
                 }
+
             case DeltaKind.SeqNestedAt:
                 {
                     int idx = op.Index;
@@ -940,13 +992,13 @@ public static class DeltaHelpers
                     }
                 case DeltaKind.DictNested:
                     {
+                        // *** IMPORTANT: do not create missing keys on DictNested ***
                         var k = (TKey)op.Key!;
-                        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(md, k, out var existed);
-                        if (existed && slot is not null)
+                        if (md.TryGetValue(k, out var existing) && existing is not null)
                         {
-                            object? cur = slot!;
+                            object? cur = existing!;
                             ApplyNestedDictOrSameType(ref cur, op.Nested!);
-                            slot = (TValue)cur!;
+                            md[k] = (TValue)cur!;
                         }
                         return;
                     }
@@ -970,6 +1022,7 @@ public static class DeltaHelpers
                 case DeltaKind.DictNested:
                     {
                         var k = (TKey)op.Key!;
+                        // Only mutate when present; do not materialize missing keys
                         if (map.TryGetValue(k, out var oldVal) && oldVal is not null)
                         {
                             object? cur = oldVal;
@@ -983,7 +1036,7 @@ public static class DeltaHelpers
             return;
         }
 
-        // clone path (read-only or null)
+        // clone path (read-only or null): do NOT materialize missing keys on DictNested
         var ro = target as IReadOnlyDictionary<TKey, TValue>;
         var clone = ro is null ? new Dictionary<TKey, TValue>() : new Dictionary<TKey, TValue>(ro);
 
@@ -1043,7 +1096,7 @@ public static class DeltaHelpers
                 return;
             }
 
-            // Any IReadOnlyDictionary<,> — we don't mutate (could add a reflection-based apply if ever needed)
+            // Any IReadOnlyDictionary<,> — don't mutate via nested delta
             var ifaces = curVal?.GetType().GetInterfaces();
             if (ifaces != null)
             {
@@ -1051,7 +1104,7 @@ public static class DeltaHelpers
                 {
                     if (it.IsGenericType && it.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>))
                     {
-                        // no-op; user would need a generated helper to mutate inner RO maps
+                        // no-op
                         return;
                     }
                 }
@@ -1066,6 +1119,7 @@ public static class DeltaHelpers
             }
         }
     }
+
 
     // ------------------------------------------------------------
     // PRIVATE HELPERS

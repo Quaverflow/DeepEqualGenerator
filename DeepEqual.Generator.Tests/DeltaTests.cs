@@ -854,5 +854,6 @@ namespace DeepEqual.RewrittenTests
             Apply(ref a, d2);
             Assert.True(a.AreDeepEqual(b));
         }
+
     }
 }
