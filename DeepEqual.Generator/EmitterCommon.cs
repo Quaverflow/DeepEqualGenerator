@@ -16,16 +16,16 @@ internal static class EmitterCommon
         w.Line("private static readonly object " + lockFieldName + " = new object();");
         w.Line();
 
-        w.Open("private static void " + ensureMethodName + "()", () =>
+        w.Method("private static void " + ensureMethodName + "()", () =>
         {
-            w.Open("if (System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1)", () =>
+            w.If("System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1", () =>
             {
                 w.Line("return;");
             });
 
-            w.Open("lock (" + lockFieldName + ")", () =>
+            w.Lock(lockFieldName, () =>
             {
-                w.Open("if (System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1)", () =>
+                w.If("System.Threading.Volatile.Read(ref " + guardFieldName + ") == 1", () =>
                 {
                     w.Line("return;");
                 });
@@ -45,10 +45,11 @@ internal static class EmitterCommon
     internal static void EmitModuleInitializer(CodeWriter w, string moduleInitName, string ensureMethodName)
     {
         w.Line("[System.Runtime.CompilerServices.ModuleInitializer]");
-        w.Open("internal static void " + moduleInitName + "()", () =>
+        w.Method("internal static void " + moduleInitName + "()", () =>
         {
             w.Line(ensureMethodName + "();");
         });
         w.Line();
     }
+
 }
