@@ -427,8 +427,6 @@ internal sealed class DiffDeltaEmitter
 
         spc.AddSource(hint, w.ToString());
     }
-
-
     private void EmitImplementationsForType(CodeWriter w, INamedTypeSymbol type, DiffDeltaTarget root)
     {
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -873,12 +871,10 @@ internal sealed class DiffDeltaEmitter
                     if (ifqn.StartsWith("global::System.Collections.Generic.ICollection<")) return "ICollection";
                 }
 
-                // If we got here, we *did* have an element type, but it's not one of the BCL
-                // shapes we special-case; treat as unsupported (no in-place replace).
+                // Not a special-cased BCL get-only shape
                 e = null;
                 return "";
             }
-
 
             w.Method(
                 $"private static void ApplyDelta__{id}{helperTypeParameterList}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader){helperConstraints}",
@@ -961,7 +957,6 @@ internal sealed class DiffDeltaEmitter
                         {
                             var m = t2.ms;
                             var idx = t2.idx;
-                            var propAccess = "target " + "." + m.Name;
 
                             if (TryGetListInterface(m.Type, out var elTypeForPresize) && m.Type is not IArrayTypeSymbol)
                             {
@@ -1018,7 +1013,6 @@ internal sealed class DiffDeltaEmitter
                                     if (IsExpando(member.Type))
                                     {
                                         EmitApplyForExpando(w, propAccess, clearDirty: !type.IsValueType && deltaTracked, ordinal);
-
                                         swKind.Default(() => { /* no-op */ });
                                     }
                                     else
@@ -1030,13 +1024,10 @@ internal sealed class DiffDeltaEmitter
                                             {
                                                 w.Line($"{propAccess} = ({typeFqn}{nullableQ})op.Value;");
                                             }
-                                            else if (TryGetDictionaryTypes(member.Type, out var kForSet,
-                                                         out var vForSet))
+                                            else if (TryGetDictionaryTypes(member.Type, out var kForSet, out var vForSet))
                                             {
-                                                var kFqn = kForSet.ToDisplayString(SymbolDisplayFormat
-                                                    .FullyQualifiedFormat);
-                                                var vFqn = vForSet.ToDisplayString(SymbolDisplayFormat
-                                                    .FullyQualifiedFormat);
+                                                var kFqn = kForSet.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                                var vFqn = vForSet.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
                                                 if (hasSetterForMember)
                                                 {
@@ -1056,10 +1047,8 @@ internal sealed class DiffDeltaEmitter
                                                             });
                                                         });
                                                     });
-
-                                                    // else: no-op (get-only and not a mutable IDictionary at runtime)
+                                                    // else: no-op
                                                 }
-
                                             }
                                             else
                                             {
@@ -1082,19 +1071,16 @@ internal sealed class DiffDeltaEmitter
                                         // Seq ops
                                         if (TryGetListInterface(member.Type, out var elType))
                                         {
-                                            var elFqn = elType.ToDisplayString(SymbolDisplayFormat
-                                                .FullyQualifiedFormat);
+                                            var elFqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
                                             void EmitListOp(string opName, string tmp)
                                             {
                                                 swKind.Case($"DeepEqual.Generator.Shared.DeltaKind.{opName}", () =>
                                                 {
                                                     w.Line($"object? {tmp} = {propAccess};");
-                                                    w.Line(
-                                                        $"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref {tmp}, in op);");
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref {tmp}, in op);");
                                                     if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn}){tmp};");
-                                                    if (!type.IsValueType && deltaTracked)
-                                                        w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                    if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
                                                 });
                                             }
 
@@ -1107,23 +1093,17 @@ internal sealed class DiffDeltaEmitter
                                         // Dict ops
                                         if (TryGetDictionaryTypes(member.Type, out var kType2, out var vType2))
                                         {
-                                            var kFqn2 = kType2.ToDisplayString(SymbolDisplayFormat
-                                                .FullyQualifiedFormat);
-                                            var vFqn2 = vType2.ToDisplayString(SymbolDisplayFormat
-                                                .FullyQualifiedFormat);
+                                            var kFqn2 = kType2.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                            var vFqn2 = vType2.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
                                             void EmitDictOp(string opName, string tmp)
                                             {
                                                 swKind.Case($"DeepEqual.Generator.Shared.DeltaKind.{opName}", () =>
                                                 {
                                                     w.Line($"object? {tmp} = {propAccess};");
-                                                    w.Line(
-                                                        $"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn2}, {vFqn2}>(ref {tmp}, in op);");
-                                                    if (hasSetterForMember)
-                                                        w.Line(
-                                                            $"{propAccess} = ({$"global::System.Collections.Generic.Dictionary<{kFqn2}, {vFqn2}>"}){tmp};");
-                                                    if (!type.IsValueType && deltaTracked)
-                                                        w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn2}, {vFqn2}>(ref {tmp}, in op);");
+                                                    if (hasSetterForMember) w.Line($"{propAccess} = ({$"global::System.Collections.Generic.Dictionary<{kFqn2}, {vFqn2}>"}){tmp};");
+                                                    if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
                                                 });
                                             }
 
@@ -1151,18 +1131,14 @@ internal sealed class DiffDeltaEmitter
                                             swKind.Case("DeepEqual.Generator.Shared.DeltaKind.NestedMember", () =>
                                             {
                                                 w.Line($"object? __obj = {propAccess};");
-                                                w.Line(
-                                                    "var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
+                                                w.Line("var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
                                                 w.If("__obj != null", () =>
                                                 {
                                                     w.Line("var __t = __obj.GetType();");
-                                                    w.Line(
-                                                        "GeneratedHelperRegistry.TryApplyDeltaSameType(__t, ref __obj, ref __subReader);");
+                                                    w.Line("GeneratedHelperRegistry.TryApplyDeltaSameType(__t, ref __obj, ref __subReader);");
                                                 });
-                                                if (hasSetterForMember)
-                                                    w.Line($"{propAccess} = ({typeFqn}{nullableQ})__obj;");
-                                                if (!type.IsValueType && deltaTracked)
-                                                    w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn}{nullableQ})__obj;");
+                                                if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
                                             });
                                         }
 
@@ -1172,14 +1148,14 @@ internal sealed class DiffDeltaEmitter
                                 });
                             });
                         }
+
                         swOuter.Default(() => { });
                     });
-
                 });
             });
-        }
 
-        w.Line();
+            w.Line();
+        }
 
         _emittedDiffDelta[key] = (emittedState.Diff || needDiff, emittedState.Delta || needDelta);
     }
