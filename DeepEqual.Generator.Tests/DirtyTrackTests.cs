@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Linq;
 using DeepEqual;
 using DeepEqual.Generator.Shared;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace DeepEqual.RewrittenTests;
@@ -331,7 +332,7 @@ public sealed class DirtyTrackTests
         Assert.False(target.__HasAnyDirty());
 
         target = target.ApplyDeepDelta(delta)!;
-        Assert.True(target.AreDeepEqual(mutated));
+        Assert.True(target.AreDeepEqual(mutated),"mutated: " + JsonConvert.SerializeObject(mutated) + " baseline " + JsonConvert.SerializeObject(target));
         Assert.False(target.__HasAnyDirty());
         Assert.Equal(mutated.Numbers, target.Numbers);
         Assert.Equal(mutated.Map, target.Map);
@@ -601,7 +602,7 @@ public sealed class DirtyTrackTests
         var adds = EnumerateDeep(delta)
             .Where(op => op.Kind == DeltaKind.SeqAddAt)
             .ToList();
-        Assert.Contains(adds, op => op.Index == 1);
+        Assert.True(adds.Any(op => op.Index == 1), JsonConvert.SerializeObject(adds));
         Assert.Single(adds.Where(op => op.Index == 1));
 
         var target = baseline.Clone();

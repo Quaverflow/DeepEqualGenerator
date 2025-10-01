@@ -12,10 +12,6 @@ namespace DeepEqual.Generator.Shared;
 /// </summary>
 public static class DeltaHelpers
 {
-    // ------------------------------------------------------------
-    // SEQUENCES (LISTS)
-    // ------------------------------------------------------------
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ApplyListOpCloneIfNeeded<T>(ref object? target, in DeltaOp op)
     {
@@ -32,32 +28,52 @@ public static class DeltaHelpers
 
                 case DeltaKind.SeqAddAt:
                     {
-                        var idx = op.Index;
+                        int idx = op.Index;
+                        if (idx < 0) idx = 0;
                         var value = (T)op.Value!;
+                        int count = list.Count;
 
-                        if ((uint)idx <= (uint)list.Count)
+                        if ((uint)idx <= (uint)count)
                         {
-                            if ((uint)idx < (uint)list.Count && EqualityComparer<T>.Default.Equals(list[idx], value))
+                            // Idempotency guards:
+
+                            // 1) If this add would start at an existing [v,v] pair, no-op
+                            if (idx + 1 < count &&
+                                EqualityComparer<T>.Default.Equals(list[idx], value) &&
+                                EqualityComparer<T>.Default.Equals(list[idx + 1], value))
+                            {
                                 return;
+                            }
 
-                            if (list.Count + 1 > list.Capacity)
-                                list.Capacity = Math.Max(list.Capacity * 2, list.Count + 1);
-
-                            if (idx == list.Count)
+                            // 2) If appending and the list already ends with v, no-op
+                            if (idx == count && count > 0 &&
+                                EqualityComparer<T>.Default.Equals(list[count - 1], value))
                             {
+                                return;
+                            }
+
+                            // 3) If this op was recorded with old length: idx == count-1
+                            // and that slot already equals v (post first append), no-op
+                            if (idx == count - 1 && idx >= 0 &&
+                                EqualityComparer<T>.Default.Equals(list[idx], value))
+                            {
+                                return;
+                            }
+
+                            if (count + 1 > list.Capacity)
+                                list.Capacity = Math.Max(list.Capacity * 2, count + 1);
+
+                            if (idx == count)
                                 list.Add(value);
-                            }
                             else
-                            {
                                 list.Insert(idx, value);
-                            }
                         }
                         else
                         {
-                            // out-of-range adds are clamped to end (ignore index)
-                            list.Add(value);
+                            // clamp to end; avoid duplicate when last already equals v
+                            if (count == 0 || !EqualityComparer<T>.Default.Equals(list[count - 1], value))
+                                list.Add(value);
                         }
-
                         return;
                     }
 
@@ -70,7 +86,7 @@ public static class DeltaHelpers
 
                 case DeltaKind.SeqNestedAt:
                     {
-                        var idx = op.Index;
+                        int idx = op.Index;
                         if ((uint)idx < (uint)list.Count)
                         {
                             var cur = list[idx];
@@ -82,11 +98,9 @@ public static class DeltaHelpers
                                 list[idx] = (T)obj!;
                             }
                         }
-
                         return;
                     }
             }
-
             return;
         }
 
@@ -103,22 +117,40 @@ public static class DeltaHelpers
 
                 case DeltaKind.SeqAddAt:
                     {
-                        var idx = op.Index;
+                        int idx = op.Index;
+                        if (idx < 0) idx = 0;
                         var value = (T)op.Value!;
+                        int count = ilist.Count;
 
-                        if ((uint)idx <= (uint)ilist.Count)
+                        if ((uint)idx <= (uint)count)
                         {
-                            if ((uint)idx < (uint)ilist.Count && EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                            // 1) duplicate already starting at idx
+                            if (idx + 1 < count &&
+                                EqualityComparer<T>.Default.Equals(ilist[idx], value) &&
+                                EqualityComparer<T>.Default.Equals(ilist[idx + 1], value))
+                            {
                                 return;
+                            }
+                            // 2) append-after-append
+                            if (idx == count && count > 0 &&
+                                EqualityComparer<T>.Default.Equals(ilist[count - 1], value))
+                            {
+                                return;
+                            }
+                            // 3) old-length index on second pass
+                            if (idx == count - 1 && idx >= 0 &&
+                                EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                            {
+                                return;
+                            }
 
                             ilist.Insert(idx, value);
                         }
                         else
                         {
-                            // clamp to end
-                            ilist.Insert(ilist.Count, value);
+                            if (count == 0 || !EqualityComparer<T>.Default.Equals(ilist[count - 1], value))
+                                ilist.Insert(count, value);
                         }
-
                         return;
                     }
 
@@ -131,7 +163,7 @@ public static class DeltaHelpers
 
                 case DeltaKind.SeqNestedAt:
                     {
-                        var idx = op.Index;
+                        int idx = op.Index;
                         if ((uint)idx < (uint)ilist.Count)
                         {
                             var cur = ilist[idx];
@@ -143,20 +175,18 @@ public static class DeltaHelpers
                                 ilist[idx] = (T)obj!;
                             }
                         }
-
                         return;
                     }
             }
-
             return;
         }
 
-        // clone path (target not a mutable list)
+        // clone path (unchanged)
         List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
             clone = new List<T>(ro.Count);
-            for (var i = 0; i < ro.Count; i++) clone.Add(ro[i]);
+            for (int i = 0; i < ro.Count; i++) clone.Add(ro[i]);
         }
         else if (target is IEnumerable<T> seq)
         {
@@ -176,26 +206,27 @@ public static class DeltaHelpers
                         clone[op.Index] = (T)op.Value!;
                     break;
                 }
-
             case DeltaKind.SeqAddAt:
                 {
-                    var ai = op.Index;
+                    int ai = op.Index;
                     if (ai < 0) ai = 0;
                     if (ai > clone.Count) ai = clone.Count;
-                    clone.Insert(ai, (T)op.Value!);
+                    if (!(ai == clone.Count && clone.Count > 0 &&
+                          EqualityComparer<T>.Default.Equals(clone[clone.Count - 1], (T)op.Value!)))
+                    {
+                        clone.Insert(ai, (T)op.Value!);
+                    }
                     break;
                 }
-
             case DeltaKind.SeqRemoveAt:
                 {
                     if ((uint)op.Index < (uint)clone.Count)
                         clone.RemoveAt(op.Index);
                     break;
                 }
-
             case DeltaKind.SeqNestedAt:
                 {
-                    var idx = op.Index;
+                    int idx = op.Index;
                     if ((uint)idx < (uint)clone.Count)
                     {
                         var cur = clone[idx];
@@ -207,7 +238,6 @@ public static class DeltaHelpers
                             clone[idx] = (T)obj!;
                         }
                     }
-
                     break;
                 }
         }
@@ -347,30 +377,71 @@ public static class DeltaHelpers
             return;
         }
 
-        var la = left.Count;
-        var lb = right.Count;
+        int na = left.Count;
+        int nb = right.Count;
 
-        var prefix = 0;
-        var maxPrefix = Math.Min(la, lb);
+        // -------- SINGLE-INSERT FAST PATH (pick earliest feasible k) --------
+        // Find the smallest k in [0..na] such that:
+        // left[0..k-1] == right[0..k-1] AND left[k..na-1] == right[k+1..nb-1]
+        if (nb == na + 1)
+        {
+            for (int k = 0; k <= na; k++)
+            {
+                // head must match up to k-1
+                bool headMatches = true;
+                for (int i = 0; i < k; i++)
+                {
+                    if (!comparer.Invoke(left[i], right[i], context))
+                    {
+                        headMatches = false;
+                        break;
+                    }
+                }
+                if (!headMatches) continue;
+
+                // tail must match with +1 shift
+                bool tailMatches = true;
+                for (int i = k; i < na; i++)
+                {
+                    if (!comparer.Invoke(left[i], right[i + 1], context))
+                    {
+                        tailMatches = false;
+                        break;
+                    }
+                }
+
+                if (tailMatches)
+                {
+                    writer.WriteSeqAddAt(memberIndex, k, right[k]);
+                    return;
+                }
+            }
+            // not a pure insert -> fall through
+        }
+        // -------------------------------------------------------------------
+
+        // Original prefix/suffix trimming
+        int prefix = 0;
+        int maxPrefix = Math.Min(na, nb);
         while (prefix < maxPrefix && comparer.Invoke(left[prefix], right[prefix], context)) prefix++;
 
-        var suffix = 0;
-        var maxSuffix = Math.Min(la - prefix, lb - prefix);
-        while (suffix < maxSuffix && comparer.Invoke(left[la - 1 - suffix], right[lb - 1 - suffix], context)) suffix++;
+        int suffix = 0;
+        int maxSuffix = Math.Min(na - prefix, nb - prefix);
+        while (suffix < maxSuffix && comparer.Invoke(left[na - 1 - suffix], right[nb - 1 - suffix], context)) suffix++;
 
-        var ra = la - prefix - suffix;
-        var rb = lb - prefix - suffix;
+        int ra = na - prefix - suffix;
+        int rb = nb - prefix - suffix;
 
-        // Duplicate-aware alignment (prefer largest k)
+        // Duplicate-aware alignment (existing logic)
         if (rb >= ra && ra > 0)
         {
-            var addBudget = rb - ra;
-            var chosenK = -1;
+            int addBudget = rb - ra;
+            int chosenK = -1;
 
-            for (var k = addBudget; k >= 0; k--)
+            for (int k = addBudget; k >= 0; k--)
             {
-                var match = true;
-                for (var i = 0; i < ra; i++)
+                bool match = true;
+                for (int i = 0; i < ra; i++)
                 {
                     if (!comparer.Invoke(left[prefix + i], right[prefix + k + i], context))
                     {
@@ -387,14 +458,14 @@ public static class DeltaHelpers
 
             if (chosenK >= 0)
             {
-                for (var i = 0; i < chosenK; i++)
+                for (int i = 0; i < chosenK; i++)
                     writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
 
-                var alignedLen = ra;
-                var tailAdds = addBudget - chosenK;
-                for (var i = 0; i < tailAdds; i++)
+                int alignedLen = ra;
+                int tailAdds = addBudget - chosenK;
+                for (int i = 0; i < tailAdds; i++)
                 {
-                    var insertIndex = prefix + chosenK + alignedLen + i;
+                    int insertIndex = prefix + chosenK + alignedLen + i;
                     writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
                 }
 
@@ -402,20 +473,25 @@ public static class DeltaHelpers
             }
         }
 
-        var common = Math.Min(ra, rb);
+        int common = Math.Min(ra, rb);
 
-        for (var i = 0; i < common; i++)
+        for (int i = 0; i < common; i++)
         {
-            var ai = prefix + i;
-            if (!comparer.Invoke(left[ai], right[ai], context)) writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+            int ai = prefix + i;
+            if (!comparer.Invoke(left[ai], right[ai], context))
+                writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
         }
 
         if (ra > rb)
-            for (var i = ra - 1; i >= rb; i--)
+        {
+            for (int i = ra - 1; i >= rb; i--)
                 writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+        }
         else if (rb > ra)
-            for (var i = ra; i < rb; i++)
+        {
+            for (int i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+        }
     }
 
     public static void ComputeListDelta<T>(
