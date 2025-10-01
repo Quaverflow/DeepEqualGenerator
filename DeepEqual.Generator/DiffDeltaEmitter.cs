@@ -961,13 +961,21 @@ internal sealed class DiffDeltaEmitter
                             if (TryGetListInterface(m.Type, out var elTypeForPresize) && m.Type is not IArrayTypeSymbol)
                             {
                                 var elFqnPS = elTypeForPresize.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                w.Line($"{{ var __obj = target.{m.Name}; if (__adds_m{idx} > 0 && __obj is System.Collections.Generic.List<{elFqnPS}> __l) __l.EnsureCapacity(__l.Count + __adds_m{idx}); }}");
+                                w.Line($"var __obj_list_m{idx} = target.{m.Name};");
+                                w.If($"__adds_m{idx} > 0 && __obj_list_m{idx} is System.Collections.Generic.List<{elFqnPS}> __l_m{idx}", () =>
+                                {
+                                    w.Line($"__l_m{idx}.EnsureCapacity(__l_m{idx}.Count + __adds_m{idx});");
+                                });
                             }
                             else if (TryGetDictionaryTypes(m.Type, out var preKType, out var preVType) && !IsExpando(m.Type))
                             {
                                 var kFqnPS = preKType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                                 var vFqnPS = preVType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                w.Line($"{{ var __obj = target.{m.Name}; if (__dictSets_m{idx} > 0 && __obj is System.Collections.Generic.Dictionary<{kFqnPS}, {vFqnPS}> __d) __d.EnsureCapacity(__d.Count + __dictSets_m{idx}); }}");
+                                w.Line($"var __obj_dict_m{idx} = target.{m.Name};");
+                                w.If($"__dictSets_m{idx} > 0 && __obj_dict_m{idx} is System.Collections.Generic.Dictionary<{kFqnPS}, {vFqnPS}> __d_m{idx}", () =>
+                                {
+                                    w.Line($"__d_m{idx}.EnsureCapacity(__d_m{idx}.Count + __dictSets_m{idx});");
+                                });
                             }
                         }
                     });
