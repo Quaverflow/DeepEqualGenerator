@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -223,7 +224,6 @@ internal sealed class DiffDeltaEmitter
 
     private void EmitDeltaTrackPart(SourceProductionContext spc, INamedTypeSymbol type, DiffDeltaTarget root)
     {
-        // (kept logic identical; only swapped to CodeWriter helpers for blocks/conditionals/loops)
         var ns = type.ContainingNamespace.IsGlobalNamespace ? null : type.ContainingNamespace.ToDisplayString();
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var typeParams = type.Arity > 0 ? "<" + string.Join(",", type.TypeArguments.Select(a => a.Name)) + ">" : "";
@@ -338,7 +338,7 @@ internal sealed class DiffDeltaEmitter
                     w.Line("bit = tz;");
                     w.Line("return true;");
                 })
-                .Else( () =>
+                .Else(() =>
                 {
                     w.Line("var ex = __dirtyEx;");
                     w.If("ex is not null", () =>
@@ -428,6 +428,7 @@ internal sealed class DiffDeltaEmitter
         spc.AddSource(hint, w.ToString());
     }
 
+
     private void EmitImplementationsForType(CodeWriter w, INamedTypeSymbol type, DiffDeltaTarget root)
     {
         var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -457,354 +458,392 @@ internal sealed class DiffDeltaEmitter
         // -------- DIFF: TryGetDiff__{id} --------
         if (needDiff)
         {
-            w.Open(
-                $"private static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) TryGetDiff__{id}{helperTypeParameterList}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context){helperConstraints}");
-
-            if (!type.IsValueType)
+            w.Method(
+                $"private static (bool hasDiff, DeepEqual.Generator.Shared.Diff<{fqn}> diff) TryGetDiff__{id}{helperTypeParameterList}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context){helperConstraints}",
+            () =>
             {
-                w.Open("if (object.ReferenceEquals(left, right))");
-                w.Line($"return (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty);");
-                w.Close();
-
-                w.Open("if (left is null && right is not null)");
-                w.Line($"return (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Replacement(right));");
-                w.Close();
-
-                w.Open("if (left is not null && right is null)");
-                w.Line($"return (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Replacement(right));");
-                w.Close();
-
-                if (root.CycleTrackingEnabled)
+                if (!type.IsValueType)
                 {
-                    w.Open("if (!context.Enter(left!, right!))");
-                    w.Line($"return (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty);");
-                    w.Close();
-                    w.Open("try");
+                    w.If("object.ReferenceEquals(left, right)", () =>
+                    {
+                        w.Line($"return (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty);");
+                    });
+
+                    w.If("left is null && right is not null", () =>
+                    {
+                        w.Line($"return (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Replacement(right));");
+                    });
+
+                    w.If("left is not null && right is null", () =>
+                    {
+                        w.Line($"return (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Replacement(right));");
+                    });
+
+                    if (root.CycleTrackingEnabled)
+                    {
+                        w.If("!context.Enter(left!, right!)", () =>
+                        {
+                            w.Line($"return (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty);");
+                        });
+                        TryChain.Try(w, () =>
+                        {
+                            w.Line("var changes = new System.Collections.Generic.List<DeepEqual.Generator.Shared.MemberChange>();");
+                            foreach (var m in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
+                                EmitMemberDiff(w, type, m, root);
+
+                            w.Line($"return changes.Count == 0 ? (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty) : (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Members(changes));");
+                        })
+                        .Finally(() =>
+                        {
+                            w.Line("context.Exit(left!, right!);");
+                        });
+                        return;
+                    }
                 }
-            }
 
-            w.Line("var changes = new System.Collections.Generic.List<DeepEqual.Generator.Shared.MemberChange>();");
+                w.Line("var changes = new System.Collections.Generic.List<DeepEqual.Generator.Shared.MemberChange>();");
+                foreach (var m in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
+                    EmitMemberDiff(w, type, m, root);
 
-            // Emit per-member DIFF
-            foreach (var m in OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)))
-                EmitMemberDiff(w, type, m, root);
+                w.Line($"return changes.Count == 0 ? (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty) : (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Members(changes));");
+            });
 
-            w.Line(
-                $"return changes.Count == 0 ? (false, DeepEqual.Generator.Shared.Diff<{fqn}>.Empty) : (true, DeepEqual.Generator.Shared.Diff<{fqn}>.Members(changes));");
-
-            if (!type.IsValueType && root.CycleTrackingEnabled)
-            {
-                w.Close();
-                w.Open("finally");
-                w.Line("context.Exit(left!, right!);");
-                w.Close();
-            }
-
-            w.Close();
             w.Line();
         }
 
         // -------- DELTA: ComputeDelta__{id} --------
         if (needDelta)
         {
-            w.Open(
-                $"private static void ComputeDelta__{id}{helperTypeParameterList}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer){helperConstraints}");
-
-            if (!type.IsValueType)
+            w.Method(
+                $"private static void ComputeDelta__{id}{helperTypeParameterList}({fqn}{nullSuffix} left, {fqn}{nullSuffix} right, DeepEqual.Generator.Shared.ComparisonContext context, ref DeepEqual.Generator.Shared.DeltaWriter writer){helperConstraints}",
+            () =>
             {
-                w.Open("if (object.ReferenceEquals(left, right))");
-                w.Line("return;");
-                w.Close();
-
-                w.Open("if (left is null && right is not null)");
-                w.Line("writer.WriteReplaceObject(right);");
-                w.Line("return;");
-                w.Close();
-
-                w.Open("if (left is not null && right is null)");
-                w.Line("writer.WriteReplaceObject(right);");
-                w.Line("return;");
-                w.Close();
-
-                if (root.CycleTrackingEnabled)
+                if (!type.IsValueType)
                 {
-                    w.Open("if (!context.Enter(left!, right!))");
-                    w.Line("return;");
-                    w.Close();
-                    w.Open("try");
-                }
-            }
-
-            var ordered = OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)).ToArray();
-
-            if (deltaTracked && !type.IsValueType)
-            {
-                // Dirty-track emission:
-                // - Validated mode: drain bits so the right object is no longer "dirty", but DO NOT emit via fast loop.
-                // - Fast mode: run the existing dirty-bit loop + catch-up exactly as before.
-                // - After that: if validated OR there were no dirty bits, run per-member comparisons (EmitMemberDelta).
-
-                w.Line("var __validate = context.Options.ValidateDirtyOnEmit;");
-                w.Line("var __r = right;");
-                w.Line("var __hasDirty = __r is not null && __r.__HasAnyDirty();");
-
-                // VALIDATED MODE: clear flags, do not emit from fast loop
-                w.Open("if (__hasDirty && __validate)", () =>
-                {
-                    w.Line("while (__r.__TryPopNextDirty(out _)) { }");
-                });
-                w.Open("if (__validate && right is not null)", () =>
-                {
-                    // For each reference-type member that itself is [DeltaTrack], flush its queue
-                    foreach (var m in ordered)
+                    w.If("object.ReferenceEquals(left, right)", () =>
                     {
-                        // Only reference-like, non-array, non-list, non-dictionary members
-                        bool isPlainRef =
-                            m.Type.IsReferenceType &&
-                            m.Type.SpecialType != SpecialType.System_String &&
-                            !(m.Type is IArrayTypeSymbol) &&
-                            !TryGetListInterface(m.Type, out _) &&
-                            !TryGetDictionaryTypes(m.Type, out _, out _);
+                        w.Line("return;");
+                    });
 
-                        if (isPlainRef && m.Type is INamedTypeSymbol nt && HasDeltaTrack(nt))
+                    w.If("left is null && right is not null", () =>
+                    {
+                        w.Line("writer.WriteReplaceObject(right);");
+                        w.Line("return;");
+                    });
+
+                    w.If("left is not null && right is null", () =>
+                    {
+                        w.Line("writer.WriteReplaceObject(right);");
+                        w.Line("return;");
+                    });
+
+                    if (root.CycleTrackingEnabled)
+                    {
+                        w.If("!context.Enter(left!, right!)", () =>
                         {
-                            var rightExpr = "right." + m.Name;
-                            w.Open($"if ({rightExpr} is not null && {rightExpr}.__HasAnyDirty())", () =>
+                            w.Line("return;");
+                        });
+
+                        TryChain.Try(w, () =>
+                        {
+                            EmitComputeDeltaBody();
+                        })
+                        .Finally(() =>
+                        {
+                            w.Line("context.Exit(left!, right!);");
+                        });
+                        return;
+                    }
+                }
+
+                EmitComputeDeltaBody();
+
+                // ---- local to method: body for compute delta ----
+                void EmitComputeDeltaBody()
+                {
+                    var ordered = OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema)).ToArray();
+
+                    if (deltaTracked && !type.IsValueType)
+                    {
+                        w.Line("var __validate = context.Options.ValidateDirtyOnEmit;");
+                        w.Line("var __r = right;");
+                        w.Line("var __hasDirty = __r is not null && __r.__HasAnyDirty();");
+
+                        // validated: drain
+                        w.If("__hasDirty && __validate", () =>
+                        {
+                            w.While("__r.__TryPopNextDirty(out _)", () => { });
+                        });
+
+                        // also flush children marked [DeltaTrack]
+                        w.If("__validate && right is not null", () =>
+                        {
+                            foreach (var m in ordered)
                             {
-                                w.Line($"while ({rightExpr}.__TryPopNextDirty(out _)) {{ }}");
+                                bool isPlainRef =
+                                    m.Type.IsReferenceType &&
+                                    m.Type.SpecialType != SpecialType.System_String &&
+                                    !(m.Type is IArrayTypeSymbol) &&
+                                    !TryGetListInterface(m.Type, out _) &&
+                                    !TryGetDictionaryTypes(m.Type, out _, out _);
+
+                                if (isPlainRef && m.Type is INamedTypeSymbol nt && HasDeltaTrack(nt))
+                                {
+                                    var rightExpr = "right." + m.Name;
+                                    w.If($"{rightExpr} is not null && {rightExpr}.__HasAnyDirty()", () =>
+                                    {
+                                        w.While($"{rightExpr}.__TryPopNextDirty(out _)", () => { });
+                                    });
+                                }
+                            }
+                        });
+
+                        // fast mode
+                        w.If("__hasDirty && !__validate", () =>
+                        {
+                            foreach (var m in ordered)
+                            {
+                                var idx = GetStableMemberIndex(type, m);
+                                w.Line($"bool __emitted_m{idx} = false;");
+                            }
+
+                            w.While("__r.__TryPopNextDirty(out var __bit)", () =>
+                            {
+                                SwitchChain.Switch(w, "__bit", sw =>
+                                {
+                                    for (var idx = 0; idx < ordered.Length; idx++)
+                                    {
+                                        var mem = ordered[idx];
+                                        var stable = GetStableMemberIndex(type, mem);
+                                        var leftExpr = "left." + mem.Name;
+                                        var rightExpr = "right." + mem.Name;
+                                        var (kind, orderInsensitive, keys, dShallow, dSkip) = ResolveEffectiveSettings(mem);
+
+                                        sw.Case(idx.ToString(), () =>
+                                        {
+                                            if (!dSkip && (orderInsensitive || keys.Length > 0))
+                                            {
+                                                w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            if (kind == CompareKind.Skip || dSkip)
+                                            {
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            if (TryGetDictionaryTypes(mem.Type, out var kType, out var vType))
+                                            {
+                                                var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                                var vFqn = vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                                var nestedExpr = IsValueLike(vType) ? "false" : "true";
+                                                w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>({leftExpr}, {rightExpr}, {stable}, ref writer, {nestedExpr}, context);");
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            if (TryGetEnumerableElement(mem.Type, out var elemType) && TryGetListInterface(mem.Type, out _))
+                                            {
+                                                var (_, ordIns, keyMembers, _, dSk) = ResolveEffectiveSettings(mem);
+
+                                                if (!dSk && (ordIns || keyMembers.Length > 0))
+                                                {
+                                                    w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                                    w.Line($"__emitted_m{stable} = true;");
+                                                    return;
+                                                }
+
+                                                var elFqn = elemType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                                var deepAttr = GetDeepCompareAttribute(mem.Symbol);
+                                                var custom = GetEffectiveComparerType(elemType, deepAttr);
+
+                                                if (custom != null)
+                                                {
+                                                    var cfqn = custom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                                    var cmpVar = "__cmpE_" + SanitizeIdentifier(type.Name) + "_" + SanitizeIdentifier(mem.Name);
+                                                    w.Line($"var {cmpVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cfqn}))!;");
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}, DeepEqual.Generator.Shared.DelegatingElementComparer<{elFqn}>>({leftExpr}, {rightExpr}, {stable}, ref writer, new DeepEqual.Generator.Shared.DelegatingElementComparer<{elFqn}>({cmpVar}), context);");
+                                                }
+                                                else if (IsValueLike(elemType))
+                                                {
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}, DeepEqual.Generator.Shared.DefaultElementComparer<{elFqn}>>({leftExpr}, {rightExpr}, {stable}, ref writer, new DeepEqual.Generator.Shared.DefaultElementComparer<{elFqn}>(), context);");
+                                                }
+                                                else
+                                                {
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDeltaNested<{elFqn}>({leftExpr}, {rightExpr}, {stable}, ref writer, context);");
+                                                }
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            if (TryGetEnumerableElement(mem.Type, out _))
+                                            {
+                                                w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            if (IsValueLike(mem.Type) || kind == CompareKind.Reference || kind == CompareKind.Shallow || dShallow)
+                                            {
+                                                w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            if (mem.Type is INamedTypeSymbol { IsGenericType: false, IsAnonymousType: false })
+                                            {
+                                                var ltmp = $"__l_{stable}";
+                                                var rtmp = $"__r_{stable}";
+                                                w.Line($"var {ltmp} = {leftExpr};");
+                                                w.Line($"var {rtmp} = {rightExpr};");
+                                                w.Line("var __doc = new DeepEqual.Generator.Shared.DeltaDocument();");
+                                                w.Line("var __w = new DeepEqual.Generator.Shared.DeltaWriter(__doc);");
+                                                w.If($"!object.ReferenceEquals({ltmp}, {rtmp}) && {ltmp} is not null && {rtmp} is not null", () =>
+                                                {
+                                                    w.Line($"var __t = {ltmp}.GetType();");
+                                                    w.If($"object.ReferenceEquals(__t, {rtmp}.GetType())", () =>
+                                                    {
+                                                        w.Line($"GeneratedHelperRegistry.ComputeDeltaSameType(__t, {ltmp}, {rtmp}, context, ref __w);");
+                                                    });
+                                                });
+                                                w.If("!__doc.IsEmpty", () =>
+                                                {
+                                                    w.Line($"writer.WriteNestedMember({stable}, __doc);");
+                                                })
+                                                .Else(() =>
+                                                {
+                                                    w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                                });
+                                                w.Line($"__emitted_m{stable} = true;");
+                                                return;
+                                            }
+
+                                            w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                            w.Line($"__emitted_m{stable} = true;");
+                                        });
+                                    }
+                                });
                             });
-                        }
-                    }
-                });
-                // FAST MODE: original dirty-bit loop + catch-up
-                w.Open("if (__hasDirty && !__validate)");
-                foreach (var m in ordered)
-                {
-                    var idx = GetStableMemberIndex(type, m);
-                    w.Line($"bool __emitted_m{idx} = false;");
-                }
-                w.Open("while (__r.__TryPopNextDirty(out var __bit))");
-                w.Open("switch (__bit)");
-                for (var idx = 0; idx < ordered.Length; idx++)
-                {
-                    var mem = ordered[idx];
-                    var stable = GetStableMemberIndex(type, mem);
-                    var leftExpr = "left." + mem.Name;
-                    var rightExpr = "right." + mem.Name;
 
-                    // Unordered/keyed lists forced to Set
-                    var (kind, orderInsensitive, keys, dShallow, dSkip) = ResolveEffectiveSettings(mem);
-                    if (!dSkip && (orderInsensitive || keys.Length > 0))
-                    {
-                        w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                        w.Line("break;");
-                        continue;
-                    }
+                            // post-loop catch-up for unordered/keyed lists
+                            foreach (var mem in ordered)
+                            {
+                                if (TryGetEnumerableElement(mem.Type, out _) && TryGetListInterface(mem.Type, out _))
+                                {
+                                    var (_, ordIns, keyMembers, _, dSkip2) = ResolveEffectiveSettings(mem);
+                                    if (!dSkip2 && (ordIns || keyMembers.Length > 0))
+                                    {
+                                        var stable = GetStableMemberIndex(type, mem);
+                                        var rightExpr = "right." + mem.Name;
+                                        w.If($"!__emitted_m{stable}", () =>
+                                        {
+                                            w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
+                                        });
+                                    }
+                                }
+                            }
+                        });
 
-                    w.Open("case " + idx + ":");
-
-                    if (kind == CompareKind.Skip || dSkip)
-                    {
-                        w.Line($"__emitted_m{stable} = true;");
-                        w.Line("break;");
-                        w.Close();
-                        continue;
-                    }
-
-                    if (TryGetDictionaryTypes(mem.Type, out var kType, out var vType))
-                    {
-                        var kFqn = kType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        var vFqn = vType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        var nestedExpr = IsValueLike(vType) ? "false" : "true";
-                        w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeDictDelta<{kFqn}, {vFqn}>({leftExpr}, {rightExpr}, {stable}, ref writer, {nestedExpr}, context);");
-                        w.Line($"__emitted_m{stable} = true;");
-                        w.Line("break;");
-                        w.Close();
-                        continue;
-                    }
-
-                    if (TryGetEnumerableElement(mem.Type, out var elemType) && TryGetListInterface(mem.Type, out _))
-                    {
-                        var (_, ordIns, keyMembers, _, dSk) = ResolveEffectiveSettings(mem);
-
-                        if (!dSk && (ordIns || keyMembers.Length > 0))
+                        // Validated mode OR no-dirty: per-member comparison
+                        w.If("!__hasDirty || __validate", () =>
                         {
-                            w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                            w.Line($"__emitted_m{stable} = true;");
-                            w.Line("break;");
-                            w.Close();
-                            continue;
-                        }
-
-                        var elFqn = elemType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        var deepAttr = GetDeepCompareAttribute(mem.Symbol);
-                        var custom = GetEffectiveComparerType(elemType, deepAttr);
-
-                        if (custom != null)
-                        {
-                            var cfqn = custom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                            var cmpVar = "__cmpE_" + SanitizeIdentifier(type.Name) + "_" + SanitizeIdentifier(mem.Name);
-                            w.Line($"var {cmpVar} = (System.Collections.Generic.IEqualityComparer<{elFqn}>)System.Activator.CreateInstance(typeof({cfqn}))!;");
-                            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}, DeepEqual.Generator.Shared.DelegatingElementComparer<{elFqn}>>({leftExpr}, {rightExpr}, {stable}, ref writer, new DeepEqual.Generator.Shared.DelegatingElementComparer<{elFqn}>({cmpVar}), context);");
-                        }
-                        else if (IsValueLike(elemType))
-                        {
-                            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDelta<{elFqn}, DeepEqual.Generator.Shared.DefaultElementComparer<{elFqn}>>({leftExpr}, {rightExpr}, {stable}, ref writer, new DeepEqual.Generator.Shared.DefaultElementComparer<{elFqn}>(), context);");
-                        }
-                        else
-                        {
-                            w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ComputeListDeltaNested<{elFqn}>({leftExpr}, {rightExpr}, {stable}, ref writer, context);");
-                        }
-                        w.Line($"__emitted_m{stable} = true;");
-                        w.Line("break;");
-                        w.Close();
-                        continue;
+                            foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
+                        });
                     }
-
-                    if (TryGetEnumerableElement(mem.Type, out _))
+                    else
                     {
-                        w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                        w.Line($"__emitted_m{stable} = true;");
-                        w.Line("break;");
-                        w.Close();
-                        continue;
-                    }
-
-                    if (IsValueLike(mem.Type) || kind == CompareKind.Reference || kind == CompareKind.Shallow || dShallow)
-                    {
-                        w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                        w.Line($"__emitted_m{stable} = true;");
-                        w.Line("break;");
-                        w.Close();
-                        continue;
-                    }
-
-                    // Concrete class nested delta
-                    if (mem.Type is INamedTypeSymbol { IsGenericType: false, IsAnonymousType: false })
-                    {
-                        var ltmp = $"__l_{stable}";
-                        var rtmp = $"__r_{stable}";
-                        w.Line($"var {ltmp} = {leftExpr};");
-                        w.Line($"var {rtmp} = {rightExpr};");
-                        w.Line("var __doc = new DeepEqual.Generator.Shared.DeltaDocument();");
-                        w.Line("var __w = new DeepEqual.Generator.Shared.DeltaWriter(__doc);");
-                        w.Open($"if (!object.ReferenceEquals({ltmp}, {rtmp}) && {ltmp} is not null && {rtmp} is not null)");
-                        w.Line($"var __t = {ltmp}.GetType();");
-                        w.Open($"if (object.ReferenceEquals(__t, {rtmp}.GetType()))");
-                        w.Line($"GeneratedHelperRegistry.ComputeDeltaSameType(__t, {ltmp}, {rtmp}, context, ref __w);");
-                        w.Close();
-                        w.Close();
-                        w.Open("if (!__doc.IsEmpty)");
-                        w.Line($"writer.WriteNestedMember({stable}, __doc);");
-                        w.Close();
-                        w.Open("else");
-                        w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                        w.Close();
-                        w.Line("break;");
-                        w.Close();
-                        continue;
-                    }
-
-                    w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                    w.Line("break;");
-                    w.Close();
-                }
-                w.Close(); // switch
-                w.Close(); // while
-
-                // Post-loop catch-up for unordered/keyed lists
-                foreach (var mem in ordered)
-                {
-                    if (TryGetEnumerableElement(mem.Type, out _) && TryGetListInterface(mem.Type, out _))
-                    {
-                        var (_, ordIns, keyMembers, _, dSkip2) = ResolveEffectiveSettings(mem);
-                        if (!dSkip2 && (ordIns || keyMembers.Length > 0))
-                        {
-                            var stable = GetStableMemberIndex(type, mem);
-                            var rightExpr = "right." + mem.Name;
-                            w.Open($"if (!__emitted_m{stable})");
-                            w.Line($"writer.WriteSetMember({stable}, {rightExpr});");
-                            w.Close();
-                        }
+                        foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
                     }
                 }
-                w.Close(); // if (__hasDirty && !__validate)
+            });
 
-                // Validated mode OR no-dirty: per-member comparison (suppresses reverts)
-                w.Open("if (!__hasDirty || __validate)");
-                foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
-                w.Close();
-            }
-            else
-            {
-                // No dirty-track: per-member compare only
-                foreach (var m in ordered) EmitMemberDelta(w, type, m, root);
-            }
-
-
-            if (!type.IsValueType && root.CycleTrackingEnabled)
-            {
-                w.Close();
-                w.Open("finally");
-                w.Line("context.Exit(left!, right!);");
-                w.Close();
-            }
-            w.Close();
             w.Line();
         }
 
         // -------- DELTA: ApplyDelta__{id} --------
         if (needDelta)
         {
-            // Local helpers (inside emitted method scope)
+            // helper lambdas that emit *generated* code using fluent helpers
             void EmitInPlaceReplaceForGetOnlyCollection(string targetExpr, string elFqn, string kind)
             {
                 switch (kind)
                 {
                     case "ISet":
                         w.Line($"var __dobj = {targetExpr};");
-                        w.Open($"if (__dobj is System.Collections.Generic.ISet<{elFqn}> __set)");
-                        w.Line($"__set.Clear();");
-                        w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src)");
-                        w.Line($"foreach (var __v in __src) __set.Add(__v);");
-                        w.Close(); w.Close();
+                        w.If($"__dobj is System.Collections.Generic.ISet<{elFqn}> __set", () =>
+                        {
+                            w.Line("__set.Clear();");
+                            w.If($"op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src", () =>
+                            {
+                                w.Foreach("var __v", "__src", () =>
+                                {
+                                    w.Line("__set.Add(__v);");
+                                });
+                            });
+                        });
                         break;
 
                     case "LinkedList":
                         w.Line($"var __ldst = {targetExpr};");
-                        w.Open($"if (__ldst is System.Collections.Generic.LinkedList<{elFqn}> __ll)");
-                        w.Line($"__ll.Clear();");
-                        w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src)");
-                        w.Line($"foreach (var __v in __src) __ll.AddLast(__v);");
-                        w.Close(); w.Close();
+                        w.If($"__ldst is System.Collections.Generic.LinkedList<{elFqn}> __ll", () =>
+                        {
+                            w.Line("__ll.Clear();");
+                            w.If($"op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src", () =>
+                            {
+                                w.Foreach("var __v", "__src", () =>
+                                {
+                                    w.Line("__ll.AddLast(__v);");
+                                });
+                            });
+                        });
                         break;
 
                     case "Queue":
                         w.Line($"var __qdst = {targetExpr};");
-                        w.Open($"if (__qdst is System.Collections.Generic.Queue<{elFqn}> __q)");
-                        w.Line($"__q.Clear();");
-                        w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src)");
-                        w.Line($"foreach (var __v in __src) __q.Enqueue(__v);");
-                        w.Close(); w.Close();
+                        w.If($"__qdst is System.Collections.Generic.Queue<{elFqn}> __q", () =>
+                        {
+                            w.Line("__q.Clear();");
+                            w.If($"op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src", () =>
+                            {
+                                w.Foreach("var __v", "__src", () =>
+                                {
+                                    w.Line("__q.Enqueue(__v);");
+                                });
+                            });
+                        });
                         break;
 
                     case "Stack":
                         w.Line($"var __sdst = {targetExpr};");
-                        w.Open($"if (__sdst is System.Collections.Generic.Stack<{elFqn}> __s)");
-                        w.Line($"__s.Clear();");
-                        w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src)");
-                        w.Line($"var __tmp = __src as System.Collections.Generic.IList<{elFqn}> ?? new System.Collections.Generic.List<{elFqn}>(__src);");
-                        w.Line($"for (int __i = __tmp.Count - 1; __i >= 0; __i--) __s.Push(__tmp[__i]);");
-                        w.Close(); w.Close();
+                        w.If($"__sdst is System.Collections.Generic.Stack<{elFqn}> __s", () =>
+                        {
+                            w.Line("__s.Clear();");
+                            w.If($"op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src", () =>
+                            {
+                                w.Line($"var __tmp = __src as System.Collections.Generic.IList<{elFqn}> ?? new System.Collections.Generic.List<{elFqn}>(__src);");
+                                w.ForRaw("int __i = __tmp.Count - 1; __i >= 0; __i--", () =>
+                                {
+                                    w.Line("__s.Push(__tmp[__i]);");
+                                });
+                            });
+                        });
                         break;
 
                     case "ICollection":
                         w.Line($"var __cdst = {targetExpr};");
-                        w.Open($"if (__cdst is System.Collections.Generic.ICollection<{elFqn}> __c)");
-                        w.Line($"__c.Clear();");
-                        w.Open($"if (op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src)");
-                        w.Line($"foreach (var __v in __src) __c.Add(__v);");
-                        w.Close(); w.Close();
+                        w.If($"__cdst is System.Collections.Generic.ICollection<{elFqn}> __c", () =>
+                        {
+                            w.Line("__c.Clear();");
+                            w.If($"op.Value is System.Collections.Generic.IEnumerable<{elFqn}> __src", () =>
+                            {
+                                w.Foreach("var __v", "__src", () =>
+                                {
+                                    w.Line("__c.Add(__v);");
+                                });
+                            });
+                        });
                         break;
                 }
             }
@@ -812,268 +851,339 @@ internal sealed class DiffDeltaEmitter
             string BclKind(ITypeSymbol t, out ITypeSymbol? e)
             {
                 e = null;
-                if (!TryGetEnumerableElement(t, out var te)) return "";
+
+                // We require an element type. If we can't find one, we bail out.
+                if (!TryGetEnumerableElement(t, out var te) || te is null)
+                    return "";
+
                 e = te;
+
                 var f = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
                 if (f.StartsWith("global::System.Collections.Generic.HashSet<")) return "ISet";
                 if (f.StartsWith("global::System.Collections.Generic.SortedSet<")) return "ISet";
                 if (f.StartsWith("global::System.Collections.Generic.LinkedList<")) return "LinkedList";
                 if (f.StartsWith("global::System.Collections.Generic.Queue<")) return "Queue";
                 if (f.StartsWith("global::System.Collections.Generic.Stack<")) return "Stack";
+
                 foreach (var i in (t as INamedTypeSymbol)?.AllInterfaces ?? [])
                 {
                     var ifqn = i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     if (ifqn.StartsWith("global::System.Collections.Generic.ISet<")) return "ISet";
                     if (ifqn.StartsWith("global::System.Collections.Generic.ICollection<")) return "ICollection";
                 }
+
+                // If we got here, we *did* have an element type, but it's not one of the BCL
+                // shapes we special-case; treat as unsupported (no in-place replace).
+                e = null;
                 return "";
             }
 
-            w.Open(
-                $"private static void ApplyDelta__{id}{helperTypeParameterList}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader){helperConstraints}");
-            w.Line("var __ops = reader.AsSpan();");
-            // Handle root-level ReplaceObject *before* any access to 'target'
-            w.Open("for (int __ri = 0; __ri < __ops.Length; __ri++)");
-            w.Line("ref readonly var __ro = ref __ops[__ri];");
-            w.Open("if (__ro.MemberIndex == -1 && __ro.Kind == DeepEqual.Generator.Shared.DeltaKind.ReplaceObject)");
-            w.Line($"target = ({fqn}{nullSuffix})__ro.Value;");
-            w.Line("return;");
-            w.Close(); // if
-            w.Close(); // for
 
-            // presize pass (unchanged)
-            var __preByOrdinal = OrderMembers(
-                    EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema))
-                .Select(m => (ms: m, idx: GetStableMemberIndex(type, m)))
-                .ToArray();
-
-            var __hasPresizableMembers =
-                __preByOrdinal.Any(t =>
-                    (TryGetListInterface(t.ms.Type, out _) && !(t.ms.Type is IArrayTypeSymbol)) ||
-                    (TryGetDictionaryTypes(t.ms.Type, out _, out _) && !IsExpando(t.ms.Type)));
-
-            w.Open("if (target is not null)");
-            foreach (var t2 in __preByOrdinal)
+            w.Method(
+                $"private static void ApplyDelta__{id}{helperTypeParameterList}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader){helperConstraints}",
+            () =>
             {
-                var m = t2.ms;
-                var idx = t2.idx;
+                w.Line("var __ops = reader.AsSpan();");
 
-                if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
-                    w.Line($"int __adds_m{idx} = 0;");
-                else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
-                    w.Line($"int __dictSets_m{idx} = 0;");
-            }
-            w.Open("for (int __i=0; __i<__ops.Length; __i++)");
-            w.Line("ref readonly var __o = ref __ops[__i];");
-            w.Open("switch (__o.MemberIndex)");
-            foreach (var t2 in __preByOrdinal)
-            {
-                var m = t2.ms;
-                var idx = t2.idx;
-
-                if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
-                    w.Line($"case {idx}: if (__o.Kind==DeepEqual.Generator.Shared.DeltaKind.SeqAddAt) __adds_m{idx}++; break;");
-                else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
-                    w.Line($"case {idx}: if (__o.Kind==DeepEqual.Generator.Shared.DeltaKind.DictSet) __dictSets_m{idx}++; break;");
-            }
-            w.Close(); // switch
-            w.Close(); // for
-
-            foreach (var t2 in __preByOrdinal)
-            {
-                var m = t2.ms;
-                var idx = t2.idx;
-                var propAccess = "target." + m.Name;
-
-                if (TryGetListInterface(m.Type, out var elTypeForPresize) && m.Type is not IArrayTypeSymbol)
+                // early ReplaceObject
+                w.ForRaw("int __ri = 0; __ri < __ops.Length; __ri++", () =>
                 {
-                    var elFqnPS = elTypeForPresize.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    w.Line($"{{ var __obj = {propAccess}; if (__adds_m{idx} > 0 && __obj is System.Collections.Generic.List<{elFqnPS}> __l) __l.EnsureCapacity(__l.Count + __adds_m{idx}); }}");
-                }
-                else if (TryGetDictionaryTypes(m.Type, out var preKType, out var preVType) && !IsExpando(m.Type))
-                {
-                    var kFqnPS = preKType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var vFqnPS = preVType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    w.Line($"{{ var __obj = {propAccess}; if (__dictSets_m{idx} > 0 && __obj is System.Collections.Generic.Dictionary<{kFqnPS}, {vFqnPS}> __d) __d.EnsureCapacity(__d.Count + __dictSets_m{idx}); }}");
-                }
-            }
-            w.Close(); // if presize
-
-            // apply pass
-            w.Open("for (int __ai=0; __ai<__ops.Length; __ai++)");
-            w.Line("ref readonly var op = ref __ops[__ai];");
-            w.Open("switch (op.MemberIndex)");
-
-            // ReplaceObject
-            w.Open("case -1:");
-            w.Open("if (op.Kind == DeepEqual.Generator.Shared.DeltaKind.ReplaceObject)");
-            w.Line($"target = ({fqn}{nullSuffix})op.Value;");
-            w.Line("return;");
-            w.Close();
-            w.Line("break;");
-            w.Close();
-
-            // Each member
-            var byOrdinal = OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema))
-                .Select((ms, i) => (ms, i)).ToArray();
-
-            foreach (var t2 in byOrdinal)
-            {
-                var member = t2.ms;
-                var ordinal = t2.i;
-                var memberIdx = GetStableMemberIndex(type, member);
-                var propAccess = "target." + member.Name;
-                var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                var nullableQ = member.Type.IsReferenceType ? "?" : "";
-                var hasSetterForMember = member.Symbol is IPropertySymbol __ps2 && __ps2.SetMethod is not null;
-
-                w.Open($"case {memberIdx}:");
-                w.Open("switch (op.Kind)");
-
-                if (IsExpando(member.Type)) // you already have IsExpando(ITypeSymbol) in this file
-                {
-                    // emit only the expando cases, then close and continue
-                    EmitApplyForExpando(w, propAccess, clearDirty: !type.IsValueType && deltaTracked, ordinal);
-                    w.Line("default: { break; }");
-                    w.Close();        // switch (op.Kind)
-                    w.Line("break;"); // case memberIdx
-                    w.Close();
-                    continue;         // move to next member
-                }
-
-                // SetMember
-                w.Open("case DeepEqual.Generator.Shared.DeltaKind.SetMember:");
-                if (member.Type is IArrayTypeSymbol)
-                {
-                    w.Line($"{propAccess} = ({typeFqn}{nullableQ})op.Value;");
-                }
-                else if (TryGetDictionaryTypes(member.Type, out var kForSet, out var vForSet))
-                {
-                    var kFqn = kForSet.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var vFqn = vForSet.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-                    if (hasSetterForMember)
+                    w.Line("ref readonly var __ro = ref __ops[__ri];");
+                    w.If("__ro.MemberIndex == -1 && __ro.Kind == DeepEqual.Generator.Shared.DeltaKind.ReplaceObject", () =>
                     {
-                        w.Line($"{propAccess} = ({$"global::System.Collections.Generic.Dictionary<{kFqn}, {vFqn}>"}{nullableQ})op.Value;");
-                    }
-                    else
-                    {
-                        w.Line($"var __dobj = {propAccess};");
-                        w.Open($"if (__dobj is global::System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __d)");
-                        w.Line($"__d.Clear();");
-                        w.Open($"if (op.Value is global::System.Collections.Generic.IEnumerable<global::System.Collections.Generic.KeyValuePair<{kFqn}, {vFqn}>> __src)");
-                        w.Line($"foreach (var __kv in __src) __d[__kv.Key] = __kv.Value;");
-                        w.Close(); w.Close();
-                    }
-                }
-                else
+                        w.Line($"target = ({fqn}{nullSuffix})__ro.Value;");
+                        w.Line("return;");
+                    });
+                });
+
+                // presize pass setup
+                var __preByOrdinal = OrderMembers(
+                        EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema))
+                    .Select(m => (ms: m, idx: GetStableMemberIndex(type, m)))
+                    .ToArray();
+
+                var __hasPresizableMembers =
+                    __preByOrdinal.Any(t =>
+                        (TryGetListInterface(t.ms.Type, out _) && !(t.ms.Type is IArrayTypeSymbol)) ||
+                        (TryGetDictionaryTypes(t.ms.Type, out _, out _) && !IsExpando(t.ms.Type)));
+
+                if (__hasPresizableMembers)
                 {
-                    // handle get-only BCL collections
-                    var bcl = BclKind(member.Type, out var elT);
-                    if (!hasSetterForMember && !string.IsNullOrEmpty(bcl))
+                    w.If("target is not null", () =>
                     {
-                        var eFqn = elT!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        EmitInPlaceReplaceForGetOnlyCollection(propAccess, eFqn, bcl);
-                    }
-                    else
-                    {
-                        w.Line($"{propAccess} = ({typeFqn})op.Value;");
-                    }
-                }
-                if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
-                w.Line("break;");
-                w.Close(); // SetMember
+                        foreach (var t2 in __preByOrdinal)
+                        {
+                            var m = t2.ms;
+                            var idx = t2.idx;
 
-                // Seq ops
-                if (TryGetListInterface(member.Type, out var elType) /* && not array */)
+                            if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
+                                w.Line($"int __adds_m{idx} = 0;");
+                            else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
+                                w.Line($"int __dictSets_m{idx} = 0;");
+                        }
+
+                        w.ForRaw("int __i=0; __i<__ops.Length; __i++", () =>
+                        {
+                            w.Line("ref readonly var __o = ref __ops[__i];");
+                            SwitchChain.Switch(w, "__o.MemberIndex", sw =>
+                            {
+                                foreach (var t2 in __preByOrdinal)
+                                {
+                                    var m = t2.ms;
+                                    var idx = t2.idx;
+
+                                    if (TryGetListInterface(m.Type, out _) && m.Type is not IArrayTypeSymbol)
+                                    {
+                                        sw.Case(idx.ToString(), () =>
+                                        {
+                                            w.If("__o.Kind==DeepEqual.Generator.Shared.DeltaKind.SeqAddAt", () =>
+                                            {
+                                                w.Line($"__adds_m{idx}++;");
+                                            });
+                                        });
+                                    }
+                                    else if (TryGetDictionaryTypes(m.Type, out _, out _) && !IsExpando(m.Type))
+                                    {
+                                        sw.Case(idx.ToString(), () =>
+                                        {
+                                            w.If("__o.Kind==DeepEqual.Generator.Shared.DeltaKind.DictSet", () =>
+                                            {
+                                                w.Line($"__dictSets_m{idx}++;");
+                                            });
+                                        });
+                                    }
+                                }
+                            });
+                        });
+
+                        foreach (var t2 in __preByOrdinal)
+                        {
+                            var m = t2.ms;
+                            var idx = t2.idx;
+                            var propAccess = "target " + "." + m.Name;
+
+                            if (TryGetListInterface(m.Type, out var elTypeForPresize) && m.Type is not IArrayTypeSymbol)
+                            {
+                                var elFqnPS = elTypeForPresize.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                w.Line($"{{ var __obj = target.{m.Name}; if (__adds_m{idx} > 0 && __obj is System.Collections.Generic.List<{elFqnPS}> __l) __l.EnsureCapacity(__l.Count + __adds_m{idx}); }}");
+                            }
+                            else if (TryGetDictionaryTypes(m.Type, out var preKType, out var preVType) && !IsExpando(m.Type))
+                            {
+                                var kFqnPS = preKType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                var vFqnPS = preVType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                w.Line($"{{ var __obj = target.{m.Name}; if (__dictSets_m{idx} > 0 && __obj is System.Collections.Generic.Dictionary<{kFqnPS}, {vFqnPS}> __d) __d.EnsureCapacity(__d.Count + __dictSets_m{idx}); }}");
+                            }
+                        }
+                    });
+                }
+
+                // apply pass
+                w.ForRaw("int __ai=0; __ai<__ops.Length; __ai++", () =>
                 {
-                    var elFqn = elType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    w.Line("ref readonly var op = ref __ops[__ai];");
 
-                    void EmitListOp(string opName, string tmp)
+                    SwitchChain.Switch(w, "op.MemberIndex", swOuter =>
                     {
-                        w.Open($"case DeepEqual.Generator.Shared.DeltaKind.{opName}:");
-                        w.Line($"object? {tmp} = {propAccess};");
-                        w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref {tmp}, in op);");
-                        if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn}){tmp};");
-                        if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
-                        w.Line("break;");
-                        w.Close();
-                    }
+                        // ReplaceObject
+                        swOuter.Case("-1", () =>
+                        {
+                            w.If("op.Kind == DeepEqual.Generator.Shared.DeltaKind.ReplaceObject", () =>
+                            {
+                                w.Line($"target = ({fqn}{nullSuffix})op.Value;");
+                                w.Line("return;");
+                            });
+                        });
 
-                    EmitListOp("SeqReplaceAt", "__obj_seq_r");
-                    EmitListOp("SeqAddAt", "__obj_seq_a");
-                    EmitListOp("SeqRemoveAt", "__obj_seq_d");
-                    EmitListOp("SeqNestedAt", "__obj_seq_n");
-                }
+                        // Each member
+                        var byOrdinal = OrderMembers(EnumerateMembers(type, root.IncludeInternals,
+                                root.IncludeBaseMembers, schema))
+                            .Select((ms, i) => (ms, i)).ToArray();
 
-                // Dict ops
-                if (TryGetDictionaryTypes(member.Type, out var kType2, out var vType2))
-                {
-                    var kFqn2 = kType2.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    var vFqn2 = vType2.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        foreach (var t2 in byOrdinal)
+                        {
+                            var member = t2.ms;
+                            var ordinal = t2.i;
+                            var memberIdx = GetStableMemberIndex(type, member);
+                            var propAccess = "target." + member.Name;
+                            var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                            var nullableQ = member.Type.IsReferenceType ? "?" : "";
+                            var hasSetterForMember =
+                                member.Symbol is IPropertySymbol __ps2 && __ps2.SetMethod is not null;
 
-                    void EmitDictOp(string opName, string tmp)
-                    {
-                        w.Open($"case DeepEqual.Generator.Shared.DeltaKind.{opName}:");
-                        w.Line($"object? {tmp} = {propAccess};");
-                        w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn2}, {vFqn2}>(ref {tmp}, in op);");
-                        if (hasSetterForMember) w.Line($"{propAccess} = ({$"global::System.Collections.Generic.Dictionary<{kFqn2}, {vFqn2}>"}){tmp};");
-                        if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
-                        w.Line("break;");
-                        w.Close();
-                    }
+                            swOuter.Case(memberIdx.ToString(), () =>
+                            {
+                                SwitchChain.Switch(w, "op.Kind", swKind =>
+                                {
+                                    if (IsExpando(member.Type))
+                                    {
+                                        EmitApplyForExpando(w, propAccess, clearDirty: !type.IsValueType && deltaTracked, ordinal);
 
-                    EmitDictOp("DictSet", "__obj_dict_set");
-                    EmitDictOp("DictRemove", "__obj_dict_rm");
-                    EmitDictOp("DictNested", "__obj_dict_n");
-                }
-                else
-                {
-                    w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictSet:"); w.Line("break;"); w.Close();
-                    w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictRemove:"); w.Line("break;"); w.Close();
-                    w.Open("case DeepEqual.Generator.Shared.DeltaKind.DictNested:"); w.Line("break;"); w.Close();
-                }
+                                        swKind.Default(() => { /* no-op */ });
+                                    }
+                                    else
+                                    {
+                                        // SetMember
+                                        swKind.Case("DeepEqual.Generator.Shared.DeltaKind.SetMember", () =>
+                                        {
+                                            if (member.Type is IArrayTypeSymbol)
+                                            {
+                                                w.Line($"{propAccess} = ({typeFqn}{nullableQ})op.Value;");
+                                            }
+                                            else if (TryGetDictionaryTypes(member.Type, out var kForSet,
+                                                         out var vForSet))
+                                            {
+                                                var kFqn = kForSet.ToDisplayString(SymbolDisplayFormat
+                                                    .FullyQualifiedFormat);
+                                                var vFqn = vForSet.ToDisplayString(SymbolDisplayFormat
+                                                    .FullyQualifiedFormat);
 
-                // Nested member (objects only)
-                {
-                    bool isPlainRef =
-                        member.Type.IsReferenceType &&
-                        member.Type.SpecialType != SpecialType.System_String &&
-                        !(member.Type is IArrayTypeSymbol) &&
-                        !TryGetListInterface(member.Type, out _) &&
-                        !TryGetDictionaryTypes(member.Type, out _, out _);
+                                                if (hasSetterForMember)
+                                                {
+                                                    w.Line($"{propAccess} = ({$"global::System.Collections.Generic.Dictionary<{kFqn}, {vFqn}>"}{nullableQ})op.Value;");
+                                                }
+                                                else
+                                                {
+                                                    w.Line($"var __dobj = {propAccess};");
+                                                    w.If($"__dobj is global::System.Collections.Generic.IDictionary<{kFqn}, {vFqn}> __d", () =>
+                                                    {
+                                                        w.Line("__d.Clear();");
+                                                        w.If($"op.Value is global::System.Collections.Generic.IEnumerable<global::System.Collections.Generic.KeyValuePair<{kFqn}, {vFqn}>> __src", () =>
+                                                        {
+                                                            w.Foreach("var __kv", "__src", () =>
+                                                            {
+                                                                w.Line("__d[__kv.Key] = __kv.Value;");
+                                                            });
+                                                        });
+                                                    });
 
-                    if (isPlainRef)
-                    {
-                        w.Open("case DeepEqual.Generator.Shared.DeltaKind.NestedMember:");
-                        w.Line($"object? __obj = {propAccess};");
-                        w.Line("var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
-                        w.Open("if (__obj != null)");
-                        w.Line("var __t = __obj.GetType();");
-                        w.Line("GeneratedHelperRegistry.TryApplyDeltaSameType(__t, ref __obj, ref __subReader);");
-                        w.Close();
-                        if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn}{nullableQ})__obj;");
-                        if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
-                        w.Line("break;");
-                        w.Close();
-                    }
-                }
+                                                    // else: no-op (get-only and not a mutable IDictionary at runtime)
+                                                }
 
-                w.Line("default: { break; }");
-                w.Close(); // switch op.Kind
-                w.Line("break;");
-                w.Close(); // case memberIdx
-            }
+                                            }
+                                            else
+                                            {
+                                                var bcl = BclKind(member.Type, out var elT);
+                                                if (!hasSetterForMember && !string.IsNullOrEmpty(bcl) && elT is not null)
+                                                {
+                                                    var eFqn = elT.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                                    EmitInPlaceReplaceForGetOnlyCollection(propAccess, eFqn, bcl);
+                                                }
+                                                else
+                                                {
+                                                    w.Line($"{propAccess} = ({typeFqn})op.Value;");
+                                                }
+                                            }
 
-            w.Open("default:"); w.Line("break;"); w.Close();
-            w.Close(); // switch memberIndex
-            w.Close(); // for ops
-            w.Close(); // ApplyDelta
-            w.Line();
+                                            if (!type.IsValueType && deltaTracked)
+                                                w.Line($"target.__ClearDirtyBit({ordinal});");
+                                        });
+
+                                        // Seq ops
+                                        if (TryGetListInterface(member.Type, out var elType))
+                                        {
+                                            var elFqn = elType.ToDisplayString(SymbolDisplayFormat
+                                                .FullyQualifiedFormat);
+
+                                            void EmitListOp(string opName, string tmp)
+                                            {
+                                                swKind.Case($"DeepEqual.Generator.Shared.DeltaKind.{opName}", () =>
+                                                {
+                                                    w.Line($"object? {tmp} = {propAccess};");
+                                                    w.Line(
+                                                        $"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref {tmp}, in op);");
+                                                    if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn}){tmp};");
+                                                    if (!type.IsValueType && deltaTracked)
+                                                        w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                });
+                                            }
+
+                                            EmitListOp("SeqReplaceAt", "__obj_seq_r");
+                                            EmitListOp("SeqAddAt", "__obj_seq_a");
+                                            EmitListOp("SeqRemoveAt", "__obj_seq_d");
+                                            EmitListOp("SeqNestedAt", "__obj_seq_n");
+                                        }
+
+                                        // Dict ops
+                                        if (TryGetDictionaryTypes(member.Type, out var kType2, out var vType2))
+                                        {
+                                            var kFqn2 = kType2.ToDisplayString(SymbolDisplayFormat
+                                                .FullyQualifiedFormat);
+                                            var vFqn2 = vType2.ToDisplayString(SymbolDisplayFormat
+                                                .FullyQualifiedFormat);
+
+                                            void EmitDictOp(string opName, string tmp)
+                                            {
+                                                swKind.Case($"DeepEqual.Generator.Shared.DeltaKind.{opName}", () =>
+                                                {
+                                                    w.Line($"object? {tmp} = {propAccess};");
+                                                    w.Line(
+                                                        $"DeepEqual.Generator.Shared.DeltaHelpers.ApplyDictOpCloneIfNeeded<{kFqn2}, {vFqn2}>(ref {tmp}, in op);");
+                                                    if (hasSetterForMember)
+                                                        w.Line(
+                                                            $"{propAccess} = ({$"global::System.Collections.Generic.Dictionary<{kFqn2}, {vFqn2}>"}){tmp};");
+                                                    if (!type.IsValueType && deltaTracked)
+                                                        w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                });
+                                            }
+
+                                            EmitDictOp("DictSet", "__obj_dict_set");
+                                            EmitDictOp("DictRemove", "__obj_dict_rm");
+                                            EmitDictOp("DictNested", "__obj_dict_n");
+                                        }
+                                        else
+                                        {
+                                            swKind.Case("DeepEqual.Generator.Shared.DeltaKind.DictSet", () => { });
+                                            swKind.Case("DeepEqual.Generator.Shared.DeltaKind.DictRemove", () => { });
+                                            swKind.Case("DeepEqual.Generator.Shared.DeltaKind.DictNested", () => { });
+                                        }
+
+                                        // Nested member (objects only)
+                                        bool isPlainRef =
+                                            member.Type.IsReferenceType &&
+                                            member.Type.SpecialType != SpecialType.System_String &&
+                                            !(member.Type is IArrayTypeSymbol) &&
+                                            !TryGetListInterface(member.Type, out _) &&
+                                            !TryGetDictionaryTypes(member.Type, out _, out _);
+
+                                        if (isPlainRef)
+                                        {
+                                            swKind.Case("DeepEqual.Generator.Shared.DeltaKind.NestedMember", () =>
+                                            {
+                                                w.Line($"object? __obj = {propAccess};");
+                                                w.Line(
+                                                    "var __subReader = new DeepEqual.Generator.Shared.DeltaReader(op.Nested!);");
+                                                w.If("__obj != null", () =>
+                                                {
+                                                    w.Line("var __t = __obj.GetType();");
+                                                    w.Line(
+                                                        "GeneratedHelperRegistry.TryApplyDeltaSameType(__t, ref __obj, ref __subReader);");
+                                                });
+                                                if (hasSetterForMember)
+                                                    w.Line($"{propAccess} = ({typeFqn}{nullableQ})__obj;");
+                                                if (!type.IsValueType && deltaTracked)
+                                                    w.Line($"target.__ClearDirtyBit({ordinal});");
+                                            });
+                                        }
+
+                                        // default case: no-op
+                                        swKind.Default(() => { });
+                                    }
+                                });
+                            });
+                        }
+                        swOuter.Default(() => { });
+                    });
+
+                });
+            });
         }
+
+        w.Line();
+
         _emittedDiffDelta[key] = (emittedState.Diff || needDiff, emittedState.Delta || needDelta);
     }
-    // Emits the ApplyDelta cases for a property of type global::System.Dynamic.ExpandoObject
+
     private static void EmitApplyForExpando(CodeWriter w, string propAccess, bool clearDirty, int ordinal)
     {
         // SetMember: assign the Expando directly
