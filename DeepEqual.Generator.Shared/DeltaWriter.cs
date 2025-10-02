@@ -67,9 +67,15 @@ public ref struct DeltaWriter(DeltaDocument doc)
         Document.Ops.Add(new DeltaOp(memberIndex, DeltaKind.SeqAddAt, index, null, value, null));
     }
 
-    public void WriteSeqRemoveAt(int memberIndex, int index)
+    public void WriteSeqRemoveAt<T>(int memberIndex, int index, T expected)
     {
-        Document.Ops.Add(new DeltaOp(memberIndex, DeltaKind.SeqRemoveAt, index, null, null, null));
+        // Note: expected must not be omitted; we rely on it for idempotency.
+        Document.Ops.Add(new DeltaOp(memberIndex, DeltaKind.SeqRemoveAt, index, null, expected!, null));
+    }
+
+    public void WriteSeqRemoveAt(int memberIndex, int index, object? expected)
+    {
+        Document.Ops.Add(new DeltaOp(memberIndex, DeltaKind.SeqRemoveAt, index, null, expected, null));
     }
 
     public void WriteDictSet(int memberIndex, object key, object? value)

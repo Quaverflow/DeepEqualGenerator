@@ -35,7 +35,12 @@ public static class DeltaHelpers
 
                         if ((uint)idx <= (uint)count)
                         {
-                            // Idempotency & de-dup within a single apply pass
+                            // Replay safety: if the target slot already equals the value, no-op
+                            if ((uint)idx < (uint)count &&
+                                EqualityComparer<T>.Default.Equals(list[idx], value))
+                            {
+                                return;
+                            }
 
                             // (A) If this add would start at an existing [v,v] pair, no-op
                             if (idx + 1 < count &&
@@ -86,26 +91,20 @@ public static class DeltaHelpers
                     }
 
                 case DeltaKind.SeqRemoveAt:
-                {
-                    if ((uint)op.Index < (uint)list.Count)
                     {
+                        // New contract: expected element is required for idempotency
                         if (op.Value is null)
+                            throw new InvalidOperationException("SeqRemoveAt requires an expected element value (op.Value) for idempotency.");
+
+                        if ((uint)op.Index < (uint)list.Count)
                         {
-                            // legacy behavior (no expected value provided)
-                            list.RemoveAt(op.Index);
-                        }
-                        else
-                        {
-                            // idempotent behavior: only remove if the element matches the expected value
                             var expected = (T)op.Value!;
                             if (EqualityComparer<T>.Default.Equals(list[op.Index], expected))
                                 list.RemoveAt(op.Index);
-                            // else no-op (already removed or different element now at that index)
+                            // else: no-op (already removed or index now points to a different element)
                         }
+                        return;
                     }
-                    return;
-                }
-
 
                 case DeltaKind.SeqNestedAt:
                     {
@@ -148,6 +147,13 @@ public static class DeltaHelpers
 
                         if ((uint)idx <= (uint)count)
                         {
+                            // Replay safety: if the target slot already equals the value, no-op
+                            if ((uint)idx < (uint)count &&
+                                EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                            {
+                                return;
+                            }
+
                             // (A) duplicate starting at idx
                             if (idx + 1 < count &&
                                 EqualityComparer<T>.Default.Equals(ilist[idx], value) &&
@@ -190,23 +196,19 @@ public static class DeltaHelpers
                     }
 
                 case DeltaKind.SeqRemoveAt:
-                {
-                    if ((uint)op.Index < (uint)ilist.Count)
                     {
+                        // New contract: expected element is required for idempotency
                         if (op.Value is null)
-                        {
-                            ilist.RemoveAt(op.Index);
-                        }
-                        else
+                            throw new InvalidOperationException("SeqRemoveAt requires an expected element value (op.Value) for idempotency.");
+
+                        if ((uint)op.Index < (uint)ilist.Count)
                         {
                             var expected = (T)op.Value!;
                             if (EqualityComparer<T>.Default.Equals(ilist[op.Index], expected))
                                 ilist.RemoveAt(op.Index);
                         }
+                        return;
                     }
-                    return;
-                }
-
 
                 case DeltaKind.SeqNestedAt:
                     {
@@ -229,7 +231,7 @@ public static class DeltaHelpers
             return;
         }
 
-        // clone path (unchanged)
+        // clone path (IReadOnlyList / IEnumerable → clone)
         List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
@@ -260,19 +262,41 @@ public static class DeltaHelpers
                     int ai = op.Index;
                     if (ai < 0) ai = 0;
                     if (ai > clone.Count) ai = clone.Count;
-                    // Avoid duplicate when clamped to end if last already equals v
-                    if (!(ai == clone.Count && clone.Count > 0 &&
-                          EqualityComparer<T>.Default.Equals(clone[clone.Count - 1], (T)op.Value!)))
-                    {
-                        clone.Insert(ai, (T)op.Value!);
-                    }
+
+                    var v = (T)op.Value!;
+
+                    // Replay safety: if target slot already equals v, no-op
+                    if (ai < clone.Count &&
+                        EqualityComparer<T>.Default.Equals(clone[ai], v))
+                        break;
+
+                    // Append de-dupe
+                    if (ai == clone.Count && clone.Count > 0 &&
+                        EqualityComparer<T>.Default.Equals(clone[clone.Count - 1], v))
+                        break;
+
+                    // Optional: avoid triples within one pass
+                    if (ai > 0 && ai < clone.Count &&
+                        EqualityComparer<T>.Default.Equals(clone[ai - 1], v) &&
+                        EqualityComparer<T>.Default.Equals(clone[ai], v))
+                        break;
+
+                    clone.Insert(ai, v);
                     break;
                 }
 
             case DeltaKind.SeqRemoveAt:
                 {
+                    // New contract: expected element is required
+                    if (op.Value is null)
+                        throw new InvalidOperationException("SeqRemoveAt requires an expected element value (op.Value).");
+
                     if ((uint)op.Index < (uint)clone.Count)
-                        clone.RemoveAt(op.Index);
+                    {
+                        var expected = (T)op.Value!;
+                        if (EqualityComparer<T>.Default.Equals(clone[op.Index], expected))
+                            clone.RemoveAt(op.Index); // idempotent: only remove if it still matches
+                    }
                     break;
                 }
 
@@ -406,7 +430,7 @@ public static class DeltaHelpers
 
         if (ra > rb)
             for (var i = ra - 1; i >= rb; i--)
-                writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+                writer.WriteSeqRemoveAt(memberIndex, prefix + i, left[prefix + i]);   // expected value
         else if (rb > ra)
             for (var i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
@@ -464,7 +488,12 @@ public static class DeltaHelpers
 
                 if (tailMatches)
                 {
-                    writer.WriteSeqAddAt(memberIndex, k, right[k]);
+                    // If right[k] equals left[k], insert AFTER the existing element (k+1) for replay idempotency
+                    int insertIndex = k;
+                    if (k < na && comparer.Invoke(left[k], right[k], context))
+                        insertIndex = k + 1;
+
+                    writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
                     return;
                 }
             }
@@ -536,8 +565,8 @@ public static class DeltaHelpers
 
         if (ra > rb)
         {
-            for (int i = ra - 1; i >= rb; i--)
-                writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+            for (var i = ra - 1; i >= rb; i--)
+                writer.WriteSeqRemoveAt(memberIndex, prefix + i, left[prefix + i]);   // expected value
         }
         else if (rb > ra)
         {
@@ -625,11 +654,15 @@ public static class DeltaHelpers
         }
 
         if (ra > rb)
+        {
             for (var i = ra - 1; i >= rb; i--)
-                writer.WriteSeqRemoveAt(memberIndex, prefix + i);
+                writer.WriteSeqRemoveAt(memberIndex, prefix + i, left[prefix + i]);   // expected
+        }
         else if (rb > ra)
+        {
             for (var i = ra; i < rb; i++)
                 writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+        }
     }
 
     // =============================
@@ -659,7 +692,7 @@ public static class DeltaHelpers
             if (!rMap.ContainsKey(k))
             {
                 int idx = IndexOf(left, keySelector, k);
-                if (idx >= 0) writer.WriteSeqRemoveAt(memberIndex, idx);
+                if (idx >= 0) writer.WriteSeqRemoveAt(memberIndex, idx, left[idx]);   // expected
             }
         }
 
@@ -1119,7 +1152,6 @@ public static class DeltaHelpers
             }
         }
     }
-
 
     // ------------------------------------------------------------
     // PRIVATE HELPERS

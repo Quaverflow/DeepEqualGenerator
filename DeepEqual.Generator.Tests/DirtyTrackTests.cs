@@ -686,8 +686,8 @@ public sealed class DirtyTrackTests
         var adds = EnumerateDeep(delta)
             .Where(op => op.Kind == DeltaKind.SeqAddAt)
             .ToList();
-        Assert.True(adds.Any(op => op.Index == 1), JsonConvert.SerializeObject(adds));
-        Assert.Single(adds.Where(op => op.Index == 1));
+        Assert.True(adds.Any(op => op.Index == 2), JsonConvert.SerializeObject(adds));
+        Assert.Single(adds.Where(op => op.Index == 2));
 
         var target = baseline.Clone();
         target = target.ApplyDeepDelta(delta)!;
@@ -944,12 +944,16 @@ public sealed class DirtyTrackTests
 
         var malformed = new DeltaDocument();
         malformed.Ops.Add(new DeltaOp(999, DeltaKind.SetMember, 0, null, 123, null));
-        malformed.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, 5, null, null, null));
+        // OOR remove; include any expected value (won’t be read because index is OOR)
+        malformed.Ops.Add(new DeltaOp(
+            DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt,
+            index: 5, key: null, value: 0, nested: null));
 
         var applied = target.ApplyDeepDelta(malformed)!;
         Assert.True(applied.AreDeepEqual(model));
         Assert.False(applied.__HasAnyDirty());
     }
+
 
     [Fact]
     public void ThreadSafeDirtyBits_NoLostBitsUnderConcurrency()
@@ -1089,8 +1093,14 @@ public sealed class DirtyTrackTests
         var target = baseline.Clone();
 
         var doc = new DeltaDocument();
-        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, index: 1, key: null, value: null, nested: null)); // remove '2'
-        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: 1, key: null, value: 200, nested: null)); // add '200' at same index
+        // remove the element that *was* at index 1 (expected value = 2)
+        doc.Ops.Add(new DeltaOp(
+            DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt,
+            index: 1, key: null, value: baseline.Numbers[1], nested: null));
+        // then add 200 at the same index
+        doc.Ops.Add(new DeltaOp(
+            DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt,
+            index: 1, key: null, value: 200, nested: null));
 
         target = target.ApplyDeepDelta(doc)!;
         Assert.Equal(new List<int> { 1, 200, 3 }, target.Numbers);
@@ -1099,6 +1109,7 @@ public sealed class DirtyTrackTests
         Assert.Equal(new List<int> { 1, 200, 3 }, target.Numbers);
         Assert.False(target.__HasAnyDirty());
     }
+
     [Fact]
     public void ApplyDeepDelta_List_TwoAddsSameK_SameValue_DedupWithinPass()
     {
@@ -1107,8 +1118,8 @@ public sealed class DirtyTrackTests
 
         var k = 1; var v = 2; // duplicate insert next to existing equal
         var doc = new DeltaDocument();
-        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k, key: null, value: v, nested: null));
-        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k, key: null, value: v, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k + 1, key: null, value: v, nested: null));
+        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqAddAt, index: k + 1, key: null, value: v, nested: null));
 
         target = target.ApplyDeepDelta(doc)!;
         Assert.Equal(new List<int> { 1, 2, 2, 3 }, target.Numbers); // only one extra '2'
@@ -1154,7 +1165,6 @@ public sealed class DirtyTrackTests
         Assert.Equal(new List<int> { 1, 3 }, target.Numbers);
         Assert.False(target.__HasAnyDirty());
     }
-
     [Fact]
     public void ApplyDeepDelta_List_Remove_OOR_NoOp()
     {
@@ -1162,7 +1172,10 @@ public sealed class DirtyTrackTests
         var target = baseline.Clone();
 
         var doc = new DeltaDocument();
-        doc.Ops.Add(new DeltaOp(DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt, index: 99, key: null, value: null, nested: null));
+        // index 99 is OOR; value can be anything since index check happens first
+        doc.Ops.Add(new DeltaOp(
+            DirtyTrackedModel.__Bit_Numbers, DeltaKind.SeqRemoveAt,
+            index: 99, key: null, value: 0, nested: null));
 
         target = target.ApplyDeepDelta(doc)!;
         Assert.Equal(baseline.Numbers, target.Numbers);

@@ -880,7 +880,37 @@ internal sealed class DiffDeltaEmitter
                 $"private static void ApplyDelta__{id}{helperTypeParameterList}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader){helperConstraints}",
             () =>
             {
-                w.Line("var __ops = reader.AsSpan();");
+                // Normalize ops from the reader to drop in-document duplicates that can surface
+                // when the delta is materialized from multiple arrays (e.g., Ops + Operations).
+                w.Line("var __raw = reader.AsSpan();");
+                w.Line("var __norm = new System.Collections.Generic.List<DeepEqual.Generator.Shared.DeltaOp>(__raw.Length);");
+                w.Line("var __seenRemoveIdxDoc = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
+                w.Line("var __seenAddAtDoc     = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
+
+                w.ForRaw("int __i=0; __i<__raw.Length; __i++", () =>
+                {
+                    w.Line("ref readonly var __o = ref __raw[__i];");
+
+                    // Deduplicate: one RemoveAt per (memberIndex, index) per document
+                    w.If("__o.Kind == DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt", () =>
+                    {
+                        w.Line("if (!__seenRemoveIdxDoc.TryGetValue(__o.MemberIndex, out var __rem)) __seenRemoveIdxDoc[__o.MemberIndex] = __rem = new System.Collections.Generic.HashSet<int>();");
+                        w.Line("if (!__rem.Add(__o.Index)) continue;");
+                    });
+
+                    // Deduplicate: one AddAt per (memberIndex, index) per document
+                    w.If("__o.Kind == DeepEqual.Generator.Shared.DeltaKind.SeqAddAt", () =>
+                    {
+                        w.Line("if (!__seenAddAtDoc.TryGetValue(__o.MemberIndex, out var __adds)) __seenAddAtDoc[__o.MemberIndex] = __adds = new System.Collections.Generic.HashSet<int>();");
+                        w.Line("if (!__adds.Add(__o.Index)) continue;");
+                    });
+
+                    w.Line("__norm.Add(__o);");
+                });
+
+                w.Line("var __opsArr = __norm.ToArray();");
+                w.Line("var __ops = __opsArr.AsSpan();");
+
 
                 // early ReplaceObject
                 w.ForRaw("int __ri = 0; __ri < __ops.Length; __ri++", () =>
@@ -991,6 +1021,10 @@ internal sealed class DiffDeltaEmitter
 
                 // apply pass
                 w.Line("var __seenRemoveIdx = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
+
+                // ADD THIS LINE:
+                w.Line("var __seenAddAt = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
+
                 w.ForRaw("int __ai=0; __ai<__ops.Length; __ai++", () =>
                 {
                     w.Line("ref readonly var op = ref __ops[__ai];");
@@ -1102,12 +1136,27 @@ internal sealed class DiffDeltaEmitter
                                             }
 
                                             EmitListOp("SeqReplaceAt", "__obj_seq_r");
-                                            EmitListOp("SeqAddAt", "__obj_seq_a");
+                                            // One AddAt per (member, index) within this document’s apply pass
+                                            // One AddAt per (member, index) within this document’s apply pass
+                                            swKind.Case("DeepEqual.Generator.Shared.DeltaKind.SeqAddAt", () =>
+                                            {
+                                                // ensure per-member set exists (use STABLE member index used in op.MemberIndex)
+                                                w.Line($"if (!__seenAddAt.TryGetValue({memberIdx}, out var __addsAt)) {{ __addsAt = new System.Collections.Generic.HashSet<int>(); __seenAddAt[{memberIdx}] = __addsAt; }}");
+
+                                                // only apply the FIRST AddAt for this (member, index) in this pass
+                                                w.If("__addsAt.Add(op.Index)", () =>
+                                                {
+                                                    w.Line($"object? __obj_seq_a = {propAccess};");
+                                                    w.Line($"DeepEqual.Generator.Shared.DeltaHelpers.ApplyListOpCloneIfNeeded<{elFqn}>(ref __obj_seq_a, in op);");
+                                                    if (hasSetterForMember) w.Line($"{propAccess} = ({typeFqn})__obj_seq_a;");
+                                                    if (!type.IsValueType && deltaTracked) w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                });
+                                            });
 
                                             swKind.Case("DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt", () =>
                                             {
                                                 // One remove per (member, index) per document apply pass
-                                                w.Line($"if (!__seenRemoveIdx.TryGetValue({ordinal}, out var __set)) {{ __set = new System.Collections.Generic.HashSet<int>(); __seenRemoveIdx[{ordinal}] = __set; }}");
+                                                w.Line($"if (!__seenRemoveIdx.TryGetValue({memberIdx}, out var __set)) {{ __set = new System.Collections.Generic.HashSet<int>(); __seenRemoveIdx[{memberIdx}] = __set; }}");
                                                 w.If("__set.Add(op.Index)", () =>
                                                 {
                                                     w.Line($"object? __obj_seq_d = {propAccess};");
