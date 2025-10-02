@@ -17,6 +17,8 @@ public static class DeltaHelpers
     {
         if (target is List<T> list)
         {
+            var comparer = EqualityComparer<T>.Default;
+
             switch (op.Kind)
             {
                 case DeltaKind.SeqReplaceAt:
@@ -37,29 +39,29 @@ public static class DeltaHelpers
                         {
                             // Replay safety: if the target slot already equals the value, no-op
                             if ((uint)idx < (uint)count &&
-                                EqualityComparer<T>.Default.Equals(list[idx], value))
+                                comparer.Equals(list[idx], value))
                             {
                                 return;
                             }
 
                             // (A) If this add would start at an existing [v,v] pair, no-op
                             if (idx + 1 < count &&
-                                EqualityComparer<T>.Default.Equals(list[idx], value) &&
-                                EqualityComparer<T>.Default.Equals(list[idx + 1], value))
+                                comparer.Equals(list[idx], value) &&
+                                comparer.Equals(list[idx + 1], value))
                             {
                                 return;
                             }
 
                             // (B) If appending and the list already ends with v, no-op
                             if (idx == count && count > 0 &&
-                                EqualityComparer<T>.Default.Equals(list[count - 1], value))
+                                comparer.Equals(list[count - 1], value))
                             {
                                 return;
                             }
 
                             // (C) Replays recorded with old length: idx == count-1 and that slot already == v
                             if (idx == count - 1 && idx >= 0 &&
-                                EqualityComparer<T>.Default.Equals(list[idx], value))
+                                comparer.Equals(list[idx], value))
                             {
                                 return;
                             }
@@ -67,8 +69,8 @@ public static class DeltaHelpers
                             // (D) No-triples guard around the boundary:
                             // if left neighbor and current are already [v,v], inserting here would create a triple
                             if (idx > 0 && idx < count &&
-                                EqualityComparer<T>.Default.Equals(list[idx - 1], value) &&
-                                EqualityComparer<T>.Default.Equals(list[idx], value))
+                                comparer.Equals(list[idx - 1], value) &&
+                                comparer.Equals(list[idx], value))
                             {
                                 return;
                             }
@@ -84,7 +86,7 @@ public static class DeltaHelpers
                         else
                         {
                             // idx beyond end: clamp to end; avoid duplicate when last already equals v
-                            if (count == 0 || !EqualityComparer<T>.Default.Equals(list[count - 1], value))
+                            if (count == 0 || !comparer.Equals(list[count - 1], value))
                                 list.Add(value);
                         }
                         return;
@@ -99,7 +101,7 @@ public static class DeltaHelpers
                         if ((uint)op.Index < (uint)list.Count)
                         {
                             var expected = (T)op.Value!;
-                            if (EqualityComparer<T>.Default.Equals(list[op.Index], expected))
+                            if (comparer.Equals(list[op.Index], expected))
                                 list.RemoveAt(op.Index);
                             // else: no-op (already removed or index now points to a different element)
                         }
@@ -129,6 +131,8 @@ public static class DeltaHelpers
 
         if (target is IList<T> ilist && !ilist.IsReadOnly)
         {
+            var comparer = EqualityComparer<T>.Default;
+
             switch (op.Kind)
             {
                 case DeltaKind.SeqReplaceAt:
@@ -147,49 +151,47 @@ public static class DeltaHelpers
 
                         if ((uint)idx <= (uint)count)
                         {
-                            // Replay safety: if the target slot already equals the value, no-op
                             if ((uint)idx < (uint)count &&
-                                EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                                comparer.Equals(ilist[idx], value))
                             {
                                 return;
                             }
 
-                            // (A) duplicate starting at idx
                             if (idx + 1 < count &&
-                                EqualityComparer<T>.Default.Equals(ilist[idx], value) &&
-                                EqualityComparer<T>.Default.Equals(ilist[idx + 1], value))
+                                comparer.Equals(ilist[idx], value) &&
+                                comparer.Equals(ilist[idx + 1], value))
                             {
                                 return;
                             }
 
-                            // (B) append-after-append
                             if (idx == count && count > 0 &&
-                                EqualityComparer<T>.Default.Equals(ilist[count - 1], value))
+                                comparer.Equals(ilist[count - 1], value))
                             {
                                 return;
                             }
 
-                            // (C) old-length index on second pass
                             if (idx == count - 1 && idx >= 0 &&
-                                EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                                comparer.Equals(ilist[idx], value))
                             {
                                 return;
                             }
 
-                            // (D) no-triples guard around boundary
                             if (idx > 0 && idx < count &&
-                                EqualityComparer<T>.Default.Equals(ilist[idx - 1], value) &&
-                                EqualityComparer<T>.Default.Equals(ilist[idx], value))
+                                comparer.Equals(ilist[idx - 1], value) &&
+                                comparer.Equals(ilist[idx], value))
                             {
                                 return;
                             }
 
-                            ilist.Insert(idx, value);
+                            if (idx == count)
+                                ilist.Add(value);
+                            else
+                                ilist.Insert(idx, value);
                         }
                         else
                         {
-                            // clamp to end; avoid duplicate when last already equals v
-                            if (count == 0 || !EqualityComparer<T>.Default.Equals(ilist[count - 1], value))
+                            // idx beyond end: clamp to end; avoid duplicate when last already equals v
+                            if (count == 0 || !comparer.Equals(ilist[count - 1], value))
                                 ilist.Insert(count, value);
                         }
                         return;
@@ -204,7 +206,7 @@ public static class DeltaHelpers
                         if ((uint)op.Index < (uint)ilist.Count)
                         {
                             var expected = (T)op.Value!;
-                            if (EqualityComparer<T>.Default.Equals(ilist[op.Index], expected))
+                            if (comparer.Equals(ilist[op.Index], expected))
                                 ilist.RemoveAt(op.Index);
                         }
                         return;
@@ -232,20 +234,30 @@ public static class DeltaHelpers
         }
 
         // clone path (IReadOnlyList / IEnumerable -> clone)
+        var comparerClone = EqualityComparer<T>.Default;
+        var addsHint = op.Kind == DeltaKind.SeqAddAt ? 1 : 0;
+
         List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
-            clone = new List<T>(ro.Count);
+            var capacity = ro.Count + addsHint;
+            clone = new List<T>(capacity);
             for (int i = 0; i < ro.Count; i++) clone.Add(ro[i]);
+        }
+        else if (target is ICollection<T> collection)
+        {
+            var capacity = collection.Count + addsHint;
+            clone = new List<T>(capacity);
+            foreach (var e in collection) clone.Add(e);
         }
         else if (target is IEnumerable<T> seq)
         {
-            clone = new List<T>();
+            clone = addsHint > 0 ? new List<T>(addsHint) : new List<T>();
             foreach (var e in seq) clone.Add(e);
         }
         else
         {
-            clone = new List<T>();
+            clone = addsHint > 0 ? new List<T>(addsHint) : new List<T>();
         }
 
         switch (op.Kind)
@@ -267,18 +279,18 @@ public static class DeltaHelpers
 
                     // Replay safety: if target slot already equals v, no-op
                     if (ai < clone.Count &&
-                        EqualityComparer<T>.Default.Equals(clone[ai], v))
+                        comparerClone.Equals(clone[ai], v))
                         break;
 
                     // Append de-dupe
                     if (ai == clone.Count && clone.Count > 0 &&
-                        EqualityComparer<T>.Default.Equals(clone[clone.Count - 1], v))
+                        comparerClone.Equals(clone[clone.Count - 1], v))
                         break;
 
                     // Optional: avoid triples within one pass
                     if (ai > 0 && ai < clone.Count &&
-                        EqualityComparer<T>.Default.Equals(clone[ai - 1], v) &&
-                        EqualityComparer<T>.Default.Equals(clone[ai], v))
+                        comparerClone.Equals(clone[ai - 1], v) &&
+                        comparerClone.Equals(clone[ai], v))
                         break;
 
                     clone.Insert(ai, v);
@@ -294,7 +306,7 @@ public static class DeltaHelpers
                     if ((uint)op.Index < (uint)clone.Count)
                     {
                         var expected = (T)op.Value!;
-                        if (EqualityComparer<T>.Default.Equals(clone[op.Index], expected))
+                        if (comparerClone.Equals(clone[op.Index], expected))
                             clone.RemoveAt(op.Index); // idempotent: only remove if it still matches
                     }
                     break;
@@ -696,62 +708,80 @@ public static class DeltaHelpers
         if (ReferenceEquals(left, right)) return;
         if (left is null || right is null) { writer.WriteSetMember(memberIndex, right); return; }
 
-        var lMap = new Dictionary<TKey, T>(left.Count);
-        var rMap = new Dictionary<TKey, T>(right.Count);
+        var leftCount = left.Count;
+        var rightCount = right.Count;
 
-        for (int i = 0; i < left.Count; i++) lMap[keySelector(left[i])] = left[i];
-        for (int i = 0; i < right.Count; i++) rMap[keySelector(right[i])] = right[i];
+        if (leftCount == 0 && rightCount == 0)
+            return;
 
-        // Removals (by index from LEFT)
-        foreach (var k in lMap.Keys)
+        var leftOrder = leftCount == 0 ? Array.Empty<TKey>() : new TKey[leftCount];
+        var leftLookup = new Dictionary<TKey, (int Index, T Value)>(leftCount);
+
+        for (int i = 0; i < leftCount; i++)
         {
-            if (!rMap.ContainsKey(k))
+            var value = left[i];
+            var key = keySelector(value);
+            leftOrder[i] = key;
+            leftLookup[key] = (i, value);
+        }
+
+        var rightKeys = rightCount == 0 ? Array.Empty<TKey>() : new TKey[rightCount];
+        var rightKeySet = new HashSet<TKey>(EqualityComparer<TKey>.Default);
+
+        for (int i = 0; i < rightCount; i++)
+        {
+            var key = keySelector(right[i]);
+            rightKeys[i] = key;
+            rightKeySet.Add(key);
+        }
+
+        var elementComparer = new ListElementComparer<T>(context);
+
+        // Removals (preserve original ordering)
+        for (int i = 0; i < leftOrder.Length; i++)
+        {
+            var key = leftOrder[i];
+            if (!rightKeySet.Contains(key))
             {
-                int idx = IndexOf(left, keySelector, k);
-                if (idx >= 0) writer.WriteSeqRemoveAt(memberIndex, idx, left[idx]);   // expected
+                var entry = leftLookup[key];
+                writer.WriteSeqRemoveAt(memberIndex, entry.Index, entry.Value);
             }
         }
 
-        // Adds + nested updates (by key)
-        foreach (var kv in rMap)
+        // Adds + nested updates (right-side ordering)
+        for (int i = 0; i < rightKeys.Length; i++)
         {
-            var k = kv.Key;
-            var rv = kv.Value;
+            var key = rightKeys[i];
+            var rightValue = right[i];
 
-            if (!lMap.TryGetValue(k, out var lv))
+            if (!leftLookup.TryGetValue(key, out var leftEntry))
             {
-                // Add at the position it appears in RIGHT (advisory)
-                int idx = IndexOf(right, keySelector, k);
-                writer.WriteSeqAddAt(memberIndex, idx < 0 ? right.Count : idx, rv);
+                writer.WriteSeqAddAt(memberIndex, i, rightValue);
+                continue;
+            }
+
+            var leftValue = leftEntry.Value;
+            if (elementComparer.AreEqual(leftValue, rightValue))
+                continue;
+
+            var lo = (object?)leftValue;
+            var ro = (object?)rightValue;
+
+            if (lo is not null && ro is not null && ReferenceEquals(lo.GetType(), ro.GetType()))
+            {
+                var scope = writer.BeginSeqNestedAt(memberIndex, leftEntry.Index, out var nestedWriter);
+                GeneratedHelperRegistry.ComputeDeltaSameType(lo.GetType(), lo, ro, context, ref nestedWriter);
+                var had = !nestedWriter.Document.IsEmpty;
+                scope.Dispose();
+                if (!had) writer.WriteSeqReplaceAt(memberIndex, leftEntry.Index, rightValue);
             }
             else
             {
-                // Same key present in both: diff in-place
-                if (!ComparisonHelpers.DeepComparePolymorphic(lv, rv, context))
-                {
-                    int li = IndexOf(left, keySelector, k);
-                    if (li >= 0)
-                    {
-                        var scope = writer.BeginSeqNestedAt(memberIndex, li, out var w);
-                        GeneratedHelperRegistry.ComputeDeltaSameType(lv!.GetType(), lv!, rv!, context, ref w);
-                        var had = !w.Document.IsEmpty;
-                        scope.Dispose();
-                        if (!had) writer.WriteSeqReplaceAt(memberIndex, li, rv);
-                    }
-                }
+                writer.WriteSeqReplaceAt(memberIndex, leftEntry.Index, rightValue);
             }
         }
-
-        // Reorder-only differences are intentionally ignored (no ops)
-
-        static int IndexOf(IList<T> list, Func<T, TKey> sel, TKey key)
-        {
-            for (int i = 0; i < list.Count; i++)
-                if (EqualityComparer<TKey>.Default.Equals(sel(list[i]), key))
-                    return i;
-            return -1;
-        }
     }
+
 
     // ------------------------------------------------------------
     // DICTIONARIES
@@ -1179,25 +1209,40 @@ public static class DeltaHelpers
     {
         private readonly ComparisonContext _context;
         private readonly bool _isValueType;
-        private Type? _cachedType;
-        private Func<object, object, ComparisonContext, bool>? _cachedComparer;
-        private bool _hasCachedComparer;
+        private readonly bool _isSealedReference;
+        private readonly Func<TElement, TElement, ComparisonContext, bool>? _typedComparer;
+        private readonly Func<object, object, ComparisonContext, bool>? _sameTypeComparer;
+        private Type? _cachedRuntimeType;
+        private Func<object, object, ComparisonContext, bool>? _cachedRuntimeComparer;
+        private bool _cachedRuntimeHasComparer;
 
         public ListElementComparer(ComparisonContext context)
         {
             _context = context;
-            _isValueType = typeof(TElement).IsValueType;
-            if (_isValueType && GeneratedHelperRegistry.TryGetComparerSameType(typeof(TElement), out _cachedComparer))
+
+            var elementType = typeof(TElement);
+            _isValueType = elementType.IsValueType;
+            _isSealedReference = !_isValueType && elementType.IsSealed;
+
+            if (GeneratedHelperRegistry.TryGetTypedComparer<TElement>(out var typed))
             {
-                _cachedType = typeof(TElement);
-                _hasCachedComparer = true;
+                _typedComparer = typed;
+                _sameTypeComparer = null;
+            }
+            else if (GeneratedHelperRegistry.TryGetComparerSameType(elementType, out var comparer))
+            {
+                _typedComparer = null;
+                _sameTypeComparer = comparer;
             }
             else
             {
-                _cachedType = _isValueType ? typeof(TElement) : null;
-                _cachedComparer = null;
-                _hasCachedComparer = false;
+                _typedComparer = null;
+                _sameTypeComparer = null;
             }
+
+            _cachedRuntimeType = null;
+            _cachedRuntimeComparer = null;
+            _cachedRuntimeHasComparer = false;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1205,11 +1250,14 @@ public static class DeltaHelpers
         {
             if (_isValueType)
             {
-                if (_hasCachedComparer && _cachedComparer is not null)
+                if (_typedComparer is not null)
+                    return _typedComparer(left, right, _context);
+
+                if (_sameTypeComparer is not null)
                 {
                     object lo = left!;
                     object ro = right!;
-                    return _cachedComparer(lo, ro, _context);
+                    return _sameTypeComparer(lo, ro, _context);
                 }
 
                 return EqualityComparer<TElement>.Default.Equals(left, right);
@@ -1221,26 +1269,51 @@ public static class DeltaHelpers
             if (left is null || right is null)
                 return false;
 
-            object ol = left;
-            object orr = right;
-
-            var typeL = ol.GetType();
-            var typeR = orr.GetType();
-            if (!ReferenceEquals(typeL, typeR))
-                return ComparisonHelpers.DeepComparePolymorphic(left, right, _context);
-
-            if (!ReferenceEquals(typeL, _cachedType))
+            if (_isSealedReference)
             {
-                _hasCachedComparer = GeneratedHelperRegistry.TryGetComparerSameType(typeL, out _cachedComparer);
-                _cachedType = typeL;
+                if (_typedComparer is not null)
+                    return _typedComparer(left, right, _context);
+
+                if (_sameTypeComparer is not null)
+                    return _sameTypeComparer(left, right, _context);
+
+                if (EqualityComparer<TElement>.Default.Equals(left, right))
+                    return true;
+
+                return ComparisonHelpers.DeepComparePolymorphic(left, right, _context);
             }
 
-            if (_hasCachedComparer && _cachedComparer is not null)
-                return _cachedComparer(ol, orr, _context);
+            object ol = left;
+            object orr = right;
+            var runtimeType = ol.GetType();
+            if (!ReferenceEquals(runtimeType, orr.GetType()))
+                return ComparisonHelpers.DeepComparePolymorphic(left, right, _context);
+
+            if (ReferenceEquals(runtimeType, typeof(TElement)))
+            {
+                if (_typedComparer is not null)
+                    return _typedComparer(left, right, _context);
+
+                if (_sameTypeComparer is not null)
+                    return _sameTypeComparer(ol, orr, _context);
+            }
+
+            if (!ReferenceEquals(runtimeType, _cachedRuntimeType))
+            {
+                _cachedRuntimeHasComparer = GeneratedHelperRegistry.TryGetComparerSameType(runtimeType, out _cachedRuntimeComparer);
+                _cachedRuntimeType = runtimeType;
+            }
+
+            if (_cachedRuntimeHasComparer && _cachedRuntimeComparer is not null)
+                return _cachedRuntimeComparer(ol, orr, _context);
+
+            if (EqualityComparer<TElement>.Default.Equals(left, right))
+                return true;
 
             return ComparisonHelpers.DeepComparePolymorphic(left, right, _context);
         }
     }
+
 
 
 

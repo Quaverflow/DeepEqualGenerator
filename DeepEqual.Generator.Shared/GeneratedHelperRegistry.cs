@@ -39,6 +39,7 @@ public static class GeneratedHelperRegistry
 
     private static readonly ConcurrentDictionary<Type, bool> _eqMiss = new();
     private static readonly ConcurrentDictionary<Type, Func<object, object, ComparisonContext, bool>> _eqMap = new();
+    private static readonly ConcurrentDictionary<Type, object> _eqTypedMap = new();
     private static readonly ConcurrentDictionary<Type, DiffFunc> _diffMap = new();
 
     private static readonly ConcurrentDictionary<Type, ComputeDeltaObjFunc> _deltaComputeMap = new();
@@ -51,6 +52,7 @@ public static class GeneratedHelperRegistry
     {
         var t = typeof(T);
         _eqMap[t] = (l, r, c) => comparer((T)l, (T)r, c);
+        _eqTypedMap[t] = comparer;
     }
 
     /// <summary>
@@ -92,6 +94,18 @@ public static class GeneratedHelperRegistry
         return false;
     }
 
+
+    internal static bool TryGetTypedComparer<T>(out Func<T, T, ComparisonContext, bool>? comparer)
+    {
+        if (_eqTypedMap.TryGetValue(typeof(T), out var boxed))
+        {
+            comparer = (Func<T, T, ComparisonContext, bool>)boxed;
+            return true;
+        }
+
+        comparer = null;
+        return false;
+    }
 
     /// <summary>
     ///     Attempts to retrieve the registered deep equality comparer for the given runtime type.
