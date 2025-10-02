@@ -10,6 +10,11 @@ using static DeepEqual.RewrittenTests.UnifiedFixture;
 
 namespace DeepEqual.RewrittenTests
 {
+    [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+    public sealed class PolyListHolder
+    {
+        public List<IShape> Payload { get; set; } = new();
+    }
     /// <summary>
     /// A single, exhaustive test class for deep equality of the Order graph.
     /// It aggregates and extends the existing coverage (collections, polymorphism, dynamics, options).
@@ -28,7 +33,34 @@ namespace DeepEqual.RewrittenTests
             var b = Clone(a);
             Assert.True(a.AreDeepEqual(b));
         }
+        [Fact]
+        public void Lines_KeyedEquality_LargeN_TailValueChange_IsNotEqual()
+        {
+            var a = MakeBaseline();
+            a.Lines = Enumerable.Range(0, 20000)
+                .Select(i => new OrderLine { Sku = $"SKU{i}", Qty = 1, Price = i })
+                .ToList();
+            var b = Clone(a);
+            b.Lines[^1].Qty++; // change at the tail
+            Assert.False(a.AreDeepEqual(b));
+        }
+      
 
+        [Fact]
+        public void PolymorphicList_DeepTailChange_IsNotEqual()
+        {
+            var left = new PolyListHolder
+            {
+                Payload = new List<IShape>(Enumerable.Range(0, 5000).Select(i => (IShape)new Circle { Radius = i }))
+            };
+            var right = new PolyListHolder
+            {
+                Payload = left.Payload.Select(s => s is Circle c ? new Circle { Radius = c.Radius } : s).ToList<IShape>()
+            };
+
+            ((Circle)right.Payload[^1]).Radius += 0.5;
+            Assert.False(left.AreDeepEqual(right));
+        }
         [Fact]
         public void Reflexive_Symmetric_Consistent()
         {
