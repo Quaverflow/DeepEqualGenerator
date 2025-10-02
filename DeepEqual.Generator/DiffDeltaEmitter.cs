@@ -913,46 +913,37 @@ internal sealed class DiffDeltaEmitter
                             w.Line("var __fastMember = __raw[0].MemberIndex;");
                             w.If("__fastMember >= 0", () =>
                             {
-                                w.Line("bool __fastAddsOnly = true;");
-                                w.ForRaw("int __fi=0; __fi<__raw.Length; __fi++", () =>
+                                SwitchChain.Switch(w, "__fastMember", sw =>
                                 {
-                                    w.Line("ref readonly var __fo = ref __raw[__fi];");
-                                    w.Line("if (__fo.Kind != DeepEqual.Generator.Shared.DeltaKind.SeqAddAt || __fo.MemberIndex != __fastMember) { __fastAddsOnly = false; break; }");
-                                });
-                                w.If("__fastAddsOnly", () =>
-                                {
-                                    SwitchChain.Switch(w, "__fastMember", sw =>
+                                    foreach (var info in listMembersForFastLane)
                                     {
-                                        foreach (var info in listMembersForFastLane)
-                                        {
-                                            var member = info.member;
-                                            var ordinal = info.ordinal;
-                                            var memberIdx = info.stableIndex;
-                                            var propAccess = "target." + member.Name;
-                                            var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                            var elFqn = info.elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                            var hasSetter = info.hasSetter;
+                                        var member = info.member;
+                                        var ordinal = info.ordinal;
+                                        var memberIdx = info.stableIndex;
+                                        var propAccess = "target." + member.Name;
+                                        var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                        var elFqn = info.elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                        var hasSetter = info.hasSetter;
 
-                                            sw.Case(memberIdx.ToString(), () =>
+                                        sw.Case(memberIdx.ToString(), () =>
+                                        {
+                                            w.Line($"var __fastValue = {propAccess};");
+                                            if (!hasSetter)
                                             {
-                                                w.Line($"var __fastValue = {propAccess};");
-                                                if (!hasSetter)
-                                                {
-                                                    w.If("__fastValue is null", () => w.Line("break;"));
-                                                }
-                                                w.Line("object? __fastList = __fastValue;");
-                                                w.If($"DeepEqual.Generator.Shared.DeltaHelpers.TryApplyListSeqAddFastLane<{elFqn}>(ref __fastList, __raw)", () =>
-                                                {
-                                                    if (hasSetter)
-                                                        w.Line($"{propAccess} = ({typeFqn})__fastList;");
-                                                    if (!type.IsValueType && deltaTracked)
-                                                        w.Line($"target.__ClearDirtyBit({ordinal});");
-                                                    w.Line("return;");
-                                                });
-                                                w.Line("break;");
+                                                w.If("__fastValue is null", () => w.Line("break;"));
+                                            }
+                                            w.Line("object? __fastList = __fastValue;");
+                                            w.If($"DeepEqual.Generator.Shared.DeltaHelpers.TryApplyListSeqAddFastLane<{elFqn}>(ref __fastList, __raw)", () =>
+                                            {
+                                                if (hasSetter)
+                                                    w.Line($"{propAccess} = ({typeFqn})__fastList;");
+                                                if (!type.IsValueType && deltaTracked)
+                                                    w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                w.Line("return;");
                                             });
-                                        }
-                                    });
+                                            w.Line("break;");
+                                        });
+                                    }
                                 });
                             });
                         });

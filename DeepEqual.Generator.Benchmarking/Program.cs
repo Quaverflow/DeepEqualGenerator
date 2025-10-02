@@ -692,6 +692,13 @@ public sealed class DevConfig : ManualConfig
 {
     public static void Main(string[] args)
     {
+        var config = DefaultConfig.Instance.WithArtifactsPath(@"C:\Users\mirko\Downloads\benc");
+        if (args is { Length: > 0 })
+        {
+            BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, config);
+            return;
+        }
+
         BenchmarkRunner.Run(
         [
             //typeof(Competitors_Adds_Benches),
@@ -701,7 +708,7 @@ public sealed class DevConfig : ManualConfig
             //typeof(ExtraDirtyBitBenches),
             //typeof(ExtraEqualityBenches),
             //typeof(ExtraPolymorphicBenches),
-        ], DefaultConfig.Instance.WithArtifactsPath(@"C:\Users\mirko\Downloads\benc"));
+        ], config);
     }
 }
 

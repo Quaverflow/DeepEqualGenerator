@@ -339,6 +339,10 @@ public static class DeltaHelpers
         if (ops.Length == 0)
             return false;
 
+        var expectedMember = ops[0].MemberIndex;
+        if (expectedMember < 0)
+            return false;
+
         List<T>? list;
 
         if (target is List<T> existing)
@@ -355,23 +359,23 @@ public static class DeltaHelpers
             return false;
         }
 
+        var baseSpan = CollectionsMarshal.AsSpan(list);
+        var baseCount = baseSpan.Length;
         var comparer = EqualityComparer<T>.Default;
-        var span = CollectionsMarshal.AsSpan(list);
-        var baseCount = span.Length;
-        var logicalCount = baseCount;
-        var itemsToAppend = 0;
-        var prevIndex = -1;
+        var isRefType = !typeof(T).IsValueType;
 
-        T lastValue = default!;
+        var currentCount = baseCount;
+        var prevIndex = -1;
+        var ensureCapacityDone = false;
+
         var hasLast = baseCount > 0;
-        if (hasLast)
-            lastValue = span[baseCount - 1];
+        T lastValue = hasLast ? baseSpan[baseCount - 1] : default!;
 
         for (var i = 0; i < ops.Length; i++)
         {
             ref readonly var op = ref ops[i];
 
-            if (op.Kind != DeltaKind.SeqAddAt)
+            if (op.Kind != DeltaKind.SeqAddAt || op.MemberIndex != expectedMember)
                 return false;
 
             var rawIndex = op.Index;
@@ -387,65 +391,58 @@ public static class DeltaHelpers
 
             if (rawIndex < baseCount)
             {
-                if (!comparer.Equals(span[rawIndex], value))
+                var existingValue = baseSpan[rawIndex];
+                bool equal;
+                if (isRefType)
+                {
+                    equal = ReferenceEquals(existingValue, value) || comparer.Equals(existingValue, value);
+                }
+                else
+                {
+                    equal = comparer.Equals(existingValue, value);
+                }
+
+                if (!equal)
                     return false;
+
                 if (rawIndex == baseCount - 1)
                 {
-                    lastValue = span[rawIndex];
+                    lastValue = existingValue;
                     hasLast = true;
                 }
+
                 continue;
             }
 
-            if (rawIndex != logicalCount)
+            if (rawIndex != currentCount)
                 return false;
 
-            if (hasLast && comparer.Equals(lastValue, value))
-                continue;
+            if (!ensureCapacityDone)
+            {
+                list.EnsureCapacity(currentCount + (ops.Length - i));
+                baseSpan = CollectionsMarshal.AsSpan(list);
+                ensureCapacityDone = true;
+            }
 
-            logicalCount++;
-            itemsToAppend++;
+            if (hasLast)
+            {
+                bool same = isRefType
+                    ? ReferenceEquals(lastValue, value) || comparer.Equals(lastValue, value)
+                    : comparer.Equals(lastValue, value);
+                if (same)
+                    continue;
+            }
+
+            list.Add(value);
+            currentCount++;
             lastValue = value;
             hasLast = true;
         }
 
-        if (itemsToAppend == 0)
-            return true;
-
-        var targetList = list!;
-        if (targetList.Capacity < baseCount + itemsToAppend)
-            targetList.EnsureCapacity(baseCount + itemsToAppend);
-
-        logicalCount = baseCount;
-        hasLast = baseCount > 0;
-        if (hasLast)
-            lastValue = targetList[baseCount - 1];
-
-        for (var i = 0; i < ops.Length; i++)
-        {
-            ref readonly var op = ref ops[i];
-            var idx = op.Index;
-
-            if (idx < baseCount)
-                continue;
-
-            if (idx != logicalCount)
-                continue;
-
-            var value = (T)op.Value!;
-
-            if (hasLast && comparer.Equals(lastValue, value))
-                continue;
-
-            targetList.Add(value);
-            logicalCount++;
-            lastValue = value;
-            hasLast = true;
-        }
-
-        target = targetList;
+        target = list;
         return true;
     }
+
 
     public static void ComputeListDeltaNested<T>(
         IList<T>? left,
@@ -471,6 +468,23 @@ public static class DeltaHelpers
 
         var la = leftList.Count;
         var lb = rightList.Count;
+
+        if (la == 0)
+        {
+            if (lb == 0)
+                return;
+
+            for (var i = 0; i < lb; i++)
+                writer.WriteSeqAddAt(memberIndex, i, rightAccessor[i]);
+            return;
+        }
+
+        if (lb == 0)
+        {
+            for (var i = la - 1; i >= 0; i--)
+                writer.WriteSeqRemoveAt(memberIndex, i, leftAccessor[i]);
+            return;
+        }
 
         var elementComparer = new ListElementComparer<T>(context);
 
@@ -596,6 +610,23 @@ public static class DeltaHelpers
 
         int na = left.Count;
         int nb = right.Count;
+
+        if (na == 0)
+        {
+            if (nb == 0)
+                return;
+
+            for (int i = 0; i < nb; i++)
+                writer.WriteSeqAddAt(memberIndex, i, right[i]);
+            return;
+        }
+
+        if (nb == 0)
+        {
+            for (int i = na - 1; i >= 0; i--)
+                writer.WriteSeqRemoveAt(memberIndex, i, left[i]);
+            return;
+        }
 
         // -------- SINGLE-INSERT FAST PATH (pick earliest feasible k) --------
         // Find the smallest k in [0..na] such that:
@@ -1476,4 +1507,3 @@ public static class DeltaHelpers
         return false;
     }
 }
-
