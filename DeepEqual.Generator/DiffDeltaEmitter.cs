@@ -1,10 +1,11 @@
-﻿using System;
+﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Text;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.Text;
 
 namespace DeepEqual.Generator;
 
@@ -85,7 +86,12 @@ internal sealed class DiffDeltaEmitter
         });
 
         var text = w.ToString();
-        spc.AddSource(hintName, SourceText.From(text, Encoding.UTF8));
+
+        var tree = CSharpSyntaxTree.ParseText(text);
+        var rootStx = tree.GetRoot();
+
+        var formatted = rootStx.NormalizeWhitespace().ToFullString();
+        spc.AddSource(hintName, SourceText.From(formatted, Encoding.UTF8));
 
         if (HasDeltaTrack(root.Type))
             EmitDeltaTrackPart(spc, root.Type, root);
