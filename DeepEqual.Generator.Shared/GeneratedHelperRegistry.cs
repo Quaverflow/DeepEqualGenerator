@@ -94,6 +94,44 @@ public static class GeneratedHelperRegistry
 
 
     /// <summary>
+    ///     Attempts to retrieve the registered deep equality comparer for the given runtime type.
+    /// </summary>
+    public static bool TryGetComparerSameType(Type runtimeType, out Func<object, object, ComparisonContext, bool>? comparer)
+    {
+        if (_eqMap.TryGetValue(runtimeType, out var fn))
+        {
+            comparer = fn;
+            return true;
+        }
+
+        if (_eqMiss.TryGetValue(runtimeType, out _))
+        {
+            comparer = null;
+            return false;
+        }
+
+        for (var bt = runtimeType.BaseType; bt is not null; bt = bt.BaseType)
+            if (_eqMap.TryGetValue(bt, out var baseFn))
+            {
+                _eqMap.TryAdd(runtimeType, baseFn);
+                comparer = baseFn;
+                return true;
+            }
+
+        foreach (var i in runtimeType.GetInterfaces())
+            if (_eqMap.TryGetValue(i, out var ifaceFn))
+            {
+                _eqMap.TryAdd(runtimeType, ifaceFn);
+                comparer = ifaceFn;
+                return true;
+            }
+
+        _eqMiss.TryAdd(runtimeType, true);
+        comparer = null;
+        return false;
+    }
+
+    /// <summary>
     ///     Attempts to compare two objects; succeeds when both are null, reference-equal, or share the same runtime type with
     ///     a registered comparer.
     /// </summary>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Dynamic;
@@ -231,7 +231,7 @@ public static class DeltaHelpers
             return;
         }
 
-        // clone path (IReadOnlyList / IEnumerable → clone)
+        // clone path (IReadOnlyList / IEnumerable -> clone)
         List<T> clone;
         if (target is IReadOnlyList<T> ro)
         {
@@ -321,6 +321,7 @@ public static class DeltaHelpers
         target = clone;
     }
 
+
     public static void ComputeListDeltaNested<T>(
         IList<T>? left,
         IList<T>? right,
@@ -337,21 +338,26 @@ public static class DeltaHelpers
             return;
         }
 
-        var la = left.Count;
-        var lb = right.Count;
+        var leftList = left;
+        var rightList = right;
+
+        var leftAccessor = new ListReadAccessor<T>(leftList);
+        var rightAccessor = new ListReadAccessor<T>(rightList);
+
+        var la = leftList.Count;
+        var lb = rightList.Count;
+
+        var elementComparer = new ListElementComparer<T>(context);
 
         var prefix = 0;
         var maxPrefix = Math.Min(la, lb);
-        while (prefix < maxPrefix && ComparisonHelpers.DeepComparePolymorphic(left[prefix], right[prefix], context))
+        while (prefix < maxPrefix && elementComparer.AreEqual(leftAccessor[prefix], rightAccessor[prefix]))
             prefix++;
 
         var suffix = 0;
         var maxSuffix = Math.Min(la - prefix, lb - prefix);
         while (suffix < maxSuffix &&
-               ComparisonHelpers.DeepComparePolymorphic(
-                   left[la - 1 - suffix],
-                   right[lb - 1 - suffix],
-                   context))
+               elementComparer.AreEqual(leftAccessor[la - 1 - suffix], rightAccessor[lb - 1 - suffix]))
             suffix++;
 
         var ra = la - prefix - suffix;
@@ -359,7 +365,6 @@ public static class DeltaHelpers
         if (ra == 0 && rb == 0)
             return;
 
-        // Duplicate-aware alignment (prefer largest k to capture pre-inserts)
         if (rb >= ra && ra > 0)
         {
             var addBudget = rb - ra;
@@ -369,14 +374,13 @@ public static class DeltaHelpers
             {
                 var match = true;
                 for (var i = 0; i < ra; i++)
-                    if (!ComparisonHelpers.DeepComparePolymorphic(
-                            left[prefix + i],
-                            right[prefix + k + i],
-                            context))
+                {
+                    if (!elementComparer.AreEqual(leftAccessor[prefix + i], rightAccessor[prefix + k + i]))
                     {
                         match = false;
                         break;
                     }
+                }
 
                 if (match)
                 {
@@ -388,14 +392,14 @@ public static class DeltaHelpers
             if (chosenK >= 0)
             {
                 for (var i = 0; i < chosenK; i++)
-                    writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+                    writer.WriteSeqAddAt(memberIndex, prefix + i, rightAccessor[prefix + i]);
 
                 var alignedLen = ra;
                 var tailAdds = addBudget - chosenK;
                 for (var i = 0; i < tailAdds; i++)
                 {
                     var insertIndex = prefix + chosenK + alignedLen + i;
-                    writer.WriteSeqAddAt(memberIndex, insertIndex, right[insertIndex]);
+                    writer.WriteSeqAddAt(memberIndex, insertIndex, rightAccessor[insertIndex]);
                 }
 
                 return;
@@ -407,10 +411,13 @@ public static class DeltaHelpers
         for (var i = 0; i < common; i++)
         {
             var ai = prefix + i;
-            if (!ComparisonHelpers.DeepComparePolymorphic(left[ai], right[ai], context))
+            var leftValue = leftAccessor[ai];
+            var rightValue = rightAccessor[ai];
+
+            if (!elementComparer.AreEqual(leftValue, rightValue))
             {
-                var lo = (object?)left[ai];
-                var ro = (object?)right[ai];
+                var lo = (object?)leftValue;
+                var ro = (object?)rightValue;
 
                 if (lo is not null && ro is not null && ReferenceEquals(lo.GetType(), ro.GetType()))
                 {
@@ -419,22 +426,31 @@ public static class DeltaHelpers
                     var had = !w.Document.IsEmpty;
                     scope.Dispose();
 
-                    if (!had) writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+                    if (!had) writer.WriteSeqReplaceAt(memberIndex, ai, rightValue);
                 }
                 else
                 {
-                    writer.WriteSeqReplaceAt(memberIndex, ai, right[ai]);
+                    writer.WriteSeqReplaceAt(memberIndex, ai, rightValue);
                 }
             }
         }
 
         if (ra > rb)
+        {
             for (var i = ra - 1; i >= rb; i--)
-                writer.WriteSeqRemoveAt(memberIndex, prefix + i, left[prefix + i]);   // expected value
+            {
+                var idx = prefix + i;
+                writer.WriteSeqRemoveAt(memberIndex, idx, leftAccessor[idx]);
+            }
+        }
         else if (rb > ra)
+        {
             for (var i = ra; i < rb; i++)
-                writer.WriteSeqAddAt(memberIndex, prefix + i, right[prefix + i]);
+                writer.WriteSeqAddAt(memberIndex, prefix + i, rightAccessor[prefix + i]);
+        }
     }
+
+
 
     public static void ComputeListDelta<T, TComparer>(
         IList<T>? left,
@@ -1001,7 +1017,7 @@ public static class DeltaHelpers
     }
 
     // ------------------------------------------------------------
-    // APPLY — DICTIONARY OPS
+    // APPLY � DICTIONARY OPS
     // ------------------------------------------------------------
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1129,7 +1145,7 @@ public static class DeltaHelpers
                 return;
             }
 
-            // Any IReadOnlyDictionary<,> — don't mutate via nested delta
+            // Any IReadOnlyDictionary<,> � don't mutate via nested delta
             var ifaces = curVal?.GetType().GetInterfaces();
             if (ifaces != null)
             {
@@ -1157,6 +1173,108 @@ public static class DeltaHelpers
     // PRIVATE HELPERS
     // ------------------------------------------------------------
 
+
+
+    private struct ListElementComparer<TElement>
+    {
+        private readonly ComparisonContext _context;
+        private readonly bool _isValueType;
+        private Type? _cachedType;
+        private Func<object, object, ComparisonContext, bool>? _cachedComparer;
+        private bool _hasCachedComparer;
+
+        public ListElementComparer(ComparisonContext context)
+        {
+            _context = context;
+            _isValueType = typeof(TElement).IsValueType;
+            if (_isValueType && GeneratedHelperRegistry.TryGetComparerSameType(typeof(TElement), out _cachedComparer))
+            {
+                _cachedType = typeof(TElement);
+                _hasCachedComparer = true;
+            }
+            else
+            {
+                _cachedType = _isValueType ? typeof(TElement) : null;
+                _cachedComparer = null;
+                _hasCachedComparer = false;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool AreEqual(TElement left, TElement right)
+        {
+            if (_isValueType)
+            {
+                if (_hasCachedComparer && _cachedComparer is not null)
+                {
+                    object lo = left!;
+                    object ro = right!;
+                    return _cachedComparer(lo, ro, _context);
+                }
+
+                return EqualityComparer<TElement>.Default.Equals(left, right);
+            }
+
+            if (ReferenceEquals(left, right))
+                return true;
+
+            if (left is null || right is null)
+                return false;
+
+            object ol = left;
+            object orr = right;
+
+            var typeL = ol.GetType();
+            var typeR = orr.GetType();
+            if (!ReferenceEquals(typeL, typeR))
+                return ComparisonHelpers.DeepComparePolymorphic(left, right, _context);
+
+            if (!ReferenceEquals(typeL, _cachedType))
+            {
+                _hasCachedComparer = GeneratedHelperRegistry.TryGetComparerSameType(typeL, out _cachedComparer);
+                _cachedType = typeL;
+            }
+
+            if (_hasCachedComparer && _cachedComparer is not null)
+                return _cachedComparer(ol, orr, _context);
+
+            return ComparisonHelpers.DeepComparePolymorphic(left, right, _context);
+        }
+    }
+
+
+
+    private readonly ref struct ListReadAccessor<TElement>
+    {
+        private readonly ReadOnlySpan<TElement> _span;
+        private readonly IList<TElement>? _list;
+        private readonly bool _hasSpan;
+
+        public ListReadAccessor(IList<TElement> source)
+        {
+            if (source is List<TElement> list)
+            {
+                _span = CollectionsMarshal.AsSpan(list);
+                _list = null;
+                _hasSpan = true;
+            }
+            else if (source is TElement[] array)
+            {
+                _span = array;
+                _list = null;
+                _hasSpan = true;
+            }
+            else
+            {
+                _span = default;
+                _list = source;
+                _hasSpan = false;
+            }
+        }
+
+        public TElement this[int index] => _hasSpan ? _span[index] : _list![index];
+    }
+
     private static bool IsReadOnlyDictionary(object? o, out object? roDict)
     {
         roDict = null;
@@ -1172,3 +1290,4 @@ public static class DeltaHelpers
         return false;
     }
 }
+
