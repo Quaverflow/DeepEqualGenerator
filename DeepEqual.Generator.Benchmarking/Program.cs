@@ -454,13 +454,13 @@ public class ExtraApplyClonePathBenches
         _targetList = _targetList.ApplyDeepDelta(_addsDoc); // touch paths
     }
 
-    [Benchmark(Description = "ApplyDelta -> List<T> (in-place path, pre-sized)")]
-    public int Apply_To_List()
-    {
-        var t = new WithList_Extra { Lines = new List<ValueLine_Extra>() };
-        t = t.ApplyDeepDelta(_addsDoc);
-        return t.Lines.Count;
-    }
+    //[Benchmark(Description = "ApplyDelta -> List<T> (in-place path, pre-sized)")]
+    //public int Apply_To_List()
+    //{
+    //    var t = new WithList_Extra { Lines = new List<ValueLine_Extra>() };
+    //    t = t.ApplyDeepDelta(_addsDoc);
+    //    return t.Lines.Count;
+    //}
 
     [Benchmark(Description = "ApplyDelta -> IReadOnlyList<T> (clone path)")]
     public int Apply_To_ReadOnlyList()

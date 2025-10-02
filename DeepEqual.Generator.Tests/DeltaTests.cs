@@ -11,6 +11,20 @@ using static DeepEqual.RewrittenTests.UnifiedFixture;
 
 namespace DeepEqual.RewrittenTests
 {
+    [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+    public sealed class RoHolder
+    {
+        // Start as IReadOnlyList so apply must clone on first pass
+        public IReadOnlyList<VLE> Lines { get; set; } = Array.AsReadOnly(Array.Empty<VLE>());
+    }
+
+    [DeepCompare] // simple element; generated equality available if ever needed
+    public sealed class VLE
+    {
+        public int V { get; set; }
+    }
+
+
     /// <summary>
     /// Delta (patch) tests that mirror the scope of our Diff and Eq coverage.
     /// Uses extension-method surface: ComputeDeepDelta / ApplyDeepDelta / IsEmpty.
@@ -506,6 +520,47 @@ namespace DeepEqual.RewrittenTests
             var before = Clone(a);
             Apply(ref a, d);
             Assert.True(a.AreDeepEqual(before));
+        }
+
+        [Fact]
+        public void Apply_To_IReadOnlyList_ClonePath_Works_And_Is_Idempotent()
+        {
+            const int N = 1234;
+
+            // Arrange
+            var left = new RoHolder();
+            var oldLines = left.Lines; // capture original RO instance
+
+            var right = new RoHolder
+            {
+                Lines = Array.AsReadOnly(
+                    Enumerable.Range(0, N).Select(i => new VLE { V = i }).ToArray()
+                )
+            };
+
+            var ctx = new ComparisonContext();
+            var doc = left.ComputeDeepDelta(right, ctx);
+
+            // Act
+            object? boxed = left;
+            var reader = new DeltaReader(doc);
+            var ok = GeneratedHelperRegistry.TryApplyDeltaSameType(typeof(RoHolder), ref boxed, ref reader);
+            Assert.True(ok);
+
+            var after = Assert.IsType<RoHolder>(boxed);
+
+            Assert.NotSame(oldLines, after.Lines);
+            Assert.Equal(N, after.Lines.Count);
+            Assert.IsAssignableFrom<IReadOnlyList<VLE>>(after.Lines);
+
+            var linesAfterFirst = after.Lines;
+            object? boxed2 = after;
+            var reader2 = new DeltaReader(doc);
+            ok = GeneratedHelperRegistry.TryApplyDeltaSameType(typeof(RoHolder), ref boxed2, ref reader2);
+            Assert.True(ok);
+            var after2 = Assert.IsType<RoHolder>(boxed2);
+            Assert.Same(linesAfterFirst, after2.Lines); // in-place, no replacement
+            Assert.Equal(N, after2.Lines.Count);
         }
 
         [Fact]
