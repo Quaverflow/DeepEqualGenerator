@@ -1,6 +1,5 @@
 ﻿// Program.cs
 #nullable enable
-using System.Buffers;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
@@ -8,7 +7,11 @@ using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.InProcess.NoEmit;
 using DeepEqual;
 using DeepEqual.Generator.Shared;
+using Microsoft.AspNetCore.JsonPatch;
+using Microsoft.AspNetCore.JsonPatch.Operations;
 using Perfolizer.Horology;
+using System.Buffers;
+using System.Collections.Immutable;
 
 namespace DeepEqual.Generator.Benchmarking;
 // ===============================================================
@@ -506,19 +509,191 @@ public sealed class DevConfig : ManualConfig
     }
 }
 
+    /// <summary>
+    /// Apples-to-apples competitors for "apply N adds to a list" — no pre-serialization anywhere.
+    /// Compares DeepEqual delta vs JsonPatchDocument vs Manual in-memory ops vs Immutable list path.
+    /// </summary>
+    [MemoryDiagnoser]
+    public class Competitors_Adds_Benches
+    {
+        [Params(100, 1_000, 5_000)]
+        public int Adds;
 
-public class Program
+        // Reuse your element type for parity
+        [DeepCompare]
+        public sealed class VLine { public int V { get; set; } }
+
+        // Simple strongly-typed holder used by all competitors
+        [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+        public sealed class Holder
+        {
+            public List<VLine> Lines { get; set; } = new();
+        }
+
+    // -------------------------
+    // Artifacts prebuilt in GlobalSetup (no serialization)
+    // -------------------------
+
+    // DeepEqual
+    public DeltaDocument _deepeqAddsDoc = default!;
+        public ComparisonContext _ctx = default!;
+
+    // JsonPatch
+    public JsonPatchDocument<Holder> _jsonPatchAdds = default!;
+
+    // Manual (naïve) ops
+    public struct AddOp { public int Index; public VLine Value; }
+    public List<AddOp> _manualAdds = default!;
+
+        // Immutable (builder-friendly form of the same ops)
+        private List<VLine> _immutableAddsValues = default!; // values in insertion order
+
+        [GlobalSetup]
+        public void Setup()
+        {
+            // DeepEqual delta: build SeqAddAt ops in-memory
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            for (int i = 0; i < Adds; i++)
+                w.WriteSeqAddAt(memberIndex: 0, index: i, value: new VLine { V = i });
+            _deepeqAddsDoc = doc;
+            _ctx = new ComparisonContext();
+
+            // JsonPatch: build RFC6902-style "add" operations (no serialization)
+            var patch = new JsonPatchDocument<Holder>();
+            for (int i = 0; i < Adds; i++)
+            {
+                patch.Operations.Add(new Operation<Holder>(
+                    op: "add",
+                    path: $"/Lines/{i}",
+                    from: null,
+                    value: new VLine { V = i }
+                ));
+            }
+            _jsonPatchAdds = patch;
+
+            // Manual ops: strongly-typed list of (index, value)
+            _manualAdds = new List<AddOp>(Adds);
+            for (int i = 0; i < Adds; i++)
+                _manualAdds.Add(new AddOp { Index = i, Value = new VLine { V = i } });
+
+            // Immutable: just the values (we’ll Insert at index each time to mirror others)
+            _immutableAddsValues = new List<VLine>(Adds);
+            for (int i = 0; i < Adds; i++)
+                _immutableAddsValues.Add(new VLine { V = i });
+        }
+
+        // -------------------------
+        // BUILD (how expensive it is to AUTHOR the change set)
+        // -------------------------
+
+        [Benchmark(Description = "DeepEqual Build (adds doc)")]
+        public DeltaDocument DeepEqual_Build_AddsDoc()
+        {
+            var doc = new DeltaDocument();
+            var w = new DeltaWriter(doc);
+            for (int i = 0; i < Adds; i++)
+                w.WriteSeqAddAt(memberIndex: 0, index: i, value: new VLine { V = i });
+            return doc;
+        }
+
+        [Benchmark(Description = "JsonPatch Build (adds patch)")]
+        public JsonPatchDocument<Holder> JsonPatch_Build_AddsPatch()
+        {
+            var patch = new JsonPatchDocument<Holder>();
+            for (int i = 0; i < Adds; i++)
+            {
+                patch.Operations.Add(new Operation<Holder>(
+                    op: "add",
+                    path: $"/Lines/{i}",
+                    from: null,
+                    value: new VLine { V = i }
+                ));
+            }
+            return patch;
+        }
+
+        [Benchmark(Description = "Manual Build (adds ops)")]
+        public List<AddOp> Manual_Build_Adds()
+        {
+            var ops = new List<AddOp>(Adds);
+            for (int i = 0; i < Adds; i++)
+                ops.Add(new AddOp { Index = i, Value = new VLine { V = i } });
+            return ops;
+        }
+
+        [Benchmark(Description = "Immutable Build (values only)")]
+        public List<VLine> Immutable_Build_Values()
+        {
+            var vals = new List<VLine>(Adds);
+            for (int i = 0; i < Adds; i++)
+                vals.Add(new VLine { V = i });
+            return vals;
+        }
+
+        // -------------------------
+        // APPLY (apply the prebuilt change set to an empty target)
+        // -------------------------
+
+        [Benchmark(Description = "DeepEqual Apply (adds doc)")]
+        public int DeepEqual_Apply_AddsDoc()
+        {
+            var target = new Holder { Lines = new List<VLine>() };
+            target = target.ApplyDeepDelta(_deepeqAddsDoc);
+            return target.Lines.Count;
+        }
+
+        [Benchmark(Description = "JsonPatch Apply (adds patch)")]
+        public int JsonPatch_Apply_AddsPatch()
+        {
+            var target = new Holder { Lines = new List<VLine>() };
+            _jsonPatchAdds.ApplyTo(target);
+            return target.Lines.Count;
+        }
+
+        [Benchmark(Description = "Manual Apply (adds ops)")]
+        public int Manual_Apply_Adds()
+        {
+            var list = new List<VLine>(Adds);
+            // Insert at specified index to match the semantics of the other patches
+            // (here all indices are i, so this is effectively Append for our scenario)
+            for (int i = 0; i < _manualAdds.Count; i++)
+            {
+                var op = _manualAdds[i];
+                int idx = op.Index;
+                if ((uint)idx > (uint)list.Count) idx = list.Count; // clamp like others
+                if (idx == list.Count) list.Add(op.Value);
+                else list.Insert(idx, op.Value);
+            }
+            return list.Count;
+        }
+
+        [Benchmark(Description = "Immutable Apply (Insert)")]
+        public int Immutable_Apply_Insert()
+        {
+            var im = ImmutableList<VLine>.Empty;
+            for (int i = 0; i < _immutableAddsValues.Count; i++)
+            {
+                // Insert at i to mirror other competitors; this is intentionally expensive
+                im = im.Insert(i, _immutableAddsValues[i]);
+            }
+            return im.Count;
+        }
+    }
+
+    public class Program
 {
     public static void Main(string[] args)
     {
         BenchmarkRunner.Run(
         [
-            typeof(ExtraApplyClonePathBenches),
-            typeof(ExtraArrayVsListBenches),
-            typeof(ExtraCodecBenches),
-            typeof(ExtraDirtyBitBenches),
-            typeof(ExtraEqualityBenches),
-            typeof(ExtraPolymorphicBenches),
+            typeof(Competitors_Adds_Benches),
+            //typeof(ExtraApplyClonePathBenches),
+            //typeof(ExtraArrayVsListBenches),
+            //typeof(ExtraCodecBenches),
+            //typeof(ExtraDirtyBitBenches),
+            //typeof(ExtraEqualityBenches),
+            //typeof(ExtraPolymorphicBenches),
         ], DefaultConfig.Instance.WithArtifactsPath(@"C:\Users\mirko\Downloads\benc"));
     }
 }
