@@ -1,4 +1,4 @@
-ï»¿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using System;
@@ -882,6 +882,20 @@ internal sealed class DiffDeltaEmitter
                 return "";
             }
 
+            var orderedMembersForApply = OrderMembers(EnumerateMembers(type, root.IncludeInternals, root.IncludeBaseMembers, schema))
+                .Select((ms, ordinal) => (ms, ordinal, stableIndex: GetStableMemberIndex(type, ms)))
+                .ToArray();
+
+            var listMembersForFastLane = new System.Collections.Generic.List<(DiffDeltaMemberSymbol member, int ordinal, int stableIndex, ITypeSymbol elementType, bool hasSetter)>();
+            foreach (var entry in orderedMembersForApply)
+            {
+                if (TryGetListInterface(entry.ms.Type, out var elementType) && entry.ms.Type is not IArrayTypeSymbol)
+                {
+                    var hasSetter = entry.ms.Symbol is IPropertySymbol ps && ps.SetMethod is not null;
+                    listMembersForFastLane.Add((entry.ms, entry.ordinal, entry.stableIndex, elementType, hasSetter));
+                }
+            }
+
             w.Method(
                 $"private static void ApplyDelta__{id}{helperTypeParameterList}(ref {fqn}{nullSuffix} target, ref DeepEqual.Generator.Shared.DeltaReader reader){helperConstraints}",
             () =>
@@ -889,24 +903,88 @@ internal sealed class DiffDeltaEmitter
                 // Normalize ops from the reader to drop in-document duplicates that can surface
                 // when the delta is materialized from multiple arrays (e.g., Ops + Operations).
                 w.Line("var __raw = reader.AsSpan();");
+
+                if (listMembersForFastLane.Count > 0)
+                {
+                    void EmitListFastLane()
+                    {
+                        w.If("__raw.Length > 0", () =>
+                        {
+                            w.Line("var __fastMember = __raw[0].MemberIndex;");
+                            w.If("__fastMember >= 0", () =>
+                            {
+                                w.Line("bool __fastAddsOnly = true;");
+                                w.ForRaw("int __fi=0; __fi<__raw.Length; __fi++", () =>
+                                {
+                                    w.Line("ref readonly var __fo = ref __raw[__fi];");
+                                    w.Line("if (__fo.Kind != DeepEqual.Generator.Shared.DeltaKind.SeqAddAt || __fo.MemberIndex != __fastMember) { __fastAddsOnly = false; break; }");
+                                });
+                                w.If("__fastAddsOnly", () =>
+                                {
+                                    SwitchChain.Switch(w, "__fastMember", sw =>
+                                    {
+                                        foreach (var info in listMembersForFastLane)
+                                        {
+                                            var member = info.member;
+                                            var ordinal = info.ordinal;
+                                            var memberIdx = info.stableIndex;
+                                            var propAccess = "target." + member.Name;
+                                            var typeFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                            var elFqn = info.elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                            var hasSetter = info.hasSetter;
+
+                                            sw.Case(memberIdx.ToString(), () =>
+                                            {
+                                                w.Line($"var __fastValue = {propAccess};");
+                                                if (!hasSetter)
+                                                {
+                                                    w.If("__fastValue is null", () => w.Line("break;"));
+                                                }
+                                                w.Line("object? __fastList = __fastValue;");
+                                                w.If($"DeepEqual.Generator.Shared.DeltaHelpers.TryApplyListSeqAddFastLane<{elFqn}>(ref __fastList, __raw)", () =>
+                                                {
+                                                    if (hasSetter)
+                                                        w.Line($"{propAccess} = ({typeFqn})__fastList;");
+                                                    if (!type.IsValueType && deltaTracked)
+                                                        w.Line($"target.__ClearDirtyBit({ordinal});");
+                                                    w.Line("return;");
+                                                });
+                                                w.Line("break;");
+                                            });
+                                        }
+                                    });
+                                });
+                            });
+                        });
+                    }
+
+                    if (!type.IsValueType)
+                    {
+                        w.If("target is not null", () => EmitListFastLane());
+                    }
+                    else
+                    {
+                        EmitListFastLane();
+                    }
+                }
+
                 w.Line("var __norm = new System.Collections.Generic.List<DeepEqual.Generator.Shared.DeltaOp>(__raw.Length);");
-                w.Line("var __seenRemoveIdxDoc = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
-                w.Line("var __seenAddAtDoc     = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
+                w.Line("System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>? __seenRemoveIdxDoc = null;");
+                w.Line("System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>? __seenAddAtDoc = null;");
 
                 w.ForRaw("int __i=0; __i<__raw.Length; __i++", () =>
                 {
                     w.Line("ref readonly var __o = ref __raw[__i];");
 
-                    // Deduplicate: one RemoveAt per (memberIndex, index) per document
                     w.If("__o.Kind == DeepEqual.Generator.Shared.DeltaKind.SeqRemoveAt", () =>
                     {
+                        w.Line("__seenRemoveIdxDoc ??= new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
                         w.Line("if (!__seenRemoveIdxDoc.TryGetValue(__o.MemberIndex, out var __rem)) __seenRemoveIdxDoc[__o.MemberIndex] = __rem = new System.Collections.Generic.HashSet<int>();");
                         w.Line("if (!__rem.Add(__o.Index)) continue;");
                     });
-
-                    // Deduplicate: one AddAt per (memberIndex, index) per document
                     w.If("__o.Kind == DeepEqual.Generator.Shared.DeltaKind.SeqAddAt", () =>
                     {
+                        w.Line("__seenAddAtDoc ??= new System.Collections.Generic.Dictionary<int, System.Collections.Generic.HashSet<int>>();");
                         w.Line("if (!__seenAddAtDoc.TryGetValue(__o.MemberIndex, out var __adds)) __seenAddAtDoc[__o.MemberIndex] = __adds = new System.Collections.Generic.HashSet<int>();");
                         w.Line("if (!__adds.Add(__o.Index)) continue;");
                     });
@@ -914,8 +992,7 @@ internal sealed class DiffDeltaEmitter
                     w.Line("__norm.Add(__o);");
                 });
 
-                w.Line("var __opsArr = __norm.ToArray();");
-                w.Line("var __ops = __opsArr.AsSpan();");
+                w.Line("var __ops = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(__norm);");
 
 
                 // early ReplaceObject
@@ -1142,8 +1219,8 @@ internal sealed class DiffDeltaEmitter
                                             }
 
                                             EmitListOp("SeqReplaceAt", "__obj_seq_r");
-                                            // One AddAt per (member, index) within this documentâ€™s apply pass
-                                            // One AddAt per (member, index) within this documentâ€™s apply pass
+                                            // One AddAt per (member, index) within this document’s apply pass
+                                            // One AddAt per (member, index) within this document’s apply pass
                                             swKind.Case("DeepEqual.Generator.Shared.DeltaKind.SeqAddAt", () =>
                                             {
                                                 // ensure per-member set exists (use STABLE member index used in op.MemberIndex)

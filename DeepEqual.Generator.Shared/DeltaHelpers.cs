@@ -333,6 +333,119 @@ public static class DeltaHelpers
         target = clone;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool TryApplyListSeqAddFastLane<T>(ref object? target, ReadOnlySpan<DeltaOp> ops)
+    {
+        if (ops.Length == 0)
+            return false;
+
+        List<T>? list;
+
+        if (target is List<T> existing)
+        {
+            list = existing;
+        }
+        else if (target is null)
+        {
+            list = new List<T>(ops.Length);
+            target = list;
+        }
+        else
+        {
+            return false;
+        }
+
+        var comparer = EqualityComparer<T>.Default;
+        var span = CollectionsMarshal.AsSpan(list);
+        var baseCount = span.Length;
+        var logicalCount = baseCount;
+        var itemsToAppend = 0;
+        var prevIndex = -1;
+
+        T lastValue = default!;
+        var hasLast = baseCount > 0;
+        if (hasLast)
+            lastValue = span[baseCount - 1];
+
+        for (var i = 0; i < ops.Length; i++)
+        {
+            ref readonly var op = ref ops[i];
+
+            if (op.Kind != DeltaKind.SeqAddAt)
+                return false;
+
+            var rawIndex = op.Index;
+            if (rawIndex < 0)
+                return false;
+
+            if (rawIndex <= prevIndex)
+                return false;
+
+            prevIndex = rawIndex;
+
+            var value = (T)op.Value!;
+
+            if (rawIndex < baseCount)
+            {
+                if (!comparer.Equals(span[rawIndex], value))
+                    return false;
+                if (rawIndex == baseCount - 1)
+                {
+                    lastValue = span[rawIndex];
+                    hasLast = true;
+                }
+                continue;
+            }
+
+            if (rawIndex != logicalCount)
+                return false;
+
+            if (hasLast && comparer.Equals(lastValue, value))
+                continue;
+
+            logicalCount++;
+            itemsToAppend++;
+            lastValue = value;
+            hasLast = true;
+        }
+
+        if (itemsToAppend == 0)
+            return true;
+
+        var targetList = list!;
+        if (targetList.Capacity < baseCount + itemsToAppend)
+            targetList.EnsureCapacity(baseCount + itemsToAppend);
+
+        logicalCount = baseCount;
+        hasLast = baseCount > 0;
+        if (hasLast)
+            lastValue = targetList[baseCount - 1];
+
+        for (var i = 0; i < ops.Length; i++)
+        {
+            ref readonly var op = ref ops[i];
+            var idx = op.Index;
+
+            if (idx < baseCount)
+                continue;
+
+            if (idx != logicalCount)
+                continue;
+
+            var value = (T)op.Value!;
+
+            if (hasLast && comparer.Equals(lastValue, value))
+                continue;
+
+            targetList.Add(value);
+            logicalCount++;
+            lastValue = value;
+            hasLast = true;
+        }
+
+        target = targetList;
+        return true;
+    }
 
     public static void ComputeListDeltaNested<T>(
         IList<T>? left,

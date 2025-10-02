@@ -432,6 +432,8 @@ public class ExtraCodecBenches
     public DeltaDocument Decode_Headerful()
         => BinaryDeltaCodec.Read(_bufHeaderful, new BinaryDeltaOptions { IncludeHeader = true });
 }
+[DeepComparable(GenerateDelta = true)]
+public sealed class RoHolder { public IReadOnlyList<ValueLine_Extra> Lines { get; set; } = Array.AsReadOnly(Array.Empty<ValueLine_Extra>()); }
 
 [MemoryDiagnoser]
 public class ExtraApplyClonePathBenches
@@ -464,16 +466,21 @@ public class ExtraApplyClonePathBenches
     //    t = t.ApplyDeepDelta(_addsDoc);
     //    return t.Lines.Count;
     //}
-
     [Benchmark(Description = "ApplyDelta -> IReadOnlyList<T> (clone path)")]
     public int Apply_To_ReadOnlyList()
     {
-        object? boxed = _targetRo;
-        var reader = new DeltaReader(_addsDoc);
-        GeneratedHelperRegistry.TryApplyDeltaSameType(boxed!.GetType(), ref boxed, ref reader);
-        var roList = (IReadOnlyList<ValueLine_Extra>)boxed;
-        return roList.Count;
+        object? target = _targetRo; // IReadOnlyList<ValueLine_Extra>
+        var ops = new DeltaReader(_addsDoc).AsSpan();
+
+        // This helper handles RO → clone-to-List<T> and replays seq ops correctly
+        for (int i = 0; i < ops.Length; i++)
+            DeltaHelpers.ApplyListOpCloneIfNeeded<ValueLine_Extra>(ref target, in ops[i]);
+
+        var ro = (IReadOnlyList<ValueLine_Extra>)target!;
+        if (ro.Count != Adds) throw new InvalidOperationException("Delta not applied");
+        return ro.Count;
     }
+
 }
 
 
@@ -687,8 +694,8 @@ public sealed class DevConfig : ManualConfig
     {
         BenchmarkRunner.Run(
         [
-            typeof(Competitors_Adds_Benches),
-            //typeof(ExtraApplyClonePathBenches),
+            //typeof(Competitors_Adds_Benches),
+            typeof(ExtraApplyClonePathBenches),
             //typeof(ExtraArrayVsListBenches),
             //typeof(ExtraCodecBenches),
             //typeof(ExtraDirtyBitBenches),
