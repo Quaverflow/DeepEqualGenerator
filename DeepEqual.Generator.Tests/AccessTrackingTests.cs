@@ -125,6 +125,16 @@ public sealed class AccessTrackingTests : IDisposable
     [Fact]
     public void CallerScopesAggregateTopK()
     {
+        AccessTracking.Configure(
+            defaultMode: AccessMode.Write,
+            defaultGranularity: AccessGranularity.Counts,
+            defaultLogCapacity: 128,
+            trackingEnabled: true,
+            countsEnabled: true,
+            lastEnabled: true,
+            logEnabled: true,
+            callersEnabled: true);
+
         var model = new CountsModel();
 
         using (AccessTracking.PushScope(label: "outer"))
@@ -141,7 +151,9 @@ public sealed class AccessTrackingTests : IDisposable
             }
         }
 
+        var a = model.__DumpAccessJson();
         using var doc = JsonDocument.Parse(model.__DumpAccessJson(reset: true));
+
         var member = GetMember(doc, nameof(CountsModel.Value));
         Assert.True(member.TryGetProperty("callers", out var callersProperty));
         var callers = callersProperty.EnumerateArray().ToList();
