@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections;
@@ -185,7 +185,7 @@ public static class BinaryDeltaCodec
                 WriteValue(ref sw, op.Key);
 
             if (op.Kind is DeltaKind.ReplaceObject or DeltaKind.SetMember or DeltaKind.SeqReplaceAt
-                or DeltaKind.SeqAddAt or DeltaKind.DictSet)
+                or DeltaKind.SeqAddAt or DeltaKind.SeqRemoveAt or DeltaKind.DictSet)
                 WriteValue(ref sw, op.Value);
 
             if (op.Kind is DeltaKind.NestedMember or DeltaKind.DictNested or DeltaKind.SeqNestedAt)
@@ -316,9 +316,18 @@ public static class BinaryDeltaCodec
 
             if (t.IsEnum)
             {
-                sw.WriteByte((byte)VTag.Enum);
-                WriteEnumTypeIdentity(ref sw, t);
-                WriteEnumUnderlying(ref sw, value, Enum.GetUnderlyingType(t));
+                var underlying = Enum.GetUnderlyingType(t);
+                if (_opt.IncludeEnumTypeIdentity)
+                {
+                    sw.WriteByte((byte)VTag.Enum);
+                    WriteEnumTypeIdentity(ref sw, t);
+                    WriteEnumUnderlying(ref sw, value, underlying);
+                }
+                else
+                {
+                    WriteEnumAsPrimitive(ref sw, value, underlying);
+                }
+
                 return;
             }
 
@@ -422,6 +431,67 @@ public static class BinaryDeltaCodec
                 WriteInlineEnumTypeDesc(ref sw, enumType);
         }
 
+        private static void WriteEnumAsPrimitive(ref SpanWriter sw, object boxedEnum, Type underlying)
+        {
+            if (underlying == typeof(sbyte))
+            {
+                sw.WriteByte((byte)VTag.SByte);
+                sw.WriteVarInt((sbyte)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(byte))
+            {
+                sw.WriteByte((byte)VTag.Byte);
+                sw.WriteVarUInt((byte)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(short))
+            {
+                sw.WriteByte((byte)VTag.Int16);
+                sw.WriteVarInt((short)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(ushort))
+            {
+                sw.WriteByte((byte)VTag.UInt16);
+                sw.WriteVarUInt((ushort)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(int))
+            {
+                sw.WriteByte((byte)VTag.Int32);
+                sw.WriteVarInt((int)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(uint))
+            {
+                sw.WriteByte((byte)VTag.UInt32);
+                sw.WriteVarUInt((uint)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(long))
+            {
+                sw.WriteByte((byte)VTag.Int64);
+                sw.WriteVarInt((long)boxedEnum);
+                return;
+            }
+
+            if (underlying == typeof(ulong))
+            {
+                sw.WriteByte((byte)VTag.UInt64);
+                sw.WriteVarUInt((ulong)boxedEnum);
+                return;
+            }
+
+            throw new NotSupportedException("Unsupported enum underlying type.");
+        }
+
         private static void WriteEnumUnderlying(ref SpanWriter sw, object boxedEnum, Type underlying)
         {
             if (underlying == typeof(sbyte))
@@ -477,6 +547,9 @@ public static class BinaryDeltaCodec
 
         private void WriteTypeSpec(ref SpanWriter sw, Type t)
         {
+            if (!_opt.IncludeEnumTypeIdentity && t.IsEnum)
+                t = Enum.GetUnderlyingType(t);
+
             if (t == typeof(object))
             {
                 sw.WriteVarUInt((uint)TypeSpecKind.Object);
@@ -566,7 +639,8 @@ public static class BinaryDeltaCodec
         {
             if (!_opt.IncludeHeader) return;
 
-            HashSet<Type>? enumTypes = _opt.UseTypeTable ? new HashSet<Type>() : null;
+            var includeEnumIdentity = _opt.IncludeEnumTypeIdentity;
+            HashSet<Type>? enumTypes = includeEnumIdentity && _opt.UseTypeTable ? new HashSet<Type>() : null;
             var counts = _opt.UseStringTable ? new Dictionary<string, int>() : null;
 
             void CountString(string s)
@@ -607,7 +681,7 @@ public static class BinaryDeltaCodec
                 }
 
                 var t = v.GetType();
-                if (t.IsEnum) enumTypes?.Add(t);
+                if (includeEnumIdentity && t.IsEnum) enumTypes?.Add(t);
             }
 
             void WalkDoc(DeltaDocument d)
@@ -646,7 +720,7 @@ public static class BinaryDeltaCodec
                 }
             }
 
-            if (enumTypes is { Count: > 0 })
+            if (includeEnumIdentity && enumTypes is { Count: > 0 })
             {
                 _typeToId = new Dictionary<Type, int>(enumTypes.Count);
                 _types = new List<TypeEntry>(enumTypes.Count);
@@ -716,7 +790,7 @@ public static class BinaryDeltaCodec
             if (kind is DeltaKind.DictSet or DeltaKind.DictRemove or DeltaKind.DictNested) key = ReadValue(ref sr);
 
             if (kind is DeltaKind.ReplaceObject or DeltaKind.SetMember or DeltaKind.SeqReplaceAt or DeltaKind.SeqAddAt
-                or DeltaKind.DictSet)
+                or DeltaKind.SeqRemoveAt or DeltaKind.DictSet)
                 value = ReadValue(ref sr);
 
             if (kind is DeltaKind.NestedMember or DeltaKind.DictNested or DeltaKind.SeqNestedAt)
@@ -1285,6 +1359,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public byte ReadByte()
         {
+            RequireBytes(1);
             var b = _data[0];
             _data = _data.Slice(1);
             return b;
@@ -1293,6 +1368,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ReadBytes(Span<byte> dst)
         {
+            RequireBytes(dst.Length);
             _data.Slice(0, dst.Length).CopyTo(dst);
             _data = _data.Slice(dst.Length);
         }
@@ -1300,6 +1376,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ushort ReadUInt16()
         {
+            RequireBytes(2);
             var v = BinaryPrimitives.ReadUInt16LittleEndian(_data);
             _data = _data.Slice(2);
             return v;
@@ -1308,6 +1385,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public uint ReadUInt32()
         {
+            RequireBytes(4);
             var v = BinaryPrimitives.ReadUInt32LittleEndian(_data);
             _data = _data.Slice(4);
             return v;
@@ -1316,6 +1394,7 @@ public static class BinaryDeltaCodec
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ulong ReadUInt64()
         {
+            RequireBytes(8);
             var v = BinaryPrimitives.ReadUInt64LittleEndian(_data);
             _data = _data.Slice(8);
             return v;
@@ -1333,6 +1412,8 @@ public static class BinaryDeltaCodec
                 if ((b & 0x80) == 0) break;
 
                 shift += 7;
+                if (shift >= 64)
+                    throw new InvalidOperationException("VarUInt too long.");
             }
 
             return result;
@@ -1359,6 +1440,7 @@ public static class BinaryDeltaCodec
         public string ReadUtf8StringInlineChecked(int maxLen)
         {
             var len = (int)ReadVarUIntChecked(maxLen);
+            RequireBytes(len);
             var bytes = _data.Slice(0, len);
             var s = Encoding.UTF8.GetString(bytes);
             _data = _data.Slice(len);
