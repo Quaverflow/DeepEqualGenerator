@@ -688,7 +688,55 @@ public sealed class DevConfig : ManualConfig
         }
     }
 
-    public class Program
+    [MemoryDiagnoser]
+public class AccessTrackingSetterBenchmarks
+{
+    private readonly BaselineModel _baseline = new();
+    private readonly BitsBenchModel _bits = new();
+    private readonly CountsBenchModel _counts = new();
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        AccessTracking.Configure(
+            defaultMode: AccessMode.None,
+            defaultGranularity: AccessGranularity.Bits,
+            defaultLogCapacity: 0,
+            trackingEnabled: true,
+            countsEnabled: true,
+            lastEnabled: true,
+            logEnabled: true,
+            callersEnabled: true);
+    }
+
+    [Benchmark(Baseline = true, Description = "Setter (no tracking)")]
+    public int Baseline()
+    {
+        _baseline.Value++;
+        return _baseline.Value;
+    }
+
+    [Benchmark(Description = "Setter (bits)")]
+    public int Bits()
+    {
+        _bits.Value++;
+        return _bits.Value;
+    }
+
+    [Benchmark(Description = "Setter (counts+last)")]
+    public int Counts()
+    {
+        _counts.Value++;
+        return _counts.Value;
+    }
+
+    private sealed class BaselineModel
+    {
+        public int Value { get; set; }
+    }
+}
+
+public class Program
 {
     public static void Main(string[] args)
     {
@@ -703,6 +751,7 @@ public sealed class DevConfig : ManualConfig
         [
             //typeof(Competitors_Adds_Benches),
             typeof(ExtraApplyClonePathBenches),
+            typeof(AccessTrackingSetterBenchmarks),
             //typeof(ExtraArrayVsListBenches),
             //typeof(ExtraCodecBenches),
             //typeof(ExtraDirtyBitBenches),
@@ -714,3 +763,35 @@ public sealed class DevConfig : ManualConfig
 
 
 
+
+[DeepComparable(GenerateDiff = true, GenerateDelta = true, StableMemberIndex = StableMemberIndexMode.Auto)]
+[DeltaTrack(AccessTrack = AccessMode.Write, AccessGranularity = AccessGranularity.Bits)]
+public partial class BitsBenchModel
+{
+    private int _value;
+    public int Value
+    {
+        get => _value;
+        set
+        {
+            _value = value;
+            __MarkDirty(__Bit_Value);
+        }
+    }
+}
+
+[DeepComparable(GenerateDiff = true, GenerateDelta = true, StableMemberIndex = StableMemberIndexMode.Auto)]
+[DeltaTrack(AccessTrack = AccessMode.Write, AccessGranularity = AccessGranularity.CountsAndLast)]
+public partial class CountsBenchModel
+{
+    private int _value;
+    public int Value
+    {
+        get => _value;
+        set
+        {
+            _value = value;
+            __MarkDirty(__Bit_Value);
+        }
+    }
+}
