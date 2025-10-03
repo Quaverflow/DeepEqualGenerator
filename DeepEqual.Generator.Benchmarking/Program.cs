@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.JsonPatch.Operations;
 using Perfolizer.Horology;
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 namespace DeepEqual.Generator.Benchmarking;
 // ===============================================================
@@ -100,15 +101,15 @@ public sealed class ValueLine_Extra
 
 public interface IPolymorph_Extra { int Tag { get; } }
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
-[DeltaTrack] 
+[DeltaTrack]
 public partial class PolyA_Extra : IPolymorph_Extra { public int Tag => 1; public string A = "a"; }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
-[DeltaTrack] 
+[DeltaTrack]
 public partial class PolyB_Extra : IPolymorph_Extra { public int Tag => 2; public int B = 42; }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
-[DeltaTrack] 
+[DeltaTrack]
 public partial class PolyC_Extra : IPolymorph_Extra { public int Tag => 3; public Guid C = Guid.NewGuid(); }
 
 [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
@@ -516,26 +517,26 @@ public sealed class DevConfig : ManualConfig
     }
 }
 
-    /// <summary>
-    /// Apples-to-apples competitors for "apply N adds to a list" — no pre-serialization anywhere.
-    /// Compares DeepEqual delta vs JsonPatchDocument vs Manual in-memory ops vs Immutable list path.
-    /// </summary>
-    [MemoryDiagnoser]
-    public class Competitors_Adds_Benches
+/// <summary>
+/// Apples-to-apples competitors for "apply N adds to a list" — no pre-serialization anywhere.
+/// Compares DeepEqual delta vs JsonPatchDocument vs Manual in-memory ops vs Immutable list path.
+/// </summary>
+[MemoryDiagnoser]
+public class Competitors_Adds_Benches
+{
+    [Params(100, 1_000, 5_000)]
+    public int Adds;
+
+    // Reuse your element type for parity
+    [DeepCompare]
+    public sealed class VLine { public int V { get; set; } }
+
+    // Simple strongly-typed holder used by all competitors
+    [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
+    public sealed class Holder
     {
-        [Params(100, 1_000, 5_000)]
-        public int Adds;
-
-        // Reuse your element type for parity
-        [DeepCompare]
-        public sealed class VLine { public int V { get; set; } }
-
-        // Simple strongly-typed holder used by all competitors
-        [DeepComparable(GenerateDiff = true, GenerateDelta = true)]
-        public sealed class Holder
-        {
-            public List<VLine> Lines { get; set; } = new();
-        }
+        public List<VLine> Lines { get; set; } = new();
+    }
 
     // -------------------------
     // Artifacts prebuilt in GlobalSetup (no serialization)
@@ -543,7 +544,7 @@ public sealed class DevConfig : ManualConfig
 
     // DeepEqual
     public DeltaDocument _deepeqAddsDoc = default!;
-        public ComparisonContext _ctx = default!;
+    public ComparisonContext _ctx = default!;
 
     // JsonPatch
     public JsonPatchDocument<Holder> _jsonPatchAdds = default!;
@@ -552,143 +553,143 @@ public sealed class DevConfig : ManualConfig
     public struct AddOp { public int Index; public VLine Value; }
     public List<AddOp> _manualAdds = default!;
 
-        // Immutable (builder-friendly form of the same ops)
-        private List<VLine> _immutableAddsValues = default!; // values in insertion order
+    // Immutable (builder-friendly form of the same ops)
+    private List<VLine> _immutableAddsValues = default!; // values in insertion order
 
-        [GlobalSetup]
-        public void Setup()
+    [GlobalSetup]
+    public void Setup()
+    {
+        // DeepEqual delta: build SeqAddAt ops in-memory
+        var doc = new DeltaDocument();
+        var w = new DeltaWriter(doc);
+        for (int i = 0; i < Adds; i++)
+            w.WriteSeqAddAt(memberIndex: 0, index: i, value: new VLine { V = i });
+        _deepeqAddsDoc = doc;
+        _ctx = new ComparisonContext();
+
+        // JsonPatch: build RFC6902-style "add" operations (no serialization)
+        var patch = new JsonPatchDocument<Holder>();
+        for (int i = 0; i < Adds; i++)
         {
-            // DeepEqual delta: build SeqAddAt ops in-memory
-            var doc = new DeltaDocument();
-            var w = new DeltaWriter(doc);
-            for (int i = 0; i < Adds; i++)
-                w.WriteSeqAddAt(memberIndex: 0, index: i, value: new VLine { V = i });
-            _deepeqAddsDoc = doc;
-            _ctx = new ComparisonContext();
-
-            // JsonPatch: build RFC6902-style "add" operations (no serialization)
-            var patch = new JsonPatchDocument<Holder>();
-            for (int i = 0; i < Adds; i++)
-            {
-                patch.Operations.Add(new Operation<Holder>(
-                    op: "add",
-                    path: $"/Lines/{i}",
-                    from: null,
-                    value: new VLine { V = i }
-                ));
-            }
-            _jsonPatchAdds = patch;
-
-            // Manual ops: strongly-typed list of (index, value)
-            _manualAdds = new List<AddOp>(Adds);
-            for (int i = 0; i < Adds; i++)
-                _manualAdds.Add(new AddOp { Index = i, Value = new VLine { V = i } });
-
-            // Immutable: just the values (we’ll Insert at index each time to mirror others)
-            _immutableAddsValues = new List<VLine>(Adds);
-            for (int i = 0; i < Adds; i++)
-                _immutableAddsValues.Add(new VLine { V = i });
+            patch.Operations.Add(new Operation<Holder>(
+                op: "add",
+                path: $"/Lines/{i}",
+                from: null,
+                value: new VLine { V = i }
+            ));
         }
+        _jsonPatchAdds = patch;
 
-        // -------------------------
-        // BUILD (how expensive it is to AUTHOR the change set)
-        // -------------------------
+        // Manual ops: strongly-typed list of (index, value)
+        _manualAdds = new List<AddOp>(Adds);
+        for (int i = 0; i < Adds; i++)
+            _manualAdds.Add(new AddOp { Index = i, Value = new VLine { V = i } });
 
-        [Benchmark(Description = "DeepEqual Build (adds doc)")]
-        public DeltaDocument DeepEqual_Build_AddsDoc()
-        {
-            var doc = new DeltaDocument();
-            var w = new DeltaWriter(doc);
-            for (int i = 0; i < Adds; i++)
-                w.WriteSeqAddAt(memberIndex: 0, index: i, value: new VLine { V = i });
-            return doc;
-        }
-
-        [Benchmark(Description = "JsonPatch Build (adds patch)")]
-        public JsonPatchDocument<Holder> JsonPatch_Build_AddsPatch()
-        {
-            var patch = new JsonPatchDocument<Holder>();
-            for (int i = 0; i < Adds; i++)
-            {
-                patch.Operations.Add(new Operation<Holder>(
-                    op: "add",
-                    path: $"/Lines/{i}",
-                    from: null,
-                    value: new VLine { V = i }
-                ));
-            }
-            return patch;
-        }
-
-        [Benchmark(Description = "Manual Build (adds ops)")]
-        public List<AddOp> Manual_Build_Adds()
-        {
-            var ops = new List<AddOp>(Adds);
-            for (int i = 0; i < Adds; i++)
-                ops.Add(new AddOp { Index = i, Value = new VLine { V = i } });
-            return ops;
-        }
-
-        [Benchmark(Description = "Immutable Build (values only)")]
-        public List<VLine> Immutable_Build_Values()
-        {
-            var vals = new List<VLine>(Adds);
-            for (int i = 0; i < Adds; i++)
-                vals.Add(new VLine { V = i });
-            return vals;
-        }
-
-        // -------------------------
-        // APPLY (apply the prebuilt change set to an empty target)
-        // -------------------------
-
-        [Benchmark(Description = "DeepEqual Apply (adds doc)")]
-        public int DeepEqual_Apply_AddsDoc()
-        {
-            var target = new Holder { Lines = new List<VLine>() };
-            target = target.ApplyDeepDelta(_deepeqAddsDoc);
-            return target.Lines.Count;
-        }
-
-        [Benchmark(Description = "JsonPatch Apply (adds patch)")]
-        public int JsonPatch_Apply_AddsPatch()
-        {
-            var target = new Holder { Lines = new List<VLine>() };
-            _jsonPatchAdds.ApplyTo(target);
-            return target.Lines.Count;
-        }
-
-        [Benchmark(Description = "Manual Apply (adds ops)")]
-        public int Manual_Apply_Adds()
-        {
-            var list = new List<VLine>(Adds);
-            // Insert at specified index to match the semantics of the other patches
-            // (here all indices are i, so this is effectively Append for our scenario)
-            for (int i = 0; i < _manualAdds.Count; i++)
-            {
-                var op = _manualAdds[i];
-                int idx = op.Index;
-                if ((uint)idx > (uint)list.Count) idx = list.Count; // clamp like others
-                if (idx == list.Count) list.Add(op.Value);
-                else list.Insert(idx, op.Value);
-            }
-            return list.Count;
-        }
-
-        [Benchmark(Description = "Immutable Apply (Insert)")]
-        public int Immutable_Apply_Insert()
-        {
-            var im = ImmutableList<VLine>.Empty;
-            for (int i = 0; i < _immutableAddsValues.Count; i++)
-            {
-                // Insert at i to mirror other competitors; this is intentionally expensive
-                im = im.Insert(i, _immutableAddsValues[i]);
-            }
-            return im.Count;
-        }
+        // Immutable: just the values (we’ll Insert at index each time to mirror others)
+        _immutableAddsValues = new List<VLine>(Adds);
+        for (int i = 0; i < Adds; i++)
+            _immutableAddsValues.Add(new VLine { V = i });
     }
 
-    [MemoryDiagnoser]
+    // -------------------------
+    // BUILD (how expensive it is to AUTHOR the change set)
+    // -------------------------
+
+    [Benchmark(Description = "DeepEqual Build (adds doc)")]
+    public DeltaDocument DeepEqual_Build_AddsDoc()
+    {
+        var doc = new DeltaDocument();
+        var w = new DeltaWriter(doc);
+        for (int i = 0; i < Adds; i++)
+            w.WriteSeqAddAt(memberIndex: 0, index: i, value: new VLine { V = i });
+        return doc;
+    }
+
+    [Benchmark(Description = "JsonPatch Build (adds patch)")]
+    public JsonPatchDocument<Holder> JsonPatch_Build_AddsPatch()
+    {
+        var patch = new JsonPatchDocument<Holder>();
+        for (int i = 0; i < Adds; i++)
+        {
+            patch.Operations.Add(new Operation<Holder>(
+                op: "add",
+                path: $"/Lines/{i}",
+                from: null,
+                value: new VLine { V = i }
+            ));
+        }
+        return patch;
+    }
+
+    [Benchmark(Description = "Manual Build (adds ops)")]
+    public List<AddOp> Manual_Build_Adds()
+    {
+        var ops = new List<AddOp>(Adds);
+        for (int i = 0; i < Adds; i++)
+            ops.Add(new AddOp { Index = i, Value = new VLine { V = i } });
+        return ops;
+    }
+
+    [Benchmark(Description = "Immutable Build (values only)")]
+    public List<VLine> Immutable_Build_Values()
+    {
+        var vals = new List<VLine>(Adds);
+        for (int i = 0; i < Adds; i++)
+            vals.Add(new VLine { V = i });
+        return vals;
+    }
+
+    // -------------------------
+    // APPLY (apply the prebuilt change set to an empty target)
+    // -------------------------
+
+    [Benchmark(Description = "DeepEqual Apply (adds doc)")]
+    public int DeepEqual_Apply_AddsDoc()
+    {
+        var target = new Holder { Lines = new List<VLine>() };
+        target = target.ApplyDeepDelta(_deepeqAddsDoc);
+        return target.Lines.Count;
+    }
+
+    [Benchmark(Description = "JsonPatch Apply (adds patch)")]
+    public int JsonPatch_Apply_AddsPatch()
+    {
+        var target = new Holder { Lines = new List<VLine>() };
+        _jsonPatchAdds.ApplyTo(target);
+        return target.Lines.Count;
+    }
+
+    [Benchmark(Description = "Manual Apply (adds ops)")]
+    public int Manual_Apply_Adds()
+    {
+        var list = new List<VLine>(Adds);
+        // Insert at specified index to match the semantics of the other patches
+        // (here all indices are i, so this is effectively Append for our scenario)
+        for (int i = 0; i < _manualAdds.Count; i++)
+        {
+            var op = _manualAdds[i];
+            int idx = op.Index;
+            if ((uint)idx > (uint)list.Count) idx = list.Count; // clamp like others
+            if (idx == list.Count) list.Add(op.Value);
+            else list.Insert(idx, op.Value);
+        }
+        return list.Count;
+    }
+
+    [Benchmark(Description = "Immutable Apply (Insert)")]
+    public int Immutable_Apply_Insert()
+    {
+        var im = ImmutableList<VLine>.Empty;
+        for (int i = 0; i < _immutableAddsValues.Count; i++)
+        {
+            // Insert at i to mirror other competitors; this is intentionally expensive
+            im = im.Insert(i, _immutableAddsValues[i]);
+        }
+        return im.Count;
+    }
+}
+
+[MemoryDiagnoser]
 public class AccessTrackingSetterBenchmarks
 {
     private readonly BaselineModel _baseline = new();
@@ -750,8 +751,10 @@ public class Program
         BenchmarkRunner.Run(
         [
             //typeof(Competitors_Adds_Benches),
-            typeof(ExtraApplyClonePathBenches),
-            typeof(AccessTrackingSetterBenchmarks),
+            //typeof(ExtraApplyClonePathBenches),
+            typeof(AccessTrackingComplexBenchmarks),
+            //typeof(AccessTrackingSetterBenchmarks),
+            //typeof(AccessTrackingListBenchmarks),
             //typeof(ExtraArrayVsListBenches),
             //typeof(ExtraCodecBenches),
             //typeof(ExtraDirtyBitBenches),
@@ -792,6 +795,259 @@ public partial class CountsBenchModel
         {
             _value = value;
             __MarkDirty(__Bit_Value);
+        }
+    }
+}
+// Tracked models (generator will inject the tracking hooks)
+[DeltaTrack(AccessTrack = AccessMode.Write, AccessGranularity = AccessGranularity.Bits)]
+public partial class TrackedBitsOrder
+{
+    // Tracking triggers on the SET; internal List<T>.Add wouldn't trigger tracking
+    public List<int> Lines { get; set; } = new();
+}
+
+[DeltaTrack(AccessTrack = AccessMode.Write, AccessGranularity = AccessGranularity.CountsAndLast)]
+public partial class TrackedCountsLastOrder
+{
+    public List<int> Lines { get; set; } = new();
+}
+
+// Plain baseline (no tracking)
+public class PlainOrder
+{
+    public List<int> Lines { get; set; } = new();
+}
+
+[MemoryDiagnoser]
+[HideColumns("Median", "Min", "Max")]
+public class AccessTrackingListBenchmarks
+{
+    // Size of the list we build/assign each iteration (replace-on-change pattern)
+    [Params(0, 8, 64, 512)]
+    public int N;
+
+    private PlainOrder _plain = default!;
+    private TrackedBitsOrder _bits = default!;
+    private TrackedCountsLastOrder _countsLast = default!;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _plain = new PlainOrder();
+        _bits = new TrackedBitsOrder();
+        _countsLast = new TrackedCountsLastOrder();
+
+        // Optional: if your runtime needs callers enabled globally, uncomment:
+        // AccessTracking.Configure(trackingEnabled: true, callersEnabled: true);
+    }
+
+    // Helper: build a fresh list with N elements to simulate real work/allocations
+    private List<int> BuildList(int n)
+    {
+        var list = new List<int>(n);
+        for (int i = 0; i < n; i++) list.Add(i);
+        return list;
+    }
+
+    [Benchmark(Baseline = true, Description = "List replace (no tracking)")]
+    public void Plain_ListReplace()
+    {
+        _plain.Lines = BuildList(N);
+    }
+
+    [Benchmark(Description = "List replace (bits)")]
+    public void TrackedBits_ListReplace()
+    {
+        _bits.Lines = BuildList(N);
+    }
+
+    [Benchmark(Description = "List replace (counts+last)")]
+    public void TrackedCountsLast_ListReplace()
+    {
+        _countsLast.Lines = BuildList(N);
+    }
+
+    [Benchmark(Description = "List replace (counts+last + caller scope)")]
+    public void TrackedCountsLast_WithCallerScope_ListReplace()
+    {
+        using (AccessTracking.PushScope(label: "Benchmark.ReplaceList",
+               member: nameof(TrackedCountsLast_WithCallerScope_ListReplace),
+               file: "Benchmarks/AccessTrackingListBenchmarks.cs",
+               line: 0))
+        {
+            _countsLast.Lines = BuildList(N);
+        }
+    }
+}
+// -----------------------------
+// Baseline (no tracking)
+// -----------------------------
+public class PlainSubItem
+{
+    public string Label { get; set; } = string.Empty;
+    public int Level { get; set; }
+}
+
+public class PlainComplexModel
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public DateTime When { get; set; }
+    public decimal Price { get; set; }
+    public List<int> Lines { get; set; } = new();
+    public int[] Scores { get; set; } = Array.Empty<int>();
+    public Dictionary<string, int> Map { get; set; } = new();
+    public PlainSubItem Item { get; set; } = new();
+    public Guid Key { get; set; }
+    public byte[] Blob { get; set; } = Array.Empty<byte>();
+}
+
+// -----------------------------
+// Tracked (write-only; generator will inject hooks)
+// -----------------------------
+public class TrackedSubItem
+{
+    public string Label { get; set; } = string.Empty;
+    public int Level { get; set; }
+}
+
+// Counts+Last to stress the heavier path (bitset-only is cheaper; feel free to add that variant too)
+[DeltaTrack(AccessTrack = AccessMode.Write, AccessGranularity = AccessGranularity.CountsAndLast)]
+public partial class TrackedComplexModel
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public DateTime When { get; set; }
+    public decimal Price { get; set; }
+    public List<int> Lines { get; set; } = new();
+    public int[] Scores { get; set; } = Array.Empty<int>();
+    public Dictionary<string, int> Map { get; set; } = new();
+    public TrackedSubItem Item { get; set; } = new();
+    public Guid Key { get; set; }
+    public byte[] Blob { get; set; } = Array.Empty<byte>();
+}
+
+[MemoryDiagnoser]
+[HideColumns("Median", "Min", "Max")]
+public class AccessTrackingComplexBenchmarks
+{
+    // Controls size of collections/blobs to simulate small vs large updates
+    [Params(0, 8, 64, 512)]
+    public int N;
+
+    private PlainComplexModel _plain = default!;
+    private TrackedComplexModel _tracked = default!;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _plain = new PlainComplexModel();
+        _tracked = new TrackedComplexModel();
+
+        // If you want caller attribution enabled globally, configure at runtime:
+        // AccessTracking.Configure(trackingEnabled: true, callersEnabled: true);
+    }
+
+    // Build a fresh set of values to assign to all 10 properties.
+    // Intent: replace-on-change to exercise the property setters (and thus write-tracking hook).
+    private (int id, string name, DateTime when, decimal price,
+             List<int> lines, int[] scores, Dictionary<string, int> map,
+             object item /*PlainSubItem|TrackedSubItem*/, Guid key, byte[] blob)
+    BuildData(int n, bool forTracked)
+    {
+        var id = Environment.TickCount; // cheap non-deterministic
+        var name = "order-" + id.ToString();
+        var when = DateTime.UtcNow;
+        var price = (decimal)(id & 0xFFFF) / 100m;
+
+        var lines = new List<int>(n);
+        for (int i = 0; i < n; i++) lines.Add(i);
+
+        var scores = new int[n];
+        for (int i = 0; i < n; i++) scores[i] = i ^ 0x5A;
+
+        var map = new Dictionary<string, int>(n);
+        for (int i = 0; i < n; i++) map["k" + i] = i * 3;
+
+        var key = Guid.NewGuid();
+
+        var blob = new byte[Math.Max(n, 0) * 4]; // 0, 32, 256, 2048 bytes
+        if (blob.Length > 0) new Random(id).NextBytes(blob);
+
+        object item = forTracked
+            ? new TrackedSubItem { Label = "L" + id, Level = (id & 7) }
+            : new PlainSubItem { Label = "L" + id, Level = (id & 7) };
+
+        return (id, name, when, price, lines, scores, map, item, key, blob);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AssignAll(PlainComplexModel m,
+        int id, string name, DateTime when, decimal price,
+        List<int> lines, int[] scores, Dictionary<string, int> map,
+        PlainSubItem item, Guid key, byte[] blob)
+    {
+        // 10 property writes
+        m.Id = id;
+        m.Name = name;
+        m.When = when;
+        m.Price = price;
+        m.Lines = lines;
+        m.Scores = scores;
+        m.Map = map;
+        m.Item = item;
+        m.Key = key;
+        m.Blob = blob;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AssignAll(TrackedComplexModel m,
+        int id, string name, DateTime when, decimal price,
+        List<int> lines, int[] scores, Dictionary<string, int> map,
+        TrackedSubItem item, Guid key, byte[] blob)
+    {
+        // 10 property writes (each should hit the write-tracker hook)
+        m.Id = id;
+        m.Name = name;
+        m.When = when;
+        m.Price = price;
+        m.Lines = lines;
+        m.Scores = scores;
+        m.Map = map;
+        m.Item = item;
+        m.Key = key;
+        m.Blob = blob;
+    }
+
+    // -----------------------------
+    // Benchmarks
+    // -----------------------------
+
+    [Benchmark(Baseline = true, Description = "Set 10 props (no tracking)")]
+    public void Plain_SetAll()
+    {
+        var (id, name, when, price, lines, scores, map, item, key, blob) = BuildData(N, forTracked: false);
+        AssignAll(_plain, id, name, when, price, lines, scores, map, (PlainSubItem)item, key, blob);
+    }
+
+    [Benchmark(Description = "Set 10 props (tracking: counts+last)")]
+    public void Tracked_SetAll()
+    {
+        var (id, name, when, price, lines, scores, map, item, key, blob) = BuildData(N, forTracked: true);
+        AssignAll(_tracked, id, name, when, price, lines, scores, map, (TrackedSubItem)item, key, blob);
+    }
+
+    [Benchmark(Description = "Set 10 props (tracking + caller scope)")]
+    public void Tracked_WithCallerScope_SetAll()
+    {
+        using (AccessTracking.PushScope(
+            label: "Benchmark.SetAll",
+            member: nameof(Tracked_WithCallerScope_SetAll),
+            file: "Benchmarks/AccessTrackingComplexBenchmarks.cs",
+            line: 0))
+        {
+            var (id, name, when, price, lines, scores, map, item, key, blob) = BuildData(N, forTracked: true);
+            AssignAll(_tracked, id, name, when, price, lines, scores, map, (TrackedSubItem)item, key, blob);
         }
     }
 }
