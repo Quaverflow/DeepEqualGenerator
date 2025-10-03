@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace DeepEqual.Generator;
 
@@ -431,7 +432,11 @@ internal sealed class DiffDeltaEmitter
             w.Class(decl + " partial class " + type.Name + typeParams, EmitClassBody);
         }
 
-        spc.AddSource(hint, w.ToString());
+        var tree = CSharpSyntaxTree.ParseText(w.ToString());
+        var rootStx = tree.GetRoot();
+
+        var formatted = rootStx.NormalizeWhitespace().ToFullString();
+        spc.AddSource(hint, SourceText.From(formatted, Encoding.UTF8));
     }
     private void EmitImplementationsForType(CodeWriter w, INamedTypeSymbol type, DiffDeltaTarget root)
     {
