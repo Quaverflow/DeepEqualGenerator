@@ -912,28 +912,34 @@ public class TrackedSubItem
 }
 
 // Counts+Last to stress the heavier path (bitset-only is cheaper; feel free to add that variant too)
+[DeepComparable(GenerateDelta = true, GenerateDiff = true)]
 [DeltaTrack(AccessTrack = AccessMode.Write, AccessGranularity = AccessGranularity.CountsAndLast)]
 public partial class TrackedComplexModel
 {
-    public int Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public DateTime When { get; set; }
-    public decimal Price { get; set; }
-    public List<int> Lines { get; set; } = new();
-    public int[] Scores { get; set; } = Array.Empty<int>();
-    public Dictionary<string, int> Map { get; set; } = new();
-    public TrackedSubItem Item { get; set; } = new();
-    public Guid Key { get; set; }
-    public byte[] Blob { get; set; } = Array.Empty<byte>();
-}
+    private int _id; public int Id { get => _id; set { _id = value; __MarkDirty(__Bit_Id); } }
+    private string _name = string.Empty; public string Name { get => _name; set { _name = value; __MarkDirty(__Bit_Name); } }
+    private DateTime _when; public DateTime When { get => _when; set { _when = value; __MarkDirty(__Bit_When); } }
+    private decimal _price; public decimal Price { get => _price; set { _price = value; __MarkDirty(__Bit_Price); } }
 
+    private List<int> _lines = new(); public List<int> Lines { get => _lines; set { _lines = value; __MarkDirty(__Bit_Lines); } }
+    private int[] _scores = Array.Empty<int>(); public int[] Scores { get => _scores; set { _scores = value; __MarkDirty(__Bit_Scores); } }
+    private Dictionary<string, int> _map = new(); public Dictionary<string, int> Map { get => _map; set { _map = value; __MarkDirty(__Bit_Map); } }
+
+    private TrackedSubItem _item = new(); public TrackedSubItem Item { get => _item; set { _item = value; __MarkDirty(__Bit_Item); } }
+    private Guid _key; public Guid Key { get => _key; set { _key = value; __MarkDirty(__Bit_Key); } }
+    private byte[] _blob = Array.Empty<byte>(); public byte[] Blob { get => _blob; set { _blob = value; __MarkDirty(__Bit_Blob); } }
+}
 [MemoryDiagnoser]
 [HideColumns("Median", "Min", "Max")]
 public class AccessTrackingComplexBenchmarks
 {
     // Controls size of collections/blobs to simulate small vs large updates
-    [Params(0, 8, 64, 512)]
+    [Params(0, 8, 64, 512, 4096)]
     public int N;
+
+    // Toggle from→to event logging: 0 = off, 128 = on
+    [Params(0, 128)]
+    public int LogCap;
 
     private PlainComplexModel _plain = default!;
     private TrackedComplexModel _tracked = default!;
@@ -941,11 +947,26 @@ public class AccessTrackingComplexBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        // 1) Enable/disable logging per run (BDN re-calls Setup for each param combo)
+        AccessTracking.Configure(
+            defaultMode: AccessMode.Write,
+            defaultGranularity: AccessGranularity.CountsAndLast,
+            defaultLogCapacity: LogCap,   // 👈 drives event logging on/off
+            trackingEnabled: true,
+            countsEnabled: true,
+            lastEnabled: true,
+            logEnabled: true,
+            callersEnabled: true);
+
+        // 2) Force full snapshots to magnify the cost of value logging (no head/tail slices)
+        AccessTracking.ConfigureSnapshots(
+            snapshotModeDefault: ValueSnapshotMode.ScalarsAndStrings
+                               | ValueSnapshotMode.Collections
+                               | ValueSnapshotMode.Full,
+            collectionFullThreshold: int.MaxValue);
+
         _plain = new PlainComplexModel();
         _tracked = new TrackedComplexModel();
-
-        // If you want caller attribution enabled globally, configure at runtime:
-        // AccessTracking.Configure(trackingEnabled: true, callersEnabled: true);
     }
 
     // Build a fresh set of values to assign to all 10 properties.
@@ -987,17 +1008,36 @@ public class AccessTrackingComplexBenchmarks
         List<int> lines, int[] scores, Dictionary<string, int> map,
         PlainSubItem item, Guid key, byte[] blob)
     {
-        // 10 property writes
         m.Id = id;
         m.Name = name;
         m.When = when;
         m.Price = price;
-        m.Lines = lines;
-        m.Scores = scores;
-        m.Map = map;
-        m.Item = item;
+        m.Item = item;  // if you want to mutate Item too, copy fields instead of replacing
         m.Key = key;
-        m.Blob = blob;
+
+        // List<int> Lines
+        if (m.Lines.Capacity < lines.Count) m.Lines.Capacity = lines.Count;
+        m.Lines.Clear();
+        m.Lines.AddRange(lines);
+
+        // int[] Scores
+        if (m.Scores.Length != scores.Length) m.Scores = new int[scores.Length];
+        Array.Copy(scores, m.Scores, scores.Length);
+
+        // Dictionary<string,int> Map
+        m.Map.Clear();
+        if (m.Map.Comparer.Equals(StringComparer.Ordinal)) // avoid reallocation; optional
+        {
+            foreach (var kv in map) m.Map[kv.Key] = kv.Value;
+        }
+        else
+        {
+            foreach (var kv in map) m.Map[kv.Key] = kv.Value;
+        }
+
+        // byte[] Blob
+        if (m.Blob.Length != blob.Length) m.Blob = new byte[blob.Length];
+        if (blob.Length > 0) Buffer.BlockCopy(blob, 0, m.Blob, 0, blob.Length);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1011,12 +1051,36 @@ public class AccessTrackingComplexBenchmarks
         m.Name = name;
         m.When = when;
         m.Price = price;
-        m.Lines = lines;
-        m.Scores = scores;
-        m.Map = map;
-        m.Item = item;
+        m.Item = item;  // if you want to mutate Item too, copy fields instead of replacing
         m.Key = key;
-        m.Blob = blob;
+
+        // List<int> Lines
+        if (m.Lines.Capacity < lines.Count) m.Lines.Capacity = lines.Count;
+        m.Lines.Clear();
+        m.Lines.AddRange(lines);
+
+        // int[] Scores
+        if (m.Scores.Length != scores.Length) m.Scores = new int[scores.Length];
+        Array.Copy(scores, m.Scores, scores.Length);
+
+        // Dictionary<string,int> Map
+        m.Map.Clear();
+        if (m.Map.Comparer.Equals(StringComparer.Ordinal)) // avoid reallocation; optional
+        {
+            foreach (var kv in map) m.Map[kv.Key] = kv.Value;
+        }
+        else
+        {
+            foreach (var kv in map) m.Map[kv.Key] = kv.Value;
+        }
+
+        // byte[] Blob
+        if (m.Blob.Length != blob.Length) m.Blob = new byte[blob.Length];
+        if (blob.Length > 0) Buffer.BlockCopy(blob, 0, m.Blob, 0, blob.Length);
+        m.__MarkDirty(TrackedComplexModel.__Bit_Lines);
+        m.__MarkDirty(TrackedComplexModel.__Bit_Scores);
+        m.__MarkDirty(TrackedComplexModel.__Bit_Map);
+        m.__MarkDirty(TrackedComplexModel.__Bit_Blob);
     }
 
     // -----------------------------
@@ -1040,6 +1104,7 @@ public class AccessTrackingComplexBenchmarks
     [Benchmark(Description = "Set 10 props (tracking + caller scope)")]
     public void Tracked_WithCallerScope_SetAll()
     {
+
         using (AccessTracking.PushScope(
             label: "Benchmark.SetAll",
             member: nameof(Tracked_WithCallerScope_SetAll),

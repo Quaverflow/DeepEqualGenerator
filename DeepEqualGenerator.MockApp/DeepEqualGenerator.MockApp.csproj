@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<!-- Enable tracking compile-time paths -->
+		<DefineConstants>$(DefineConstants);ACCESS_TRACK;ACCESS_TRACK_COUNTS;ACCESS_TRACK_LAST;ACCESS_TRACK_LOG</DefineConstants>
+
+		<!-- Optional: inspect generated files under obj\... -->
+		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+		<CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)generated</CompilerGeneratedFilesOutputPath>
+		<LangVersion>latest</LangVersion>
+	</PropertyGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\DeepEqual.Generator.Shared\DeepEqual.Generator.Shared.csproj" />
+	  <ProjectReference Include="..\DeepEqual.Generator\DeepEqual.Generator.csproj" OutputItemType="Analyzer"
+	                    ReferenceOutputAssembly="false" />
+	</ItemGroup>
+</Project>
